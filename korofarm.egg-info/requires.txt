@@ -1,0 +1,10 @@
+alembic>=1.14
+fastapi>=0.115
+psycopg[binary]>=3.2
+pydantic>=2.10
+sqlalchemy>=2.0
+uvicorn[standard]>=0.32
+
+[dev]
+httpx>=0.28
+pytest>=8.3

@@ -1,0 +1,1 @@
+"""KoroFarm application package."""

@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: korofarm
+Version: 0.1.0
+Summary: Caribbean Agricultural Supply Assurance platform
+Requires-Python: >=3.11
+Requires-Dist: alembic>=1.14
+Requires-Dist: fastapi>=0.115
+Requires-Dist: psycopg[binary]>=3.2
+Requires-Dist: pydantic>=2.10
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: uvicorn[standard]>=0.32
+Provides-Extra: dev
+Requires-Dist: httpx>=0.28; extra == "dev"
+Requires-Dist: pytest>=8.3; extra == "dev"
