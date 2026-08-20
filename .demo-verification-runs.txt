@@ -1,0 +1,160 @@
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': 'a6198c3d-2008-4f6e-9082-37b4f9e8a824', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '5c51ae66-aea0-4340-9d4a-d39b22892d40', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '544217e4-8589-47c7-80e2-a35f15b027fc'}
+  allocation.standby_activated: {'source_allocation_id': '784e969b-9d3d-4577-9027-cc42dcdd6b2e', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': '4ef2b90b-94e7-4166-8e38-42a68b2d48b4', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '13e8cc05-3f7c-4b91-8533-febcb12f10d2', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '42646500-0fea-4da6-9b59-b5fc0be75222'}
+  allocation.standby_activated: {'source_allocation_id': '966052f5-837f-4233-8e12-53974f7c865c', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': '4427013c-27b8-4d55-b459-e8bff81894bd', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '23bc5c0c-f304-48fc-8c4a-e8f56ecde659', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': 'e82815fc-2a5e-465d-9d76-e6e897569386'}
+  allocation.standby_activated: {'source_allocation_id': '71627d46-3a62-445d-8048-5d747d28f24e', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': '6915c6e8-fe8f-4199-844d-e0a512c8491f', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '4ed46227-c36b-4032-9fe2-ffdc3bd4317d', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '7e6b9d76-e4c5-462b-99ef-771428d01425'}
+  allocation.standby_activated: {'source_allocation_id': '67178392-da90-49a0-86e0-3627f226a29d', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': '0b4574a2-4812-4c79-a397-3a6803a15d93', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '0318b69d-954f-4704-9a6a-8aed73413ad5', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '0ea26629-fa98-4598-b39e-fcb8247680a5'}
+  allocation.standby_activated: {'source_allocation_id': '6cf9bc0d-bcfc-4c18-bdaa-632ab84e23dc', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': 'cfd1ace9-7a0b-4cc6-a143-b2ac08191a87', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '52e2c1b1-8804-42c5-8e55-6ef3fd12b14b', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '43ce5069-8eb0-479d-947f-60d94e393986'}
+  allocation.standby_activated: {'source_allocation_id': 'e5de43cf-03b6-440f-a492-e89586015fad', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': 'ece9d53d-3ab1-4729-adc4-95a864f4c596', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '2f977949-5a6a-4d3d-9077-35daa86fdeb5', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '8f993516-a0ff-486c-b657-326a652ac730'}
+  allocation.standby_activated: {'source_allocation_id': '01550470-e693-4023-bc1b-c4b47e23526d', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': 'c08c7710-449c-431e-b854-7e28512561b3', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '2f823455-f89e-462d-8b2b-ebaa6c1e2fcf', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': 'b929eab2-2c4d-440d-b870-9aeaa8fa8994'}
+  allocation.standby_activated: {'source_allocation_id': '2706696b-5e0a-4f55-bc07-6127f9208d8f', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': '66a5fd5f-12e9-4d5b-8953-5c3a475af061', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '23791f2e-7ef8-4704-a66f-097d6ebcadb1', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': 'b00e3724-e983-4639-9a3c-0cec348a9a3c'}
+  allocation.standby_activated: {'source_allocation_id': 'b17614a9-499c-439e-889d-412a6e1e5c6d', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}
+SUPPLY ASSURANCE RECOVERY DEMO
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+
+Audit events:
+  requirement.created: {'required_kg': '500'}
+  plan.created: {'plan_id': 'c6f215cf-c52b-4b9b-b438-b8991c05f160', 'committed_kg': '500.000', 'standby_kg': '100.00000'}
+  allocation.lost: {'allocation_id': '04848763-f2a8-4559-b11a-1189fea4b7d2', 'quantity_kg': '80.000', 'reason': 'crop_failure'}
+  requirement.at_risk: {'shortfall_kg': '80.000'}
+  recovery.started: {'recovery_run_id': '845ee641-825c-4658-a8dd-c41d7d06298e'}
+  allocation.standby_activated: {'source_allocation_id': '5db900b8-ae0a-4830-bc66-50ed487b0d64', 'quantity_kg': '80.000'}
+  recovery.completed: {'standby_activated_kg': '80.000'}

@@ -25,6 +25,10 @@ Open `http://127.0.0.1:8000/docs` for the four initial endpoints.
 
 Landed cost is calculated for committed allocations only. Standby supply reserves capacity but does not yet incur operational pickup, handling, or transport cost in the buyer-plan snapshot.
 
+## Supply risk indicators
+
+Each finalized plan, including a recovery plan, receives an immutable `risk-v1` snapshot. It is a deterministic structural assessment, not a prediction or a farmer score. The policy is defined in `app/risk/application/calculator.py` (`RiskPolicy`): HIGH is triggered by incomplete coverage, farmer concentration above 35%, parish concentration above 70% with standby below 15%, low standby plus low replacement depth, or average confidence below 0.67. MEDIUM thresholds are 25% farmer concentration, 55% parish concentration, 20% standby, and 30% replacement depth. Percentages are on a 0–100 scale. `GET /requirements/{id}/assurance` includes the latest snapshot; `GET /requirements/{id}/risk` returns it directly.
+
 ## Test
 
 ```powershell

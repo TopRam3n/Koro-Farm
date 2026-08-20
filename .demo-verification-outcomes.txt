@@ -1,0 +1,50 @@
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00
+Created 500kg Jamaican hotel requirement; committed coverage: 500.000kg
+Standby capacity: 100.00000kg | original landed cost: J$169400.00
+Dropped 80.000kg commitment: coverage briefly fell to 420kg / AT_RISK
+Agent activated 80.000kg standby; coverage restored to 500.000kg / COVERED
+Recovered landed cost: J$169400.00 | recovery premium: J$0.00

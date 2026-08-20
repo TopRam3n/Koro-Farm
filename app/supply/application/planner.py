@@ -1,6 +1,7 @@
 """Deterministic, database-backed supply planning. No LLM or external dependency."""
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -11,6 +12,8 @@ from app.demand.domain.models import Requirement, RequirementLifecycleStatus, Su
 from app.domain.common import AvailabilityConfidence, Grade
 from app.economics.domain.calculator import CostBreakdown, allocation_cost, money
 from app.economics.domain.models import CostSnapshot, LotCostInput
+from app.assurance.domain.models import DomainEvent, OutboxMessage
+from app.risk.application.calculator import create_risk_snapshot
 from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
 
@@ -114,7 +117,11 @@ def _choose_allocations(candidates: list[Candidate], target: Decimal, role: Allo
             break
         chosen = sorted(
             choices,
-            key=lambda candidate: (-_score(candidate, farmer_counts, parish_counts, config), str(candidate.lot.id)),
+            # UUIDs are intentionally random, so they are never a planning tie-breaker.
+            # Stable business attributes make equal-score plans reproducible across resets.
+            key=lambda candidate: (-_score(candidate, farmer_counts, parish_counts, config), candidate.farmer.name,
+                                   candidate.lot.parish, candidate.lot.harvest_start, candidate.lot.harvest_end,
+                                   candidate.lot.expected_quantity_kg, candidate.lot.available_quantity_kg),
         )[0]
         quantity = min(remaining, free[chosen.lot.id])
         result.append(PlannedAllocation(chosen, role, quantity))
@@ -197,12 +204,22 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
                 status=AllocationStatus.COMMITTED if allocation.role == AllocationRole.COMMITTED else AllocationStatus.STANDBY,
                 quantity_kg=allocation.quantity_kg, consent_evidence_id=uuid4(), plan_version=plan_version,
             ))
+        # Risk calculation reads allocations through SQL; service sessions disable
+        # autoflush, so make the finalized reservation set visible explicitly.
+        session.flush()
         snapshot = _cost_snapshot(plan.id, allocations)
         session.add(snapshot)
+        create_risk_snapshot(session, requirement, plan)
         requirement.plan_version = plan_version
         requirement.version += 1
         requirement.supply_health = health
         requirement.lifecycle_status = RequirementLifecycleStatus.ACTIVE if health == SupplyHealth.COVERED else RequirementLifecycleStatus.PLANNING
+        event = DomainEvent(event_type="plan.created", aggregate_type="requirement", aggregate_id=requirement.id,
+                            correlation_id=uuid4(), actor_type="planner",
+                            payload={"plan_id": str(plan.id), "committed_kg": str(committed_quantity), "standby_kg": str(standby_quantity)},
+                            occurred_at=datetime.now(timezone.utc))
+        session.add(event); session.flush()
+        session.add(OutboxMessage(event_id=event.id, topic=event.event_type, payload=event.payload))
         session.flush()
         return PlanResult(
             plan_id=plan.id, requirement_id=requirement.id, required_quantity_kg=requirement.required_quantity_kg,

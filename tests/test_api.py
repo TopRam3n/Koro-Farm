@@ -54,3 +54,7 @@ def test_plan_and_assurance_endpoints(client, session) -> None:
     assert assurance.status_code == 200
     assert assurance.json()["supply_health"] == "COVERED"
     assert assurance.json()["standby_quantity_kg"] == "100.000"
+    assert assurance.json()["risk"]["calculation_version"] == "risk-v1"
+    risk = client.get(f"/requirements/{requirement.json()['id']}/risk")
+    assert risk.status_code == 200
+    assert risk.json()["label"] in {"LOW", "MEDIUM", "HIGH"}
