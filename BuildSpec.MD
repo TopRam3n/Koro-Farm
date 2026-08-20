@@ -20,7 +20,7 @@ The central product promise is:
 
 ---
 
-# 2. Initial Market Wedge
+## 2. Initial Market Wedge
 
 The MVP is deliberately narrow.
 
@@ -54,7 +54,7 @@ CARICOM/export workflows are architectural extensions, not MVP requirements.
 
 ---
 
-# 3. Core Problem
+## 3. Core Problem
 
 Smallholder agriculture is structurally fragmented.
 
@@ -89,11 +89,11 @@ The value of the platform is therefore **supply assurance**, not discovery.
 
 ---
 
-# 4. Core Agentic Thesis
+## 4. Core Agentic Thesis
 
 There should be **one primary agentic actor**:
 
-# Supply Assurance Agent
+## Supply Assurance Agent
 
 Its objective is:
 
@@ -141,13 +141,13 @@ The agent should use deterministic tools to calculate authoritative quantities, 
 
 ---
 
-# 5. What Is and Is Not an Agent
+## 5. What Is and Is Not an Agent
 
 We should not describe every service as an agent.
 
-## Agent
+### Agent
 
-### Supply Assurance Agent
+#### Supply Assurance Agent
 
 Persistent goal-driven orchestration.
 
