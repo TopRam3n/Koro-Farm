@@ -1,13 +1,4 @@
-# backend testing
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.env
-*.sqlite
-*.db
-.venv
-
-# logs
+# Logs
 logs
 *.log
 npm-debug.log*
@@ -16,13 +7,12 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# node modules
 node_modules
 dist
 dist-ssr
 *.local
 
-# editor directories and files
+# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
