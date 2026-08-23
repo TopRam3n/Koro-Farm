@@ -1,6 +1,8 @@
 {
   "/Index": "pages/Index.js",
   "/Login": "pages/Login.js",
+  "/Notifications": "pages/Notifications.js",
+  "/Profile": "pages/Profile.js",
   "/Signup": "pages/Signup.js",
   "/_app": "pages/_app.js",
   "/_document": "pages/_document.js",
