@@ -2,6 +2,8 @@
   "/_global-error/page": "app/_global-error/page.js",
   "/_not-found/page": "app/_not-found/page.js",
   "/login/page": "app/login/page.js",
+  "/notifications/page": "app/notifications/page.js",
   "/page": "app/page.js",
+  "/profile/page": "app/profile/page.js",
   "/signup/page": "app/signup/page.js"
 }

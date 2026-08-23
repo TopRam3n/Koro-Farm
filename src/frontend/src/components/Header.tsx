@@ -8,10 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { useState, useEffect } from 'react';
 
 export function Header() {
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
+    setCurrentTime(new Date());
     const interval = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
@@ -40,7 +41,7 @@ export function Header() {
         <div className="flex items-center gap-6">
           <div className="text-right">
             <p className="text-sm font-medium text-foreground font-mono">
-              {currentTime.toLocaleTimeString('en-US', {
+              {currentTime?.toLocaleTimeString('en-US', {
                 hour: '2-digit', 
                 minute: '2-digit',
                 second: '2-digit',
@@ -48,7 +49,7 @@ export function Header() {
               })}
             </p>
             <p className="text-xs text-muted-foreground">
-              {currentTime.toLocaleDateString('en-US', { 
+              {currentTime?.toLocaleDateString('en-US', { 
                 weekday: 'long',
                 month: 'short',
                 day: 'numeric' 
