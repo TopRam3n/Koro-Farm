@@ -10,7 +10,7 @@ Farmer discovery and buyer matching are not the core product. Existing instituti
 
 The harder problem is what happens **after demand exists**:
 
-> How do we turn fragmented, uncertain production from many small farmers into a dependable institutional supply commitment — and preserve that commitment when participants or physical supply fail?
+> How do we turn fragmented, uncertain production from many small farmers into a dependable institutional supply commitment - and preserve that commitment when participants or physical supply fail?
 
 The product takes a buyer requirement, identifies eligible near-term agricultural production, assembles the requirement across multiple smallholder farmers, establishes standby capacity, monitors fulfilment risk, responds to disruptions, coordinates physical aggregation and compliance, reconciles what was promised against what was accepted, and creates auditable trade-performance evidence.
 
@@ -26,7 +26,7 @@ The MVP is deliberately narrow.
 
 ## Geography
 
-Jamaica.
+Jamaica
 
 ## Buyer
 
@@ -34,7 +34,7 @@ One Jamaican hotel/institutional buyer.
 
 ## Product
 
-Fresh ginger.
+Fresh ginger
 
 ## Transaction
 
@@ -102,25 +102,27 @@ Its objective is:
 Its operating loop is:
 
 ```text
-OBSERVE
-   ↓
-ASSESS STATE
-   ↓
-PLAN
-   ↓
-ACT
-   ↓
-MONITOR
-   ↓
-DETECT EXCEPTION
-   ↓
-REPLAN
-   ↓
-VERIFY
-   ↓
-RECONCILE
-   ↓
-LEARN
+                         OBSERVE
+                            ↓
+                          ASSESS 
+                          STATE
+                            ↓
+                           PLAN
+                            ↓
+                           ACT
+                            ↓
+                         MONITOR
+                            ↓
+                          DETECT 
+                        EXCEPTION
+                            ↓
+                          REPLAN
+                            ↓
+                          VERIFY
+                            ↓
+                         RECONCILE
+                            ↓
+                          LEARN
 ```
 
 The agent should respond to changes in the real operating state rather than merely generate text.
@@ -408,11 +410,11 @@ Additional identified capacity that may be activated if committed supply fails.
 
 Example:
 
-```text
-Required             500kg
-Committed            500kg
-Standby              120kg
-```
+| Supply category | Quantity |
+|---|---:|
+| Required | 500 kg |
+| Committed | 500 kg |
+| Standby | 120 kg |
 
 Standby supply must NOT be presented as already committed buyer supply.
 
@@ -432,10 +434,10 @@ The central demo event is:
 
 ```text
 Buyer requirement: 500kg
-Committed supply:   500kg
+Committed supply: 500kg
 
-Farmer drops:        80kg
-Remaining supply:   420kg
+Farmer drops: 80kg
+Remaining supply: 420kg
 ```
 
 The Supply Assurance Agent must detect the failure.
@@ -443,26 +445,26 @@ The Supply Assurance Agent must detect the failure.
 Expected sequence:
 
 ```text
-500kg committed
-      ↓
-80kg dropout
-      ↓
-420kg remaining
-      ↓
-SLA = AT_RISK
-      ↓
-inspect standby
-      ↓
-activate suitable reserve
-      ↓
-if still short:
-query discovery pool
-      ↓
-create replacement commitments
-      ↓
-500kg restored
-      ↓
-SLA = RECOVERED
+                      500kg committed
+                            ↓
+                      80kg dropout
+                            ↓
+                      420kg remaining
+                            ↓
+                      SLA = AT_RISK
+                            ↓
+                      inspect standby
+                            ↓
+                  activate suitable reserve
+                            ↓
+                      if still short:
+                    query discovery pool
+                            ↓
+                create replacement commitments
+                            ↓
+                      500kg restored
+                            ↓
+                      SLA = RECOVERED
 ```
 
 Example:
@@ -659,21 +661,21 @@ Farmer identity must survive aggregation.
 The system must support:
 
 ```text
-Farmer
-  ↓
-Production Lot
-  ↓
-Commitment
-  ↓
-Received Sublot
-  ↓
-Weighed
-  ↓
-Graded
-  ↓
-Accepted / Rejected
-  ↓
-Consolidated Shipment
+                      Farmer
+                        ↓
+                  Production Lot
+                        ↓
+                    Commitment
+                        ↓
+                 Received Sublot
+                        ↓
+                      Weighed
+                        ↓
+                      Graded
+                        ↓
+               Accepted / Rejected
+                        ↓
+               Consolidated Shipment
 ```
 
 A buyer shipment may contain many farmer sublots.
@@ -687,7 +689,7 @@ Farmer F001    55kg
 Farmer F002    72kg
 Farmer F003    43kg
 Farmer F004    64kg
-...
+...            ...
 Total         500kg
 ```
 
@@ -1017,37 +1019,37 @@ Consolidation must never remove farmer-lot identity.
 The architecture should approximately represent:
 
 ```text
-BUYER
-  ↓
-ORDER
-  ↓
-REQUIREMENT
-
-FARMER
-  ↓
-PRODUCTION LOT
-
-REQUIREMENT
-  ↓
-COMMITMENTS
-  ↓
-STANDBY CAPACITY
-
-PRODUCTION LOT
-  ↓
-SUBLOT
-  ↓
-FULFILMENT NODE
-  ↓
-GRADE / ACCEPT
-  ↓
-CONSOLIDATED SHIPMENT
-  ↓
-DELIVERY
-  ↓
-RECONCILIATION
-  ↓
-TRADE PERFORMANCE EVIDENCE
+                        BUYER
+                          ↓
+                        ORDER
+                          ↓
+                      REQUIREMENT
+                          ↓
+                        FARMER
+                          ↓
+                    PRODUCTION LOT
+                          ↓
+                     REQUIREMENT
+                          ↓
+                     COMMITMENTS
+                          ↓
+                    STANDBY CAPACITY
+                          ↓
+                    PRODUCTION LOT
+                          ↓
+                       SUBLOT
+                          ↓
+                    FULFILMENT NODE
+                          ↓
+                    GRADE / ACCEPT
+                          ↓
+                 CONSOLIDATED SHIPMENT
+                          ↓
+                       DELIVERY
+                          ↓
+                    RECONCILIATION
+                          ↓
+              TRADE PERFORMANCE EVIDENCE
 ```
 
 ---
