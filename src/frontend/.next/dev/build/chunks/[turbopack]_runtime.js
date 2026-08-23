@@ -1,5 +1,5 @@
 var RUNTIME_PUBLIC_PATH = "chunks/[turbopack]_runtime.js";
-var RELATIVE_ROOT_PATH = "../..";
+var RELATIVE_ROOT_PATH = "../../../..";
 var ASSET_PREFIX = "/";
 /**
  * This file contains runtime types and functions that are shared between all
