@@ -16,8 +16,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# node modules
+# dependencies
 node_modules
+.next
 dist
 dist-ssr
 *.local

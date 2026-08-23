@@ -1,0 +1,16 @@
+Next.js:
+  - Pages and UI
+  - Supabase login/logout
+  - Browser session handling
+  - Calls to FastAPI
+
+FastAPI with Alembic:
+  - Business logic
+  - Protected API endpoints
+  - Data processing
+  - Privileged Supabase operations
+
+Supabase:
+  - Authentication
+  - PostgreSQL
+  - Storage or realtime, if needed

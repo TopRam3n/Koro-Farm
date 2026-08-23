@@ -1,13 +1,21 @@
-import { useEffect, useRef } from "react";
+'use client';
+
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 
 export default function Landing() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const hasPlayed = sessionStorage.getItem("introPlayed");
-    if (hasPlayed) sessionStorage.setItem("introPlayed", "true");
-   
+  const [shouldShow, setShouldShow] = useState(false);
 
   useEffect(() => {
+    if (sessionStorage.getItem("introPlayed")) return;
+    sessionStorage.setItem("introPlayed", "true");
+    setShouldShow(true);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShow) return;
+
     // GSAP context keeps animations scoped + auto-cleaned
     const ctx = gsap.context(() => {
       const tl = gsap.timeline();
@@ -47,7 +55,9 @@ export default function Landing() {
     }, containerRef);
 
     return () => ctx.revert();
-  }, []);
+  }, [shouldShow]);
+
+  if (!shouldShow) return null;
 
   return (
     <div ref={containerRef}>
@@ -56,7 +66,7 @@ export default function Landing() {
       <div className="intro">
         <div className="intro-text">
           <h1 className="hide">
-            <span className="text">Optimize</span>
+            <span className="text">Guarantee</span>
           </h1>
 
           <h1 className="hide">
@@ -64,7 +74,7 @@ export default function Landing() {
           </h1>
 
           <h1 className="hide">
-            <span className="text">Campus</span>
+            <span className="text">Supply</span>
           </h1>
         </div>
       </div>

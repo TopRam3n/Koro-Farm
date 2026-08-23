@@ -1,5 +1,8 @@
+'use client';
+
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +14,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
+  const router = useRouter();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,7 +33,7 @@ export default function Login() {
         title: "Welcome back!",
         description: "Successfully logged in.",
       });
-      navigate('/');
+      router.push('/');
     } catch (error) {
       toast({
         title: "Login failed",
@@ -101,7 +104,7 @@ export default function Login() {
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
-            <Link to="/signup" className="text-primary hover:underline font-medium">
+            <Link href="/signup" className="text-primary hover:underline font-medium">
               Sign up
             </Link>
           </p>

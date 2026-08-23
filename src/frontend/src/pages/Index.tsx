@@ -1,164 +1,34 @@
-import { useState } from 'react';
-import Landing from "@/components/Landing";
+import { Activity, ArrowRight, Database, ShieldCheck } from 'lucide-react';
 import { Header } from '@/components/Header';
-import { MetricCard } from '@/components/MetricCard';
-import { RoomCard } from '@/components/RoomCard';
-import { SuggestionCard } from '@/components/SuggestionCard';
-import { UsageChart } from '@/components/UsageChart';
-import { BuildingFilter } from '@/components/BuildingFilter';
-import { PredictionPanel } from '@/components/PredictionPanel';
-import { rooms, suggestions, getMetrics } from '@/lib/mockdata';
-import { 
-  Activity, 
-  Zap, 
-  Clock, 
-  TrendingDown,
-  LayoutGrid,
-  List,
-  Sparkles
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { SupplyOverview } from '@/components/SupplyOverview';
+import { RecoveryPanel } from '@/components/RecoveryPanel';
+import { AllocationTable } from '@/components/AllocationTable';
+import { EconomicsPanel } from '@/components/EconomicsPanel';
+import { FulfilmentPanel } from '@/components/FulfilmentPanel';
+import Landing from '@/components/Landing';
+import { allocations, recoverySteps, requirement, supplyMetrics } from '@/lib/mockdata';
 
 export default function Index() {
-  const [selectedBuilding, setSelectedBuilding] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const metrics = getMetrics();
-
-  const filteredRooms = selectedBuilding 
-    ? rooms.filter(r => r.building === selectedBuilding)
-    : rooms;
-
-  return (
-    <>
+  return <div className="min-h-screen bg-background">
     <Landing />
-    <div className="min-h-screen bg-background">
-      <Header />
-      
-      <main className="container mx-auto px-6 py-6 max-w-[1600px]">
-        {/* Metrics Row */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <MetricCard
-            title="Active Rooms"
-            value={metrics.activeRooms}
-            subtitle={`of ${metrics.totalRooms}`}
-            icon={Activity}
-            variant="success"
-            trend={{ value: 12, isPositive: true }}
-          />
-          <MetricCard
-            title="Idle Rooms"
-            value={metrics.idleRooms}
-            subtitle="consuming energy"
-            icon={Clock}
-            variant="warning"
-          />
-          <MetricCard
-            title="Current Energy"
-            value={metrics.totalEnergy}
-            subtitle="kWh"
-            icon={Zap}
-            variant="energy"
-          />
-          <MetricCard
-            title="Potential Savings"
-            value={metrics.potentialSavings}
-            subtitle="kWh/hour"
-            icon={TrendingDown}
-            variant="success"
-            trend={{ value: 8, isPositive: true }}
-          />
-        </section>
-
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Left Column - Chart & Rooms */}
-          <div className="xl:col-span-2 space-y-6">
-            {/* Usage Chart */}
-            <UsageChart />
-
-            {/* Rooms Section */}
-            <section>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">Room Status</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {filteredRooms.length} rooms • {filteredRooms.filter(r => r.status === 'active').length} active
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={viewMode === 'grid' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('grid')}
-                    className="h-9 w-9"
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant={viewMode === 'list' ? 'default' : 'ghost'}
-                    size="icon"
-                    onClick={() => setViewMode('list')}
-                    className="h-9 w-9"
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <BuildingFilter 
-                selected={selectedBuilding} 
-                onSelect={setSelectedBuilding} 
-              />
-
-              <div className={cn(
-                'mt-4',
-                viewMode === 'grid' 
-                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4'
-                  : 'space-y-3'
-              )}>
-                {filteredRooms.map((room, index) => (
-                  <RoomCard 
-                    key={room.id} 
-                    room={room}
-                    className={viewMode === 'list' ? 'w-full' : ''}
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  />
-                ))}
-              </div>
-            </section>
-          </div>
-
-          {/* Right Column - Suggestions & Predictions */}
-          <div className="space-y-6">
-            {/* AI Suggestions */}
-            <section>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-xl bg-primary/10">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">AI Suggestions</h2>
-                  <p className="text-sm text-muted-foreground">{suggestions.length} optimization opportunities</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {suggestions.map((suggestion, index) => (
-                  <SuggestionCard 
-                    key={suggestion.id} 
-                    suggestion={suggestion}
-                    style={{ animationDelay: `${index * 100}ms` }}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {/* Predictions Panel */}
-            <PredictionPanel />
-          </div>
-        </div>
-      </main>
-    </div>
-  </>);
+    <Header />
+    <main className="mx-auto max-w-[1500px] px-5 py-8 lg:px-10">
+      <section className="mb-8 flex flex-col justify-between gap-5 border-b border-border/70 pb-8 md:flex-row md:items-end">
+        <div className="max-w-2xl"><p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-primary">Jamaica / institutional procurement</p><h2 className="text-4xl font-semibold tracking-tight md:text-5xl">One dependable supply programme.</h2><p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">The assurance layer turns fragmented smallholder production into a committed hotel supply SLA, then protects it when reality changes.</p></div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-success" />Last verified today at 09:42</div>
+      </section>
+      <SupplyOverview metrics={supplyMetrics} allocations={allocations} />
+      <section className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+        <RecoveryPanel steps={recoverySteps} />
+        <div className="space-y-6"><EconomicsPanel /><FulfilmentPanel /></div>
+      </section>
+      <section className="mt-6"><AllocationTable allocations={allocations} /></section>
+      <section className="mt-8 grid gap-4 border-t border-border/70 pt-6 text-xs text-muted-foreground md:grid-cols-3">
+        <div className="flex gap-3"><ShieldCheck className="h-4 w-4 shrink-0 text-success" /><p><span className="font-medium text-foreground">Verified state.</span> Unknown fulfilment evidence remains unknown until a receipt or inspection is recorded.</p></div>
+        <div className="flex gap-3"><Database className="h-4 w-4 shrink-0 text-primary" /><p><span className="font-medium text-foreground">Deterministic tools.</span> Quantities, risk, allocation, and landed cost come from structured system state.</p></div>
+        <div className="flex gap-3"><Activity className="h-4 w-4 shrink-0 text-warning" /><p><span className="font-medium text-foreground">Next checkpoint.</span> Receive and grade every farmer sublot at the collection node.</p></div>
+      </section>
+      <div className="mt-8 flex items-center gap-2 border-t border-border/70 pt-5 text-xs text-muted-foreground"><span>{requirement.id}</span><ArrowRight className="h-3 w-3" /><span>{requirement.crop} / {requirement.grade}</span><ArrowRight className="h-3 w-3" /><span>{requirement.destination}</span></div>
+    </main>
+  </div>;
 }
