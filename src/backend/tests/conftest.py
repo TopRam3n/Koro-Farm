@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.main import app
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.core.auth import get_current_user
 
 
 @pytest.fixture()
@@ -44,6 +45,7 @@ def client(session_factory: sessionmaker[Session]) -> Generator[TestClient, None
             db.close()
 
     app.dependency_overrides[get_session] = override
+    app.dependency_overrides[get_current_user] = lambda: {"id": "test-user"}
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

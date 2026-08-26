@@ -1,3 +1,5 @@
+'use client';
+
 import { Activity, ArrowRight, Database, ShieldCheck } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { SupplyOverview } from '@/components/SupplyOverview';
@@ -6,9 +8,50 @@ import { AllocationTable } from '@/components/AllocationTable';
 import { EconomicsPanel } from '@/components/EconomicsPanel';
 import { FulfilmentPanel } from '@/components/FulfilmentPanel';
 import Landing from '@/components/Landing';
-import { allocations, recoverySteps, requirement, supplyMetrics } from '@/lib/mockdata';
+import { useAssurance, useFulfilment } from '@/hooks/useAssurance';
+import type { Allocation, RecoveryStep, SupplyMetrics } from '@/lib/mockdata';
+
+const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? '';
 
 export default function Index() {
+  const assurance = useAssurance(requirementId);
+  const fulfilment = useFulfilment(requirementId);
+
+  if (assurance.isLoading || fulfilment.isLoading) return <div className="flex min-h-screen items-center justify-center bg-background">Loading supply programme...</div>;
+  if (assurance.error || fulfilment.error || !assurance.data) return <div className="flex min-h-screen items-center justify-center bg-background text-destructive">Unable to load the supply programme. Check NEXT_PUBLIC_REQUIREMENT_ID and the API server.</div>;
+
+  const data = assurance.data;
+  const metrics: SupplyMetrics = {
+    requiredKg: Number(data.requirement.required_quantity_kg),
+    committedKg: Number(data.committed_quantity_kg),
+    standbyKg: Number(data.standby_quantity_kg),
+    shortfallKg: Number(data.unfilled_quantity_kg),
+    committedFarmerCount: data.committed_farmer_count,
+    standbyFarmerCount: data.standby_farmer_count,
+    health: data.supply_health as SupplyMetrics['health'],
+  };
+  const allocations: Allocation[] = data.allocations.map((item) => ({
+    id: item.id,
+    farmer: item.farmer_name,
+    farmerId: item.farmer_id,
+    parish: item.parish,
+    lotId: item.production_lot_id,
+    quantityKg: Number(item.quantity_kg),
+    role: item.role,
+    status: item.status as Allocation['status'],
+  }));
+  const recoverySteps: RecoveryStep[] = data.latest_recovery ? [{
+    label: 'Recovery run recorded',
+    detail: `${data.latest_recovery.status}; ${data.latest_recovery.remaining_shortfall_kg} kg remaining shortfall`,
+    state: 'complete',
+  }] : [];
+  const requirement = {
+    id: data.requirement.id,
+    crop: 'GINGER',
+    grade: 'A',
+    destination: 'Institutional delivery',
+  };
+
   return <div className="min-h-screen bg-background">
     <Landing />
     <Header />
@@ -17,10 +60,10 @@ export default function Index() {
         <div className="max-w-2xl"><p className="mb-3 font-mono text-xs uppercase tracking-[0.2em] text-primary">Jamaica / institutional procurement</p><h2 className="text-4xl font-semibold tracking-tight md:text-5xl">One dependable supply programme.</h2><p className="mt-4 max-w-xl text-base leading-7 text-muted-foreground">The assurance layer turns fragmented smallholder production into a committed hotel supply SLA, then protects it when reality changes.</p></div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><span className="h-2 w-2 animate-pulse rounded-full bg-success" />Last verified today at 09:42</div>
       </section>
-      <SupplyOverview metrics={supplyMetrics} allocations={allocations} />
+      <SupplyOverview metrics={metrics} allocations={allocations} />
       <section className="mt-6 grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
         <RecoveryPanel steps={recoverySteps} />
-        <div className="space-y-6"><EconomicsPanel /><FulfilmentPanel /></div>
+        <div className="space-y-6"><EconomicsPanel economics={data.economics} /><FulfilmentPanel summary={fulfilment.data} /></div>
       </section>
       <section className="mt-6"><AllocationTable allocations={allocations} /></section>
       <section className="mt-8 grid gap-4 border-t border-border/70 pt-6 text-xs text-muted-foreground md:grid-cols-3">

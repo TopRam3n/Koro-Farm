@@ -36,3 +36,31 @@ python -m pytest
 ```
 
 Tests use an isolated SQLite database only as a fast test double; production configuration and migrations target PostgreSQL.
+
+## Frontend integration and authentication
+
+The Next.js frontend uses Supabase for sign-in and sends the resulting access token to the FastAPI domain API. The API validates each bearer token with Supabase before allowing access to domain routes; `/health` remains public.
+
+Set these variables in `src/frontend/.env.local`:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_REQUIREMENT_ID=<requirement UUID>
+```
+
+Set these variables for the backend process:
+
+```powershell
+$env:SUPABASE_URL = "https://your-project.supabase.co"
+$env:SUPABASE_PUBLISHABLE_KEY = "your-publishable-key"
+```
+
+Run the services in separate terminals:
+
+```powershell
+python -m uvicorn src.backend.app.main:app --reload --port 8000
+Set-Location src/frontend
+npm run dev
+```
+
+Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. To obtain a requirement UUID, create one through `POST /requirements` or inspect the database, then place it in `NEXT_PUBLIC_REQUIREMENT_ID` and restart Next.js.
