@@ -9,7 +9,7 @@ Python 3.11+ and PostgreSQL are required for the application database. Copy `.en
 ## Run
 
 ```powershell
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev]"c
 $env:DATABASE_URL = "postgresql+psycopg://user:password@host:5432/korofarm"
 alembic upgrade head
 python -m app.infrastructure.database.seed

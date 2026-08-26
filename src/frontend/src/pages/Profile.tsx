@@ -13,7 +13,7 @@ export default function Profile() {
 	const router = useRouter();
 	const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Programme operator';
 
-	const handleSignOut = async () => {
+	const handleSignOut = async () => {	
 		await signOut();
 		router.replace('/login');
 	};
