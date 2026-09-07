@@ -24,13 +24,19 @@ class GradeCommand(BaseModel):
 @router.post("/sublots/receive")
 def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
-    try: return receive(session, payload.allocation_id, payload.fulfilment_node_id, payload.received_quantity_kg, payload.received_at, payload.receipt_evidence_reference, idempotency_key)
+    try:
+        result = receive(session, payload.allocation_id, payload.fulfilment_node_id, payload.received_quantity_kg, payload.received_at, payload.receipt_evidence_reference, idempotency_key)
+        session.commit()
+        return result
     except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 
 @router.post("/sublots/{sublot_id}/grade")
 def post_grade(sublot_id: UUID, payload: GradeCommand, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
-    try: return grade(session, sublot_id, payload.accepted_quantity_kg, payload.rejected_quantity_kg, payload.assigned_grade, payload.rejection_reason, payload.inspection_evidence_reference, idempotency_key)
+    try:
+        result = grade(session, sublot_id, payload.accepted_quantity_kg, payload.rejected_quantity_kg, payload.assigned_grade, payload.rejection_reason, payload.inspection_evidence_reference, idempotency_key)
+        session.commit()
+        return result
     except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 
 @router.get("/requirements/{requirement_id}/fulfilment")

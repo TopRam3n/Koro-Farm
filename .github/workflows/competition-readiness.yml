@@ -1,0 +1,84 @@
+name: Competition readiness
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: korofarm
+          POSTGRES_PASSWORD: korofarm
+          POSTGRES_DB: korofarm_ci_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U korofarm -d korofarm_ci_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://korofarm:korofarm@localhost:5432/korofarm_ci_test
+      POSTGRES_TEST_DATABASE_URL: postgresql+psycopg://korofarm:korofarm@localhost:5432/korofarm_ci_test
+      APP_ENV: test
+      ALLOW_INSECURE_DEMO_AUTH: "true"
+      CORS_ORIGINS: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_MODE: live
+      NEXT_PUBLIC_AUTH_MODE: demo
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_REQUIREMENT_ID: 00000000-0000-0000-0000-000000000500
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: demo-public-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: src/frontend/package-lock.json }
+      - run: python -m pip install -e "src/backend[dev]"
+      - run: python -m alembic -c src/backend/alembic.ini upgrade head
+      - run: python -m pytest src/backend/tests -ra
+      - run: npm ci
+        working-directory: src/frontend
+      - run: npm run lint && npx tsc --noEmit && npm run test && npm run build
+        working-directory: src/frontend
+      - run: python -m src.backend.scripts.reset_demo
+      - name: Start backend and wait for health
+        run: |
+          python -m uvicorn src.backend.app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
+          echo $! > backend.pid
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:8000/health && exit 0
+            sleep 1
+          done
+          cat backend.log
+          exit 1
+      - name: Start production frontend and wait for health
+        working-directory: src/frontend
+        run: |
+          npm run start -- -H 127.0.0.1 -p 3000 > frontend.log 2>&1 &
+          echo $! > frontend.pid
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:3000/ > /dev/null && exit 0
+            sleep 1
+          done
+          cat frontend.log
+          exit 1
+      - run: npx playwright install --with-deps chromium
+        working-directory: src/frontend
+      - run: npm run test:e2e
+        working-directory: src/frontend
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: competition-evidence
+          path: |
+            src/frontend/artifacts
+            backend.log
+            src/frontend/frontend.log
+      - name: Stop local services
+        if: always()
+        run: |
+          test ! -f backend.pid || kill "$(cat backend.pid)" || true
+          test ! -f src/frontend/frontend.pid || kill "$(cat src/frontend/frontend.pid)" || true

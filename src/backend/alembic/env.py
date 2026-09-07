@@ -1,5 +1,14 @@
 from logging.config import fileConfig
 import os
+from pathlib import Path
+import sys
+
+# Alembic is normally invoked from ``src/backend``. Ensure the repository root
+# is importable so the application's canonical ``src.backend`` imports work in
+# a clean checkout as well as from an IDE launched at the repository root.
+repository_root = Path(__file__).resolve().parents[3]
+if str(repository_root) not in sys.path:
+    sys.path.insert(0, str(repository_root))
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool

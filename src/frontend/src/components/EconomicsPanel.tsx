@@ -3,9 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatJmd } from '@/lib/mockdata';
 
 export function EconomicsPanel({ economics }: { economics?: Record<string, string> | null }) {
-  const originalCost = Number(economics?.original_landed_cost_jmd ?? 0);
-  const recoveredCost = Number(economics?.recovered_landed_cost_jmd ?? 0);
-  const premium = Number(economics?.recovery_premium_jmd ?? 0);
-  const premiumPercent = originalCost ? ((premium / originalCost) * 100).toFixed(2) : '0.00';
+  if (!economics) return <Card><CardHeader><p className="font-mono text-xs uppercase tracking-[0.18em] text-primary">Unit economics</p><CardTitle className="mt-2 text-lg">Recovery cost snapshot</CardTitle></CardHeader><CardContent className="text-sm text-muted-foreground">No recovery cost snapshot yet. Cost is unknown, not J$0.</CardContent></Card>;
+  const originalCost = Number(economics.original_landed_cost_jmd);
+  const recoveredCost = Number(economics.recovered_landed_cost_jmd);
+  const premium = Number(economics.recovery_premium_jmd);
+  const premiumPercent = Number(economics.recovery_premium_pct).toFixed(2);
   return <Card><CardHeader className="pb-4"><p className="font-mono text-xs uppercase tracking-[0.18em] text-primary">Unit economics</p><CardTitle className="mt-2 text-lg">Recovery cost snapshot</CardTitle></CardHeader><CardContent className="space-y-4"><div className="flex items-center justify-between border-b border-border/60 pb-4"><div className="flex items-center gap-3"><CircleDollarSign className="h-5 w-5 text-muted-foreground" /><span className="text-sm text-muted-foreground">Original landed cost</span></div><span className="font-mono font-semibold">{formatJmd(originalCost)}</span></div><div className="flex items-center justify-between border-b border-border/60 pb-4"><div className="flex items-center gap-3"><Truck className="h-5 w-5 text-warning" /><span className="text-sm text-muted-foreground">Recovered landed cost</span></div><span className="font-mono font-semibold">{formatJmd(recoveredCost)}</span></div><div className="flex items-end justify-between rounded-md bg-warning/10 p-3"><div><p className="text-xs text-muted-foreground">Recovery premium</p><p className="mt-1 font-mono text-xl font-semibold text-warning">{formatJmd(premium)}</p></div><div className="flex items-center gap-1 text-xs font-medium text-warning"><ArrowUpRight className="h-4 w-4" />{premiumPercent}%</div></div></CardContent></Card>;
 }

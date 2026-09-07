@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
 
 
 class RequirementLifecycleStatus(StrEnum):
@@ -44,6 +45,7 @@ class Requirement(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     buyer_id: Mapped[UUID] = mapped_column(ForeignKey("buyers.id"), nullable=False, index=True)
+    trade_corridor_id: Mapped[UUID | None] = mapped_column(ForeignKey("trade_corridors.id"), nullable=True, index=True)
     crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
     grade: Mapped[Grade] = mapped_column(Enum(Grade, native_enum=False), nullable=False)
     required_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
@@ -65,3 +67,14 @@ class Requirement(Base):
         if self.required_quantity_kg <= 0:
             raise ValueError("required quantity must be greater than zero")
         DateWindow(self.delivery_window_start, self.delivery_window_end)
+
+
+class BuyerOrderChange(Base):
+    """Buyer-caused change record; never used as farmer performance evidence."""
+    __tablename__ = "buyer_order_changes"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    requirement_id: Mapped[UUID] = mapped_column(ForeignKey("requirements.id"), nullable=False, index=True)
+    previous_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    new_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

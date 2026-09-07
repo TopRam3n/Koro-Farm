@@ -7,7 +7,7 @@ Create Date: 2026-08-19
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0002_supply_planning_and_economics"
+revision = "0002_supply_plan_economics"
 down_revision = "0001_initial_foundation"
 branch_labels = None
 depends_on = None

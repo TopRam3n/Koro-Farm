@@ -1,6 +1,6 @@
-export type SupplyHealth = 'COVERED' | 'AT_RISK' | 'RECOVERED' | 'ESCALATION_REQUIRED';
+export type SupplyHealth = 'UNPLANNED' | 'COVERED' | 'AT_RISK' | 'RECOVERING' | 'ESCALATION_REQUIRED';
 export type AllocationRole = 'COMMITTED' | 'STANDBY';
-export type AllocationStatus = 'COMMITTED' | 'STANDBY' | 'ACTIVATED' | 'LOST';
+export type AllocationStatus = 'PROPOSED' | 'SOLICITED' | 'ACCEPTED' | 'COMMITTED' | 'STANDBY' | 'ACTIVATED' | 'LOST' | 'RELEASED' | 'CANCELLED';
 
 export interface Allocation {
   id: string;
@@ -46,7 +46,7 @@ export const supplyMetrics: SupplyMetrics = {
   shortfallKg: 0,
   committedFarmerCount: 8,
   standbyFarmerCount: 3,
-  health: 'RECOVERED',
+  health: 'COVERED',
 };
 
 export const allocations: Allocation[] = [

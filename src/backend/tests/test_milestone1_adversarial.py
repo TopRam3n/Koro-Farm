@@ -72,7 +72,7 @@ def test_partial_standby_solicitation_and_explicit_acceptance(session):
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED))
     outcome = dropout(session, committed.id, "crop_failure", "partial")
-    assert outcome["supply_health"] == SupplyHealth.ESCALATION_REQUIRED
+    assert outcome["supply_health"] == SupplyHealth.RECOVERING
     solicited = list(session.scalars(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.SOLICITED)))
     assert solicited
     assert outcome["committed_kg"] == "8.000"  # solicitation never masquerades as coverage
@@ -85,7 +85,7 @@ def test_partial_standby_solicitation_and_explicit_acceptance(session):
         DomainEvent.occurred_at, DomainEvent.id)))
     names = [event.event_type for event in events]
     assert [event.occurred_at for event in events] == sorted(event.occurred_at for event in events)
-    for expected in ("allocation.solicited", "allocation.accepted", "recovery.escalated", "recovery.completed"):
+    for expected in ("allocation.solicited", "allocation.accepted", "recovery.awaiting_acceptance", "recovery.completed"):
         assert expected in names
 
 
@@ -204,3 +204,30 @@ def test_risk_snapshot_aggregates_farmer_lots_and_is_immutable(session):
     item.status = ProductionLotStatus.UNAVAILABLE
     session.commit(); session.refresh(snapshot)
     assert snapshot.largest_farmer_share_pct == original
+
+
+def test_failed_recovery_escalates_with_truthful_40kg_shortfall(session):
+    req = requirement(session, "500")
+    for quantity in ("140", "120", "120", "120"):
+        lot(session, quantity, "10", AvailabilityConfidence.HIGH)
+    lot(session, "70", "100", AvailabilityConfidence.MEDIUM)
+    finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.20")))
+    replacement = lot(session, "30", "100", AvailabilityConfidence.MEDIUM)
+    lost = session.scalar(select(SupplyAllocation).where(
+        SupplyAllocation.requirement_id == req.id,
+        SupplyAllocation.status == AllocationStatus.COMMITTED,
+        SupplyAllocation.quantity_kg == Decimal("140"),
+    ))
+    outcome = dropout(session, lost.id, "crop_failure", "failure-case")
+    assert outcome["committed_kg"] == "430.000"
+    solicited = session.scalar(select(SupplyAllocation).where(
+        SupplyAllocation.production_lot_id == replacement.id,
+        SupplyAllocation.status == AllocationStatus.SOLICITED,
+    ))
+    accepted = accept(session, solicited.id, "accept-thirty")
+    session.refresh(req)
+    run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == req.id))
+    assert accepted["committed_kg"] == "460.000"
+    assert req.supply_health == SupplyHealth.ESCALATION_REQUIRED
+    assert run.status == RecoveryStatus.ESCALATED
+    assert run.remaining_shortfall_kg == Decimal("40")

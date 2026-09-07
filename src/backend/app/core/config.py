@@ -1,9 +1,15 @@
-# backend/app/core/config.py
-from pydantic_settings import BaseSettings
+import os
 
 
-class Settings(BaseSettings):
-    frontend_url: str = "http://localhost:5173"
+def environment() -> str:
+    return os.getenv("APP_ENV", "development").strip().lower()
 
 
-settings = Settings()
+def cors_origins() -> list[str]:
+    value = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+    return [origin.strip().rstrip("/") for origin in value.split(",") if origin.strip()]
+
+
+def demo_auth_bypass_enabled() -> bool:
+    requested = os.getenv("ALLOW_INSECURE_DEMO_AUTH", "false").lower() == "true"
+    return requested and environment() in {"test", "demo"}

@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0003_supply_assurance_audit"
-down_revision = "0002_supply_planning_and_economics"
+down_revision = "0002_supply_plan_economics"
 branch_labels = None
 depends_on = None
 

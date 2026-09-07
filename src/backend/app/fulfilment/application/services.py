@@ -9,6 +9,7 @@ from src.backend.app.assurance.domain.models import CommandDeduplication, Domain
 from src.backend.app.domain.common import Grade
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
 from src.backend.app.supply.domain.planning_models import SupplyAllocation
+from src.backend.app.assurance.application.recovery import recover_quality_shortfall
 
 
 def _event(session: Session, name: str, allocation: SupplyAllocation, payload: dict) -> None:
@@ -22,9 +23,11 @@ def receive(session: Session, allocation_id: UUID, node_id: UUID, quantity: Deci
     if existing: return existing.result
     with session.begin_nested() if session.in_transaction() else session.begin():
         allocation = session.scalar(select(SupplyAllocation).where(SupplyAllocation.id == allocation_id).with_for_update())
+        existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "sublot.receive", CommandDeduplication.idempotency_key == key))
+        if existing: return existing.result
         if allocation is None: raise ValueError("allocation not found")
         if session.get(FulfilmentNode, node_id) is None: raise ValueError("fulfilment node not found")
-        if quantity < 0: raise ValueError("received quantity cannot be negative")
+        if quantity <= 0: raise ValueError("received quantity must be positive")
         received = session.scalar(select(func.coalesce(func.sum(ReceivedSublot.received_quantity_kg), 0)).where(ReceivedSublot.allocation_id == allocation_id)) or Decimal("0")
         if received + quantity > allocation.quantity_kg: raise ValueError("received quantity exceeds allocation quantity")
         sublot = ReceivedSublot(allocation_id=allocation_id, fulfilment_node_id=node_id, received_quantity_kg=quantity,
@@ -44,6 +47,8 @@ def grade(session: Session, sublot_id: UUID, accepted: Decimal, rejected: Decima
     if existing: return existing.result
     with session.begin_nested() if session.in_transaction() else session.begin():
         sublot = session.scalar(select(ReceivedSublot).where(ReceivedSublot.id == sublot_id).with_for_update())
+        existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "sublot.grade", CommandDeduplication.idempotency_key == key))
+        if existing: return existing.result
         if sublot is None: raise ValueError("received sublot not found")
         if sublot.graded_at is not None: raise ValueError("received sublot has already been graded")
         if accepted < 0 or rejected < 0 or accepted + rejected != sublot.received_quantity_kg: raise ValueError("grading must account for exactly the received quantity")
@@ -54,6 +59,9 @@ def grade(session: Session, sublot_id: UUID, accepted: Decimal, rejected: Decima
         session.flush()
         event_name = "sublot.rejected" if accepted == 0 else "sublot.partially_accepted" if rejected else "sublot.graded"
         _event(session, event_name, allocation, {"received_sublot_id": str(sublot.id), "previous_status": InspectionStatus.PENDING_INSPECTION.value, "new_status": sublot.inspection_status.value, "accepted_quantity_kg": str(accepted), "rejected_quantity_kg": str(rejected), "evidence_reference": evidence, "evidence_verified": False})
-        result = {"received_sublot_id": str(sublot.id), "inspection_status": sublot.inspection_status.value, "accepted_quantity_kg": str(accepted), "rejected_quantity_kg": str(rejected)}
+        recovery = None
+        if rejected:
+            recovery = recover_quality_shortfall(session, allocation.requirement_id, rejected, "quality_rejection")
+        result = {"received_sublot_id": str(sublot.id), "inspection_status": sublot.inspection_status.value, "accepted_quantity_kg": str(accepted), "rejected_quantity_kg": str(rejected), "recovery": recovery}
         session.add(CommandDeduplication(command_type="sublot.grade", idempotency_key=key, result=result))
         return result

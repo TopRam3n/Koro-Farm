@@ -5,9 +5,12 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastapi import Header, HTTPException, status
+from src.backend.app.core.config import demo_auth_bypass_enabled
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
+    if demo_auth_bypass_enabled():
+        return {"id": "competition-demo-operator", "auth_mode": "demo"}
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer token required")
 

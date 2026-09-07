@@ -5,6 +5,7 @@ from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
 from src.backend.app.demand.domain.models import Buyer
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.infrastructure.database.seed import seed
+from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
 
 def test_requirement_creation_endpoint(client, session) -> None:
@@ -47,8 +48,10 @@ def test_plan_and_assurance_endpoints(client, session) -> None:
         "delivery_window_start": str(start), "delivery_window_end": str(end),
     })
     assert requirement.status_code == 201
-    plan = client.post(f"/requirements/{requirement.json()['id']}/plan")
+    plan = client.post(f"/requirements/{requirement.json()['id']}/plan", headers={"Idempotency-Key": "plan-test"})
     assert plan.status_code == 201
+    duplicate_plan = client.post(f"/requirements/{requirement.json()['id']}/plan", headers={"Idempotency-Key": "plan-test"})
+    assert duplicate_plan.status_code == 201 and duplicate_plan.json() == plan.json()
     assert plan.json()["committed_quantity_kg"] == "500.000"
     assurance = client.get(f"/requirements/{requirement.json()['id']}/assurance")
     assert assurance.status_code == 200
@@ -58,3 +61,14 @@ def test_plan_and_assurance_endpoints(client, session) -> None:
     risk = client.get(f"/requirements/{requirement.json()['id']}/risk")
     assert risk.status_code == 200
     assert risk.json()["label"] in {"LOW", "MEDIUM", "HIGH"}
+
+
+def test_compliance_uses_requirement_corridor_and_does_not_invent_rules(client, session) -> None:
+    buyer = Buyer(name="Hotel", buyer_type="HOTEL", destination="Bridgetown")
+    corridor = TradeCorridor(name="Jamaica to Barbados", origin_country="Jamaica", destination_country="Barbados", transport_mode="SEA", default_dispatch_lead_hours=48, active=True)
+    session.add_all([buyer, corridor]); session.commit()
+    response = client.post("/requirements", json={"buyer_id": str(buyer.id), "trade_corridor_id": str(corridor.id), "crop": "GINGER", "grade": "A", "required_quantity_kg": "500", "delivery_window_start": "2026-09-01", "delivery_window_end": "2026-09-02"})
+    assert response.status_code == 201
+    compliance = client.get(f"/requirements/{response.json()['id']}/compliance")
+    assert compliance.status_code == 200
+    assert compliance.json() == {"requirement_id": response.json()["id"], "corridor": "Jamaica to Barbados", "status": "no_verified_rule_on_file", "rules": []}

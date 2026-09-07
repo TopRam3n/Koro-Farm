@@ -12,6 +12,7 @@ router = APIRouter(prefix="/allocations", tags=["allocations"])
 
 class DropoutCommand(BaseModel):
     reason: str
+    defer_recovery: bool = True
 
 
 @router.post("/{allocation_id}/dropout")
@@ -21,7 +22,9 @@ def post_dropout(allocation_id: UUID, payload: DropoutCommand,
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     try:
-        return dropout(session, allocation_id, payload.reason, idempotency_key)
+        result = dropout(session, allocation_id, payload.reason, idempotency_key, auto_recover=not payload.defer_recovery)
+        session.commit()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -33,7 +36,9 @@ def post_accept(allocation_id: UUID,
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     try:
-        return accept(session, allocation_id, idempotency_key)
+        result = accept(session, allocation_id, idempotency_key)
+        session.commit()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -45,6 +50,8 @@ def post_decline(allocation_id: UUID,
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
     try:
-        return decline(session, allocation_id, idempotency_key)
+        result = decline(session, allocation_id, idempotency_key)
+        session.commit()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

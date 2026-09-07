@@ -12,6 +12,7 @@ from src.backend.app.supply.domain.planning_models import SupplyPlan, SupplyPlan
 from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
 from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
 from src.backend.app.supply.domain.models import ProductionLot, ProductionLotStatus
+from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.risk.application.calculator import create_risk_snapshot
 
 
@@ -22,12 +23,27 @@ def _event(session: Session, name: str, requirement_id: UUID, correlation_id: UU
     session.add(OutboxMessage(event_id=event.id, topic=name, payload=payload))
 
 
-def _coverage(session: Session, requirement_id: UUID) -> Decimal:
-    return session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+def committed_quantity(session: Session, requirement_id: UUID) -> Decimal:
+    """Planning truth: active committed capacity, independent of physical grading."""
+    allocations = session.scalars(select(SupplyAllocation).where(
         SupplyAllocation.requirement_id == requirement_id,
         SupplyAllocation.role == AllocationRole.COMMITTED,
         SupplyAllocation.status == AllocationStatus.COMMITTED,
-    )) or Decimal("0")
+    )).all()
+    return sum((allocation.quantity_kg for allocation in allocations), Decimal("0"))
+
+
+def _coverage(session: Session, requirement_id: UUID) -> Decimal:
+    """Assured Grade-A coverage used by recovery, kept separate from commitment truth."""
+    allocations = session.scalars(select(SupplyAllocation).where(
+        SupplyAllocation.requirement_id == requirement_id,
+        SupplyAllocation.role == AllocationRole.COMMITTED,
+        SupplyAllocation.status == AllocationStatus.COMMITTED,
+    )).all()
+    return sum((allocation.quantity_kg - (
+        session.scalar(select(func.coalesce(func.sum(ReceivedSublot.rejected_quantity_kg), 0)).where(
+            ReceivedSublot.allocation_id == allocation.id
+        )) or Decimal("0")) for allocation in allocations), Decimal("0"))
 
 
 def _create_recovery_snapshot(session: Session, requirement: Requirement) -> SupplyPlan:
@@ -42,7 +58,7 @@ def _create_recovery_snapshot(session: Session, requirement: Requirement) -> Sup
         SupplyAllocation.status == AllocationStatus.COMMITTED,
     )))
     version = requirement.plan_version + 1
-    committed = sum((a.quantity_kg for a in allocations), Decimal("0"))
+    committed = _coverage(session, requirement.id)
     standby = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
         SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.role == AllocationRole.STANDBY,
         SupplyAllocation.status == AllocationStatus.STANDBY,
@@ -69,7 +85,7 @@ def _create_recovery_snapshot(session: Session, requirement: Requirement) -> Sup
     return plan
 
 
-def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dict:
+def dropout(session: Session, allocation_id: UUID, reason: str, key: str, auto_recover: bool = True) -> dict:
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "allocation.dropout", CommandDeduplication.idempotency_key == key))
     if existing: return existing.result
     with session.begin_nested() if session.in_transaction() else session.begin():
@@ -82,7 +98,8 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dic
         existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "allocation.dropout", CommandDeduplication.idempotency_key == key))
         if existing: return existing.result
         requirement = session.scalar(select(Requirement).where(Requirement.id == allocation.requirement_id).with_for_update())
-        if allocation.status == AllocationStatus.LOST: raise ValueError("allocation already lost")
+        if allocation.status != AllocationStatus.COMMITTED:
+            raise ValueError("only an active committed allocation can be dropped")
         allocation.status = AllocationStatus.LOST; allocation.lost_at = datetime.now(timezone.utc)
         correlation = uuid4()
         _event(session, "allocation.lost", requirement.id, correlation, {"allocation_id": str(allocation.id), "quantity_kg": str(allocation.quantity_kg), "reason": reason})
@@ -92,11 +109,19 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dic
             _event(session, "requirement.at_risk", requirement.id, correlation, {"shortfall_kg": str(shortfall)})
         run = RecoveryRun(requirement_id=requirement.id, status=RecoveryStatus.RUNNING, active_key="RUNNING", lost_quantity_kg=allocation.quantity_kg, cause=reason, remaining_shortfall_kg=max(shortfall, Decimal("0")))
         session.add(run); session.flush(); _event(session, "recovery.started", requirement.id, correlation, {"recovery_run_id": str(run.id)})
+        if not auto_recover:
+            result = {"requirement_id": str(requirement.id), "lost_kg": str(allocation.quantity_kg),
+                      "committed_kg": str(_coverage(session, requirement.id)),
+                      "supply_health": requirement.supply_health.value,
+                      "recovery_status": run.status.value, "standby_activated_kg": "0",
+                      "remaining_shortfall_kg": str(run.remaining_shortfall_kg)}
+            session.add(CommandDeduplication(command_type="allocation.dropout", idempotency_key=key, result=result))
+            return result
         # Activate only the exact required amount from pre-authorized standby reservations.
         for standby in session.scalars(select(SupplyAllocation).join(ProductionLot).where(
             SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.role == AllocationRole.STANDBY,
             SupplyAllocation.status == AllocationStatus.STANDBY).order_by(ProductionLot.parish, ProductionLot.harvest_start,
-            ProductionLot.expected_quantity_kg, SupplyAllocation.created_at).with_for_update()):
+            ProductionLot.expected_quantity_kg, ProductionLot.id, SupplyAllocation.created_at).with_for_update()):
             if shortfall <= 0: break
             activated = min(shortfall, standby.quantity_kg)
             if activated == standby.quantity_kg:
@@ -133,10 +158,124 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dic
                 _event(session, "allocation.solicited", requirement.id, correlation,
                        {"production_lot_id": str(lot.id), "quantity_kg": str(quantity)})
                 solicitation_needed -= quantity
-            requirement.supply_health = SupplyHealth.ESCALATION_REQUIRED; run.status = RecoveryStatus.ESCALATED; run.active_key = None; run.completed_at = datetime.now(timezone.utc)
-            _event(session, "recovery.escalated", requirement.id, correlation, {"remaining_shortfall_kg": str(max(shortfall, Decimal('0')))})
+            requirement.supply_health = SupplyHealth.RECOVERING if solicitation_needed <= 0 else SupplyHealth.ESCALATION_REQUIRED
+            run.status = RecoveryStatus.RUNNING if solicitation_needed <= 0 else RecoveryStatus.ESCALATED
+            run.active_key = "RUNNING" if solicitation_needed <= 0 else None
+            if run.status == RecoveryStatus.ESCALATED:
+                run.completed_at = datetime.now(timezone.utc)
+            _event(
+                session,
+                "recovery.awaiting_acceptance" if run.status == RecoveryStatus.RUNNING else "recovery.escalated",
+                requirement.id,
+                correlation,
+                {"remaining_shortfall_kg": str(max(shortfall, Decimal("0")))},
+            )
         result = {"requirement_id": str(requirement.id), "lost_kg": str(allocation.quantity_kg), "committed_kg": str(_coverage(session, requirement.id)), "supply_health": requirement.supply_health.value, "recovery_status": run.status.value, "standby_activated_kg": str(run.standby_activated_kg), "remaining_shortfall_kg": str(run.remaining_shortfall_kg)}
         session.add(CommandDeduplication(command_type="allocation.dropout", idempotency_key=key, result=result))
+        return result
+
+
+def continue_recovery(session: Session, requirement_id: UUID, key: str) -> dict:
+    """Advance a persisted recovery run under PostgreSQL row locks."""
+    existing = session.scalar(select(CommandDeduplication).where(
+        CommandDeduplication.command_type == "requirement.recovery",
+        CommandDeduplication.idempotency_key == key,
+    ))
+    if existing:
+        return existing.result
+    with session.begin_nested() if session.in_transaction() else session.begin():
+        requirement = session.scalar(select(Requirement).where(Requirement.id == requirement_id).with_for_update())
+        if requirement is None:
+            raise ValueError("requirement not found")
+        run = session.scalar(select(RecoveryRun).where(
+            RecoveryRun.requirement_id == requirement_id,
+            RecoveryRun.status == RecoveryStatus.RUNNING,
+        ).order_by(RecoveryRun.created_at.desc()).with_for_update())
+        existing = session.scalar(select(CommandDeduplication).where(
+            CommandDeduplication.command_type == "requirement.recovery",
+            CommandDeduplication.idempotency_key == key,
+        ))
+        if existing:
+            return existing.result
+        if run is None:
+            raise ValueError("no recovery is pending")
+        correlation = uuid4()
+        shortfall = max(requirement.required_quantity_kg - _coverage(session, requirement.id), Decimal("0"))
+        for standby in session.scalars(select(SupplyAllocation).join(ProductionLot).where(
+            SupplyAllocation.requirement_id == requirement.id,
+            SupplyAllocation.role == AllocationRole.STANDBY,
+            SupplyAllocation.status == AllocationStatus.STANDBY,
+        ).order_by(ProductionLot.parish, ProductionLot.harvest_start,
+                   ProductionLot.expected_quantity_kg, ProductionLot.id, SupplyAllocation.created_at).with_for_update()):
+            if shortfall <= 0:
+                break
+            activated = min(shortfall, standby.quantity_kg)
+            if activated == standby.quantity_kg:
+                standby.status = AllocationStatus.ACTIVATED
+            else:
+                standby.quantity_kg -= activated
+            session.add(SupplyAllocation(
+                requirement_id=requirement.id, supply_plan_id=standby.supply_plan_id,
+                production_lot_id=standby.production_lot_id, role=AllocationRole.COMMITTED,
+                status=AllocationStatus.COMMITTED, quantity_kg=activated,
+                consent_evidence_id=standby.consent_evidence_id, plan_version=standby.plan_version,
+            ))
+            run.standby_activated_kg += activated
+            shortfall -= activated
+            _event(session, "allocation.standby_activated", requirement.id, correlation,
+                   {"source_allocation_id": str(standby.id), "quantity_kg": str(activated)})
+        run.remaining_shortfall_kg = max(shortfall, Decimal("0"))
+        if shortfall <= 0:
+            _create_recovery_snapshot(session, requirement)
+            requirement.supply_health = SupplyHealth.COVERED
+            run.status = RecoveryStatus.COMPLETED
+            run.active_key = None
+            run.completed_at = datetime.now(timezone.utc)
+            _event(session, "recovery.completed", requirement.id, correlation,
+                   {"standby_activated_kg": str(run.standby_activated_kg)})
+        else:
+            source_plan = session.scalar(select(SupplyPlan).where(
+                SupplyPlan.requirement_id == requirement.id
+            ).order_by(SupplyPlan.plan_version.desc()))
+            remaining_to_solicit = shortfall
+            for lot in session.scalars(select(ProductionLot).where(
+                ProductionLot.crop == requirement.crop,
+                ProductionLot.quality_grade_estimate == requirement.grade,
+                ProductionLot.status == ProductionLotStatus.AVAILABLE,
+                ProductionLot.harvest_start <= requirement.delivery_window_end,
+                ProductionLot.harvest_end >= requirement.delivery_window_start,
+                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+            ).order_by(ProductionLot.id).with_for_update()):
+                if remaining_to_solicit <= 0:
+                    break
+                quantity = min(remaining_to_solicit, lot.available_quantity_kg - lot.reserved_quantity_kg)
+                lot.reserved_quantity_kg += quantity
+                session.add(SupplyAllocation(
+                    requirement_id=requirement.id, supply_plan_id=source_plan.id,
+                    production_lot_id=lot.id, role=AllocationRole.COMMITTED,
+                    status=AllocationStatus.SOLICITED, quantity_kg=quantity,
+                    plan_version=requirement.plan_version,
+                ))
+                _event(session, "allocation.solicited", requirement.id, correlation,
+                       {"production_lot_id": str(lot.id), "quantity_kg": str(quantity)})
+                remaining_to_solicit -= quantity
+            if remaining_to_solicit <= 0:
+                requirement.supply_health = SupplyHealth.RECOVERING
+                _event(session, "recovery.awaiting_acceptance", requirement.id, correlation,
+                       {"remaining_shortfall_kg": str(shortfall)})
+            else:
+                requirement.supply_health = SupplyHealth.ESCALATION_REQUIRED
+                run.status = RecoveryStatus.ESCALATED
+                run.active_key = None
+                run.completed_at = datetime.now(timezone.utc)
+                _event(session, "recovery.escalated", requirement.id, correlation,
+                       {"remaining_shortfall_kg": str(shortfall)})
+        result = {"recovery_run_id": str(run.id), "status": run.status.value,
+                  "committed_kg": str(_coverage(session, requirement.id)),
+                  "supply_health": requirement.supply_health.value,
+                  "standby_activated_kg": str(run.standby_activated_kg),
+                  "remaining_shortfall_kg": str(run.remaining_shortfall_kg)}
+        session.add(CommandDeduplication(command_type="requirement.recovery", idempotency_key=key, result=result))
         return result
 
 
@@ -182,7 +321,7 @@ def accept(session: Session, allocation_id: UUID, key: str) -> dict:
         session.flush()
         correlation = uuid4()
         _event(session, "allocation.accepted", requirement.id, correlation, {"allocation_id": str(allocation.id), "quantity_kg": str(allocation.quantity_kg)})
-        run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == requirement.id, RecoveryRun.status == RecoveryStatus.ESCALATED).order_by(RecoveryRun.created_at.desc()).with_for_update())
+        run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == requirement.id, RecoveryRun.status.in_([RecoveryStatus.RUNNING, RecoveryStatus.ESCALATED])).order_by(RecoveryRun.created_at.desc()).with_for_update())
         covered = _coverage(session, requirement.id)
         if run:
             run.new_supply_accepted_kg += allocation.quantity_kg
@@ -191,8 +330,128 @@ def accept(session: Session, allocation_id: UUID, key: str) -> dict:
             _create_recovery_snapshot(session, requirement)
             requirement.supply_health = SupplyHealth.COVERED
             if run:
-                run.status = RecoveryStatus.COMPLETED; run.completed_at = datetime.now(timezone.utc)
+                run.status = RecoveryStatus.COMPLETED; run.active_key = None; run.completed_at = datetime.now(timezone.utc)
             _event(session, "recovery.completed", requirement.id, correlation, {"new_supply_accepted_kg": str(allocation.quantity_kg)})
+        elif run:
+            pending = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+                SupplyAllocation.requirement_id == requirement.id,
+                SupplyAllocation.status == AllocationStatus.SOLICITED,
+            )) or Decimal("0")
+            free = session.scalar(select(func.coalesce(func.sum(
+                ProductionLot.available_quantity_kg - ProductionLot.reserved_quantity_kg
+            ), 0)).where(
+                ProductionLot.crop == requirement.crop,
+                ProductionLot.quality_grade_estimate == requirement.grade,
+                ProductionLot.status == ProductionLotStatus.AVAILABLE,
+                ProductionLot.harvest_start <= requirement.delivery_window_end,
+                ProductionLot.harvest_end >= requirement.delivery_window_start,
+                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+            )) or Decimal("0")
+            if pending <= 0 and free <= 0:
+                run.status = RecoveryStatus.ESCALATED
+                run.active_key = None
+                run.completed_at = datetime.now(timezone.utc)
+                requirement.supply_health = SupplyHealth.ESCALATION_REQUIRED
+                _event(session, "recovery.escalated", requirement.id, correlation,
+                       {"remaining_shortfall_kg": str(run.remaining_shortfall_kg)})
         result = {"allocation_id": str(allocation.id), "committed_kg": str(covered), "supply_health": requirement.supply_health.value}
         session.add(CommandDeduplication(command_type="allocation.accept", idempotency_key=key, result=result))
         return result
+
+
+def recover_quality_shortfall(session: Session, requirement_id: UUID, shortfall: Decimal, cause: str) -> dict:
+    """Start a recovery run for produce rejected at the fulfilment node.
+
+    A quality result is a physical exception, not a farmer dropout.  The
+    rejected sublot stays traceable to its original commitment; this function
+    only reserves and activates replacement capacity for the accepted-quantity
+    gap.  It deliberately never turns a solicitation into coverage.
+    """
+    if shortfall <= 0:
+        return {"status": "NOT_REQUIRED", "standby_activated_kg": "0", "remaining_shortfall_kg": "0"}
+    with session.begin_nested() if session.in_transaction() else session.begin():
+        requirement = session.scalar(select(Requirement).where(Requirement.id == requirement_id).with_for_update())
+        if requirement is None:
+            raise ValueError("requirement not found")
+        correlation = uuid4()
+        requirement.supply_health = SupplyHealth.AT_RISK
+        _event(session, "requirement.at_risk", requirement.id, correlation,
+               {"shortfall_kg": str(shortfall), "cause": cause})
+        run = RecoveryRun(requirement_id=requirement.id, status=RecoveryStatus.RUNNING, active_key="RUNNING",
+                          lost_quantity_kg=shortfall, cause=cause, remaining_shortfall_kg=shortfall)
+        session.add(run)
+        session.flush()
+        _event(session, "recovery.started", requirement.id, correlation,
+               {"recovery_run_id": str(run.id), "cause": cause})
+
+        remaining = shortfall
+        for standby in session.scalars(select(SupplyAllocation).join(ProductionLot).where(
+            SupplyAllocation.requirement_id == requirement.id,
+            SupplyAllocation.role == AllocationRole.STANDBY,
+            SupplyAllocation.status == AllocationStatus.STANDBY,
+        ).order_by(ProductionLot.parish, ProductionLot.harvest_start, ProductionLot.expected_quantity_kg, ProductionLot.id,
+                   SupplyAllocation.created_at).with_for_update()):
+            if remaining <= 0:
+                break
+            activated = min(remaining, standby.quantity_kg)
+            if activated == standby.quantity_kg:
+                standby.status = AllocationStatus.ACTIVATED
+            else:
+                standby.quantity_kg -= activated
+            session.add(SupplyAllocation(requirement_id=requirement.id, supply_plan_id=standby.supply_plan_id,
+                production_lot_id=standby.production_lot_id, role=AllocationRole.COMMITTED,
+                status=AllocationStatus.COMMITTED, quantity_kg=activated,
+                consent_evidence_id=standby.consent_evidence_id, plan_version=standby.plan_version))
+            run.standby_activated_kg += activated
+            remaining -= activated
+            _event(session, "allocation.standby_activated", requirement.id, correlation,
+                   {"source_allocation_id": str(standby.id), "quantity_kg": str(activated), "cause": cause})
+
+        run.remaining_shortfall_kg = max(remaining, Decimal("0"))
+        if remaining <= 0:
+            _create_recovery_snapshot(session, requirement)
+            requirement.supply_health = SupplyHealth.COVERED
+            run.status = RecoveryStatus.COMPLETED
+            run.active_key = None
+            run.completed_at = datetime.now(timezone.utc)
+            _event(session, "recovery.completed", requirement.id, correlation,
+                   {"standby_activated_kg": str(run.standby_activated_kg), "cause": cause})
+        else:
+            source_plan = session.scalar(select(SupplyPlan).where(
+                SupplyPlan.requirement_id == requirement.id
+            ).order_by(SupplyPlan.plan_version.desc()))
+            if source_plan is None:
+                raise ValueError("requirement has no supply plan")
+            for lot in session.scalars(select(ProductionLot).where(
+                ProductionLot.crop == requirement.crop,
+                ProductionLot.quality_grade_estimate == requirement.grade,
+                ProductionLot.status == ProductionLotStatus.AVAILABLE,
+                ProductionLot.harvest_start <= requirement.delivery_window_end,
+                ProductionLot.harvest_end >= requirement.delivery_window_start,
+                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+            ).order_by(ProductionLot.id).with_for_update()):
+                if remaining <= 0:
+                    break
+                quantity = min(remaining, lot.available_quantity_kg - lot.reserved_quantity_kg)
+                lot.reserved_quantity_kg += quantity
+                session.add(SupplyAllocation(requirement_id=requirement.id, supply_plan_id=source_plan.id,
+                    production_lot_id=lot.id, role=AllocationRole.COMMITTED, status=AllocationStatus.SOLICITED,
+                    quantity_kg=quantity, plan_version=requirement.plan_version))
+                _event(session, "allocation.solicited", requirement.id, correlation,
+                       {"production_lot_id": str(lot.id), "quantity_kg": str(quantity), "cause": cause})
+                remaining -= quantity
+            if remaining <= 0:
+                run.status = RecoveryStatus.RUNNING
+                requirement.supply_health = SupplyHealth.RECOVERING
+                _event(session, "recovery.awaiting_acceptance", requirement.id, correlation,
+                       {"remaining_shortfall_kg": str(run.remaining_shortfall_kg), "cause": cause})
+            else:
+                run.status = RecoveryStatus.ESCALATED
+                run.active_key = None
+                run.completed_at = datetime.now(timezone.utc)
+                requirement.supply_health = SupplyHealth.ESCALATION_REQUIRED
+                _event(session, "recovery.escalated", requirement.id, correlation,
+                       {"remaining_shortfall_kg": str(run.remaining_shortfall_kg), "cause": cause})
+        return {"recovery_run_id": str(run.id), "status": run.status.value,
+                "standby_activated_kg": str(run.standby_activated_kg),
+                "remaining_shortfall_kg": str(run.remaining_shortfall_kg)}
