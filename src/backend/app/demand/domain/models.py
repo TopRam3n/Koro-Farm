@@ -45,6 +45,7 @@ class Requirement(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     buyer_id: Mapped[UUID] = mapped_column(ForeignKey("buyers.id"), nullable=False, index=True)
+    programme_id: Mapped[UUID | None] = mapped_column(ForeignKey("programmes.id"), nullable=True, index=True)
     trade_corridor_id: Mapped[UUID | None] = mapped_column(ForeignKey("trade_corridors.id"), nullable=True, index=True)
     crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
     grade: Mapped[Grade] = mapped_column(Enum(Grade, native_enum=False), nullable=False)

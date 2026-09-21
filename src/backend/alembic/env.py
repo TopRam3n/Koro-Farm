@@ -19,6 +19,7 @@ from src.backend.app.fulfilment.domain.models import FulfilmentNode  # noqa: F40
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.supply.domain.models import Farmer, ProductionLot  # noqa: F401
 from src.backend.app.supply.domain.planning_models import SupplyAllocation, SupplyPlan  # noqa: F401
+from src.backend.app.programmes.domain.models import Programme  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

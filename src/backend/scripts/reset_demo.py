@@ -33,7 +33,7 @@ def main() -> None:
     session = create_session_factory(url)()
     try:
         requirement_id = seed_competition_demo(session)
-        print(f"Competition demo reset complete: requirement_id={requirement_id}")
+        print(f"Demo-day dataset reset complete: hero_requirement_id={requirement_id}")
     finally:
         session.close()
         engine.dispose()

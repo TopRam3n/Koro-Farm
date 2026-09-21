@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.backend.app.demand.application.services import create_requirement
@@ -17,6 +18,7 @@ router = APIRouter(prefix="/requirements", tags=["requirements"])
 
 class RequirementCreate(BaseModel):
     buyer_id: UUID
+    programme_id: UUID | None = None
     trade_corridor_id: UUID | None = None
     crop: Crop
     grade: Grade
@@ -37,6 +39,7 @@ class RequirementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     buyer_id: UUID
+    programme_id: UUID | None
     trade_corridor_id: UUID | None
     crop: Crop
     grade: Grade
@@ -58,6 +61,11 @@ class BuyerChangeCommand(BaseModel):
 def post_requirement(payload: RequirementCreate, session: Session = Depends(get_session)) -> Requirement:
     if session.get(Buyer, payload.buyer_id) is None:
         raise HTTPException(status_code=404, detail="buyer not found")
+    if payload.programme_id:
+        from src.backend.app.programmes.domain.models import Programme
+        programme = session.get(Programme, payload.programme_id)
+        if programme is None or programme.buyer_id != payload.buyer_id:
+            raise HTTPException(status_code=422, detail="programme does not belong to buyer")
     if payload.trade_corridor_id:
         corridor = session.get(TradeCorridor, payload.trade_corridor_id)
         if corridor is None or not corridor.active:
@@ -68,6 +76,30 @@ def post_requirement(payload: RequirementCreate, session: Session = Depends(get_
         return create_requirement(session, requirement)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("", response_model=list[RequirementRead])
+def list_requirements(
+    supply_health: SupplyHealth | None = None,
+    lifecycle_status: RequirementLifecycleStatus | None = None,
+    buyer_id: UUID | None = None,
+    programme_id: UUID | None = None,
+    offset: int = 0,
+    limit: int = 50,
+    session: Session = Depends(get_session),
+) -> list[Requirement]:
+    if offset < 0 or limit < 1 or limit > 200:
+        raise HTTPException(status_code=422, detail="offset must be non-negative and limit must be between 1 and 200")
+    statement = select(Requirement)
+    if supply_health is not None:
+        statement = statement.where(Requirement.supply_health == supply_health)
+    if lifecycle_status is not None:
+        statement = statement.where(Requirement.lifecycle_status == lifecycle_status)
+    if buyer_id is not None:
+        statement = statement.where(Requirement.buyer_id == buyer_id)
+    if programme_id is not None:
+        statement = statement.where(Requirement.programme_id == programme_id)
+    return list(session.scalars(statement.order_by(Requirement.created_at.desc(), Requirement.id).offset(offset).limit(limit)))
 
 
 @router.get("/{requirement_id}", response_model=RequirementRead)

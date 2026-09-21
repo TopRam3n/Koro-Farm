@@ -1,6 +1,6 @@
-# KoroFarm Supply Assurance Foundation
+# KoroFarm Supply Assurance Platform
 
-This is the Supply Assurance MVP for Jamaican institutional ginger procurement. It includes deterministic production-lot planning, committed and standby reservations, immutable landed-cost and risk snapshots, auditable dropout recovery, and received-sublot grading with traceability. A quality rejection triggers the same reserve-first recovery path as a farmer dropout; solicitations never count as committed supply until the farmer explicitly accepts.
+KoroFarm is an enterprise agricultural supply-assurance platform for buyer programmes, demand commitments, production-lot coordination, disruption recovery, fulfilment, and trade evidence. Planning is deterministic: committed and standby reservations are separate, landed-cost and risk snapshots are immutable, and physical acceptance never gets conflated with planned coverage. A quality rejection triggers the same reserve-first recovery policy as a farmer dropout; solicited supply never counts as committed until the farmer explicitly accepts.
 
 ## Prerequisites
 
@@ -24,6 +24,10 @@ Open `http://127.0.0.1:8000/docs` for the complete API contract.
 
 - `POST /requirements/{id}/plan` creates one immutable initial plan. It reserves exactly the required committed quantity where possible, then a 20% standby target. A second initial plan request returns `409` rather than double allocating lots.
 - `GET /requirements/{id}/assurance` reports committed and standby supply separately, current coverage health, source allocations, parish concentration, and the immutable committed-supply cost snapshot.
+- `GET /requirements` provides bounded portfolio filtering by buyer, programme, lifecycle, and supply health.
+- `POST|GET /programmes` and `GET /programmes/{id}` expose buyer-facing programme rollups without duplicating requirement truth.
+- `GET /command-center/summary` aggregates requirement health, physical flow, concentration, and recent auditable activity.
+- Operational registries are available at `/farmers`, `/allocations`, `/recovery-cases`, `/received-sublots`, `/shipments`, `/activity`, and `/compliance-rules`.
 
 Landed cost is calculated for committed allocations only. Standby supply reserves capacity but does not yet incur operational pickup, handling, or transport cost in the buyer-plan snapshot.
 
@@ -46,7 +50,7 @@ $env:POSTGRES_TEST_DATABASE_URL = "postgresql+psycopg://user:password@localhost:
 python -m pytest src/backend/tests
 ```
 
-The competition demo database can be reset only when both the application mode
+The demo-day database can be reset only when both the application mode
 and database name are safe. The command refuses production-like targets:
 
 ```powershell
@@ -54,6 +58,12 @@ $env:APP_ENV = "demo"
 $env:DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/korofarm_demo"
 python -m src.backend.scripts.reset_demo
 ```
+
+The reset produces a stable synthetic portfolio: 3 buyers, 3 programmes,
+16 farmers, 24 production lots, and 8 requirements. It includes covered,
+at-risk, unplanned, completed disruption-recovery, and partial quality-rejection
+states. Every synthetic organisation, evidence reference, and operator-facing
+record is labelled as synthetic. Re-running the seed is idempotent.
 
 ## Demo the physical quality-recovery flow
 
