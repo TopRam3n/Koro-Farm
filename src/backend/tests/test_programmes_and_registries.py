@@ -1,10 +1,12 @@
 from datetime import date, timedelta
+from uuid import UUID
 
 from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
-from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
+from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.infrastructure.database.seed import seed, seed_competition_demo
 from src.backend.app.programmes.domain.models import Programme
+from src.backend.app.reconciliation.domain.models import RequirementReconciliation, Shipment, ShipmentStatus
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 
 
@@ -140,7 +142,12 @@ def test_demo_day_seed_has_portfolio_and_operational_scenarios(session) -> None:
     assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.AT_RISK).count() >= 1
     assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.UNPLANNED).count() == 1
     assert session.query(RecoveryRun).filter(RecoveryRun.status == RecoveryStatus.COMPLETED).count() >= 2
-    assert session.query(ReceivedSublot).count() == 1
+    assert session.query(ReceivedSublot).count() >= 2
+    reconciled = session.get(Requirement, UUID("00000000-0000-0000-0000-000000000503"))
+    assert reconciled.lifecycle_status == RequirementLifecycleStatus.RECONCILED
+    assert session.get(RequirementReconciliation, reconciled.id).buyer_confirmed is True
+    assert session.query(Shipment).filter(Shipment.requirement_id == reconciled.id,
+                                          Shipment.status == ShipmentStatus.DELIVERED).count() == 1
     assert session.get(Requirement, hero_id).programme_id is not None
 
     # Re-running is idempotent and preserves the same logical portfolio.

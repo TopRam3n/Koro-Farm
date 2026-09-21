@@ -44,7 +44,7 @@ Only `PASS`, `FAIL`, and `NOT TESTED` are used below.
 | Disruption recovery | PASS | Allocation loss, recovery events, standby activation, and recovery cost delta projection |
 | Quality exception | PASS | 30 kg received; 15 kg accepted and 15 kg rejected with traceable synthetic evidence |
 | Failed recovery/escalation domain behavior | PASS | Existing adversarial backend tests pass |
-| Completed shipment/reconciliation in demo seed | FAIL | Domain support exists, but the portfolio reset does not yet include a completed reconciled case |
+| Completed shipment/reconciliation in demo seed | PASS | 400 kg is received, accepted, shipped, delivered, buyer-confirmed, and reconciled with synthetic evidence references |
 | Compliance truthfulness | PASS | Only stored, sourced verification fields are exposed; empty state is explicit |
 
 ## Production blockers
@@ -57,9 +57,7 @@ Only `PASS`, `FAIL`, and `NOT TESTED` are used below.
    access against the deployed API.
 4. Deploy a candidate build and rerun health, API, deep-link, refresh, console,
    mobile/tablet/desktop, and multi-session browser gates on the deployed URL.
-5. Add one deterministic delivered, buyer-confirmed, evidence-backed,
-   reconciled requirement to the demo reset.
-6. Add structured observability, backups with restore rehearsal, rate limiting,
+5. Add structured observability, backups with restore rehearsal, rate limiting,
    error tracking, and operational runbooks before a production launch.
 
 ## Demo configuration

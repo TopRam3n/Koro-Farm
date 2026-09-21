@@ -14,6 +14,18 @@ from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.programmes.domain.models import Programme
+from src.backend.app.reconciliation.api.router import (
+    AddSublot,
+    DeliveryCommand,
+    DispatchCommand,
+    ReconcileCommand,
+    ShipmentCreate,
+    add_sublot,
+    create_shipment,
+    deliver,
+    dispatch,
+    reconcile,
+)
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.application.planner import finalize_plan
@@ -206,6 +218,62 @@ def seed_competition_demo(session: Session) -> UUID:
     ).order_by(SupplyAllocation.production_lot_id))
     dropout(session, hero_allocation.id, "synthetic weather disruption", "demo-hero-dropout")
     session.commit()
+
+    # A completed institutional trade makes the shipment, delivery,
+    # reconciliation, traceability, and trade-passport surfaces demonstrable.
+    completed_requirement_id = UUID("00000000-0000-0000-0000-000000000503")
+    accepted_sublot_ids: list[UUID] = []
+    completed_allocations = session.scalars(select(SupplyAllocation).where(
+        SupplyAllocation.requirement_id == completed_requirement_id,
+        SupplyAllocation.role == AllocationRole.COMMITTED,
+        SupplyAllocation.status == AllocationStatus.COMMITTED,
+    ).order_by(SupplyAllocation.production_lot_id)).all()
+    for index, allocation in enumerate(completed_allocations, start=1):
+        receipt = receive(
+            session, allocation.id, DEMO_NODE_ID, allocation.quantity_kg,
+            datetime(2026, 10, 5, 13, index, tzinfo=timezone.utc),
+            f"synthetic://receipt/demo-completed-503-{index}", f"demo-completed-receipt-{index}",
+        )
+        graded = grade(
+            session, UUID(receipt["received_sublot_id"]), allocation.quantity_kg, Decimal("0"), Grade.A,
+            None, f"synthetic://inspection/demo-completed-503-{index}", f"demo-completed-grade-{index}",
+        )
+        accepted_sublot_ids.append(UUID(graded["received_sublot_id"]))
+    session.commit()
+    shipment_result = create_shipment(
+        completed_requirement_id,
+        ShipmentCreate(fulfilment_node_id=DEMO_NODE_ID, reference="SYN-DEMO-503"),
+        idempotency_key="demo-completed-shipment",
+        session=session,
+    )
+    shipment_id = UUID(shipment_result["shipment_id"])
+    for index, sublot_id in enumerate(accepted_sublot_ids, start=1):
+        add_sublot(
+            shipment_id, AddSublot(received_sublot_id=sublot_id),
+            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session,
+        )
+    dispatch(
+        shipment_id, DispatchCommand(evidence_reference="synthetic://dispatch/demo-completed-503"),
+        idempotency_key="demo-completed-dispatch", session=session,
+    )
+    deliver(
+        shipment_id,
+        DeliveryCommand(
+            delivered_quantity_kg=Decimal("400"),
+            delivered_at=datetime(2026, 10, 8, 15, 0, tzinfo=timezone.utc),
+            delivery_evidence_reference="synthetic://delivery/demo-completed-503",
+            buyer_confirmed=True,
+            buyer_confirmation_evidence="synthetic://buyer-confirmation/demo-completed-503",
+        ),
+        idempotency_key="demo-completed-delivery",
+        session=session,
+    )
+    reconcile(
+        completed_requirement_id,
+        ReconcileCommand(verification_evidence_reference="synthetic://verification/demo-completed-503"),
+        idempotency_key="demo-completed-reconciliation",
+        session=session,
+    )
 
     # A partial rejection proves physical receiving, quality attribution, and
     # non-punitive recovery. Evidence references are explicitly synthetic.

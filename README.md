@@ -62,8 +62,9 @@ python -m src.backend.scripts.reset_demo
 The reset produces a stable synthetic portfolio: 3 buyers, 3 programmes,
 16 farmers, 24 production lots, and 8 requirements. It includes covered,
 at-risk, unplanned, completed disruption-recovery, and partial quality-rejection
-states. Every synthetic organisation, evidence reference, and operator-facing
-record is labelled as synthetic. Re-running the seed is idempotent.
+states, plus one delivered, buyer-confirmed, evidence-backed reconciliation.
+Every synthetic organisation, evidence reference, and operator-facing record
+is labelled as synthetic. Re-running the seed is idempotent.
 
 ## Demo the physical quality-recovery flow
 
