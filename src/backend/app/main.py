@@ -14,6 +14,8 @@ from src.backend.app.trade_evidence.api.corridors import router as corridors_rou
 from src.backend.app.programmes.api.router import router as programmes_router
 from src.backend.app.registry.api.router import router as registry_router
 from src.backend.app.identity.api.router import router as identity_router
+from src.backend.app.ingestion.api.router import public_router as secure_actions_router
+from src.backend.app.ingestion.api.router import router as ingestion_router
 
 app = FastAPI(title="KoroFarm Supply Assurance API", version="0.1.0")
 app.include_router(requirements_router, dependencies=[Depends(get_current_user)])
@@ -27,6 +29,8 @@ app.include_router(corridors_router, dependencies=[Depends(get_current_user)])
 app.include_router(programmes_router, dependencies=[Depends(get_current_user)])
 app.include_router(registry_router, dependencies=[Depends(get_current_user)])
 app.include_router(identity_router)
+app.include_router(ingestion_router)
+app.include_router(secure_actions_router)
 
 app.add_middleware(
     CORSMiddleware,

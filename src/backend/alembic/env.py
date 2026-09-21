@@ -23,6 +23,9 @@ from src.backend.app.programmes.domain.models import Programme  # noqa: F401
 from src.backend.app.identity.domain.models import (  # noqa: F401
     Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
 )
+from src.backend.app.ingestion.domain.models import (  # noqa: F401
+    IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink,
+)
 
 config = context.config
 if config.config_file_name is not None:
