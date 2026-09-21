@@ -1,16 +1,20 @@
 from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Date, DateTime, Enum, String, func
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
 
 class ComplianceRule(Base):
     __tablename__ = "compliance_rules"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id"), nullable=False, default=DEFAULT_ORGANIZATION_ID, index=True
+    )
     origin: Mapped[str] = mapped_column(String(100), nullable=False)
     destination: Mapped[str] = mapped_column(String(100), nullable=False)
     crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)

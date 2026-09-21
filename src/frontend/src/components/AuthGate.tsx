@@ -14,11 +14,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (demoMode) return;
-    if (!isLoading && !user && pathname === '/') router.replace('/login');
+    if (!isLoading && !user) router.replace('/login');
   }, [demoMode, isLoading, pathname, router, user]);
 
   if (demoMode) return <>{children}</>;
 
-  if (isLoading || (!user && pathname === '/')) return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
+  if (isLoading || !user) return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   return <>{children}</>;
 }

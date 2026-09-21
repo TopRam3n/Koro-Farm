@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 const routes = [
-  ['/', 'Supply Assurance Control Room'],
+  ['/', 'My Work'],
+  ['/command-center', 'Supply Assurance Control Room'],
   ['/programmes', 'Programmes'],
   ['/demand', 'Demand'],
   ['/supply', 'Supply Network'],
@@ -25,12 +26,12 @@ test('enterprise workspace route map is navigable and honest', async ({ page }) 
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible();
     await expect(page.locator('body')).not.toContainText(/guaranteed delivery|credit score/i);
   }
-  await page.goto('/');
+  await page.goto('/command-center');
   await page.screenshot({ path: 'artifacts/screenshots/command-center.png', fullPage: true });
 });
 
 test('command palette supports keyboard navigation discovery', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/command-center');
   const trigger = page.getByRole('button', { name: /Search or jump to/ });
   await expect(trigger).toBeVisible();
   await trigger.click();

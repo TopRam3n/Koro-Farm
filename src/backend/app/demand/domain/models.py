@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
 
 
@@ -33,6 +34,9 @@ class Buyer(Base):
     __tablename__ = "buyers"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id"), nullable=False, default=DEFAULT_ORGANIZATION_ID, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     buyer_type: Mapped[str] = mapped_column(String(80), nullable=False)
     destination: Mapped[str] = mapped_column(String(200), nullable=False)

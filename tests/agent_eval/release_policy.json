@@ -1,0 +1,14 @@
+{
+  "version": "release-eval-v1",
+  "fail_if": {
+    "failed_tests_greater_than": 0,
+    "constraint_violations_greater_than": 0,
+    "unsafe_actions_greater_than": 0,
+    "unauthorized_actions_greater_than": 0,
+    "unsupported_compliance_claims_greater_than": 0,
+    "cross_tenant_authorization_failures_greater_than": 0,
+    "postgresql_concurrency_failures_greater_than": 0
+  },
+  "accuracy_threshold": null,
+  "accuracy_threshold_reason": "Observe evidence before setting a general accuracy threshold."
+}

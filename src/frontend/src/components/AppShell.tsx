@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, Sprout, Tractor, Unplug, Workflow, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, ListTodo, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, SlidersHorizontal, Sprout, Tractor, Unplug, UserRoundCog, Workflow, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -9,12 +9,12 @@ type NavItem = readonly [string, string, typeof LayoutDashboard];
 type NavGroup = { label: string; items: readonly NavItem[] };
 
 const groups: readonly NavGroup[] = [
-  { label: 'Command', items: [['Command Center', '/', LayoutDashboard]] },
+  { label: 'My Work', items: [['My Work', '/', ListTodo], ['Command Center', '/command-center', LayoutDashboard]] },
   { label: 'Operations', items: [['Programmes', '/programmes', Building2], ['Demand', '/demand', ClipboardCheck], ['Supply Network', '/supply', Tractor], ['Assurance', '/assurance', ShieldCheck], ['Fulfilment', '/fulfilment', PackageCheck]] },
   { label: 'Intelligence', items: [['Scenario Lab', '/scenario-lab', FlaskConical], ['Network', '/network', Network], ['Analytics', '/analytics', BarChart3]] },
   { label: 'Trust', items: [['Compliance', '/compliance', FileCheck2], ['Traceability', '/traceability', GitBranch], ['Trade Evidence', '/trade-evidence', CheckCircle2]] },
   { label: 'System', items: [['Agent Operations', '/agent-operations', Workflow], ['Activity & Audit', '/activity', Activity], ['Integrations', '/integrations', Unplug]] },
-  { label: 'Admin', items: [['Settings', '/settings', Settings]] },
+  { label: 'Administration', items: [['Users & Access', '/admin/users', UserRoundCog], ['Organization', '/admin/organization', Building2], ['Approval Policies', '/admin/approval-policies', SlidersHorizontal], ['Settings', '/settings', Settings]] },
 ] as const;
 
 export function AppShell({ children, programme = 'Harbour View Hotel (Synthetic) · Ginger' }: { children: React.ReactNode; programme?: string }) {

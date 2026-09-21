@@ -17,6 +17,17 @@ export default function Login() {
   const router = useRouter();
   const { toast } = useToast();
 
+  const handleReset = async () => {
+    if (!email) {
+      toast({ title: 'Email required', description: 'Enter your invited email address first.', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/profile` });
+    toast(error
+      ? { title: 'Reset unavailable', description: error.message, variant: 'destructive' }
+      : { title: 'Check your email', description: 'A supported password-reset link has been requested.' });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -101,12 +112,13 @@ export default function Login() {
               )}
             </Button>
           </form>
+          <button type="button" onClick={handleReset} className="w-full text-center text-sm font-medium text-primary hover:underline">Forgot password?</button>
 
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
-            Don't have an account?{' '}
+            Pilot access is invite-only.{' '}
             <Link href="/signup" className="text-primary hover:underline font-medium">
-              Sign up
+              Invitation details
             </Link>
           </p>
         </div>

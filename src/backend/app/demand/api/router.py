@@ -11,6 +11,8 @@ from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, BuyerOrderChange, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from src.backend.app.identity.domain.permissions import PermissionCode
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/requirements", tags=["requirements"])
@@ -57,9 +59,13 @@ class BuyerChangeCommand(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
-@router.post("", response_model=RequirementRead, status_code=status.HTTP_201_CREATED)
-def post_requirement(payload: RequirementCreate, session: Session = Depends(get_session)) -> Requirement:
-    if session.get(Buyer, payload.buyer_id) is None:
+@router.post("", response_model=RequirementRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_CREATE))])
+def post_requirement(payload: RequirementCreate, session: Session = Depends(get_session),
+                     context: AuthorizationContext = Depends(get_authorization_context)) -> Requirement:
+    buyer = session.scalar(select(Buyer).where(Buyer.id == payload.buyer_id,
+                                                Buyer.organization_id == context.organization_id))
+    if buyer is None:
         raise HTTPException(status_code=404, detail="buyer not found")
     if payload.programme_id:
         from src.backend.app.programmes.domain.models import Programme
@@ -67,7 +73,10 @@ def post_requirement(payload: RequirementCreate, session: Session = Depends(get_
         if programme is None or programme.buyer_id != payload.buyer_id:
             raise HTTPException(status_code=422, detail="programme does not belong to buyer")
     if payload.trade_corridor_id:
-        corridor = session.get(TradeCorridor, payload.trade_corridor_id)
+        corridor = session.scalar(select(TradeCorridor).where(
+            TradeCorridor.id == payload.trade_corridor_id,
+            TradeCorridor.organization_id == context.organization_id,
+        ))
         if corridor is None or not corridor.active:
             raise HTTPException(status_code=422, detail="trade corridor is not active")
     try:
@@ -78,7 +87,8 @@ def post_requirement(payload: RequirementCreate, session: Session = Depends(get_
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.get("", response_model=list[RequirementRead])
+@router.get("", response_model=list[RequirementRead],
+            dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_VIEW))])
 def list_requirements(
     supply_health: SupplyHealth | None = None,
     lifecycle_status: RequirementLifecycleStatus | None = None,
@@ -87,10 +97,11 @@ def list_requirements(
     offset: int = 0,
     limit: int = 50,
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> list[Requirement]:
     if offset < 0 or limit < 1 or limit > 200:
         raise HTTPException(status_code=422, detail="offset must be non-negative and limit must be between 1 and 200")
-    statement = select(Requirement)
+    statement = select(Requirement).join(Buyer).where(Buyer.organization_id == context.organization_id)
     if supply_health is not None:
         statement = statement.where(Requirement.supply_health == supply_health)
     if lifecycle_status is not None:
@@ -102,17 +113,25 @@ def list_requirements(
     return list(session.scalars(statement.order_by(Requirement.created_at.desc(), Requirement.id).offset(offset).limit(limit)))
 
 
-@router.get("/{requirement_id}", response_model=RequirementRead)
-def get_requirement(requirement_id: UUID, session: Session = Depends(get_session)) -> Requirement:
-    requirement = session.get(Requirement, requirement_id)
+@router.get("/{requirement_id}", response_model=RequirementRead,
+            dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_VIEW))])
+def get_requirement(requirement_id: UUID, session: Session = Depends(get_session),
+                    context: AuthorizationContext = Depends(get_authorization_context)) -> Requirement:
+    requirement = session.scalar(select(Requirement).join(Buyer).where(
+        Requirement.id == requirement_id, Buyer.organization_id == context.organization_id
+    ))
     if requirement is None:
         raise HTTPException(status_code=404, detail="requirement not found")
     return requirement
 
 
-@router.post("/{requirement_id}/buyer-change")
-def buyer_change(requirement_id: UUID, payload: BuyerChangeCommand, session: Session = Depends(get_session)) -> dict:
-    requirement = session.get(Requirement, requirement_id)
+@router.post("/{requirement_id}/buyer-change",
+             dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_UPDATE))])
+def buyer_change(requirement_id: UUID, payload: BuyerChangeCommand, session: Session = Depends(get_session),
+                 context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    requirement = session.scalar(select(Requirement).join(Buyer).where(
+        Requirement.id == requirement_id, Buyer.organization_id == context.organization_id
+    ))
     if requirement is None:
         raise HTTPException(status_code=404, detail="requirement not found")
     previous = requirement.required_quantity_kg

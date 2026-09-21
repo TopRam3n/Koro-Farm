@@ -1,6 +1,6 @@
-import { CommandCenter } from '@/components/CommandCenter';
+import { MyWork } from '@/components/MyWork';
 import { AuthGate } from '@/components/AuthGate';
 
 export default function Page() {
-  return <AuthGate><CommandCenter /></AuthGate>;
+  return <AuthGate><MyWork /></AuthGate>;
 }

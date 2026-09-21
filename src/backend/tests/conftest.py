@@ -10,6 +10,9 @@ from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.main import app
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.core.auth import get_current_user
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
+from uuid import UUID
 
 
 @pytest.fixture()
@@ -46,6 +49,13 @@ def client(session_factory: sessionmaker[Session]) -> Generator[TestClient, None
 
     app.dependency_overrides[get_session] = override
     app.dependency_overrides[get_current_user] = lambda: {"id": "test-user"}
+    app.dependency_overrides[get_authorization_context] = lambda: AuthorizationContext(
+        user_id=UUID("00000000-0000-0000-0000-000000009001"),
+        organization_id=UUID("00000000-0000-0000-0000-000000000900"),
+        membership_id=UUID("00000000-0000-0000-0000-000000009002"),
+        role=RoleCode.PLATFORM_ADMIN,
+        permissions=frozenset(PermissionCode),
+    )
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
 from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.models import ProductionLot, ProductionLotStatus
+from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 
 router = APIRouter(prefix="/production-lots", tags=["production-lots"])
 
@@ -32,14 +34,28 @@ class ProductionLotRead(BaseModel):
     version: int
 
 
-@router.get("", response_model=list[ProductionLotRead])
-def list_production_lots(session: Session = Depends(get_session)) -> list[ProductionLot]:
-    return list(session.scalars(select(ProductionLot).order_by(ProductionLot.harvest_start, ProductionLot.id)))
+@router.get("", response_model=list[ProductionLotRead],
+            dependencies=[Depends(require_permission(PermissionCode.SUPPLY_VIEW))])
+def list_production_lots(session: Session = Depends(get_session),
+                         context: AuthorizationContext = Depends(get_authorization_context)) -> list[ProductionLot]:
+    statement = select(ProductionLot).join(Farmer).where(Farmer.organization_id == context.organization_id)
+    if context.role == RoleCode.FARMER:
+        if context.farmer_id is None:
+            return []
+        statement = statement.where(ProductionLot.farmer_id == context.farmer_id)
+    return list(session.scalars(statement.order_by(ProductionLot.harvest_start, ProductionLot.id)))
 
 
-@router.get("/{lot_id}", response_model=ProductionLotRead)
-def get_production_lot(lot_id: UUID, session: Session = Depends(get_session)) -> ProductionLot:
-    lot = session.get(ProductionLot, lot_id)
+@router.get("/{lot_id}", response_model=ProductionLotRead,
+            dependencies=[Depends(require_permission(PermissionCode.SUPPLY_VIEW))])
+def get_production_lot(lot_id: UUID, session: Session = Depends(get_session),
+                       context: AuthorizationContext = Depends(get_authorization_context)) -> ProductionLot:
+    statement = select(ProductionLot).join(Farmer).where(
+        ProductionLot.id == lot_id, Farmer.organization_id == context.organization_id
+    )
+    if context.role == RoleCode.FARMER:
+        statement = statement.where(ProductionLot.farmer_id == context.farmer_id)
+    lot = session.scalar(statement)
     if lot is None:
         raise HTTPException(status_code=404, detail="production lot not found")
     return lot

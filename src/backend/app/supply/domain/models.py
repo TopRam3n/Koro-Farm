@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade, QuantityKg
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
 
 class ProductionLotStatus(StrEnum):
@@ -20,6 +21,9 @@ class Farmer(Base):
     __tablename__ = "farmers"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id"), nullable=False, default=DEFAULT_ORGANIZATION_ID, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     parish: Mapped[str] = mapped_column(String(100), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

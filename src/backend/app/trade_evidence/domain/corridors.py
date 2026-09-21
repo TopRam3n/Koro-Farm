@@ -5,12 +5,16 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
 
 class TradeCorridor(Base):
     """A configured route, not a claim that a shipment is trade-compliant."""
     __tablename__ = "trade_corridors"
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id"), nullable=False, default=DEFAULT_ORGANIZATION_ID, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
     origin_country: Mapped[str] = mapped_column(String(100), nullable=False)
     destination_country: Mapped[str] = mapped_column(String(100), nullable=False)

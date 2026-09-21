@@ -14,6 +14,7 @@ from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.programmes.domain.models import Programme
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
 from src.backend.app.reconciliation.api.router import (
     AddSublot,
     DeliveryCommand,
@@ -46,6 +47,9 @@ LOT_QUANTITIES = [65, 50, 80, 45, 70, 55, 60, 40, 75, 50, 65, 45, 55, 60, 50, 70
 def seed(session: Session) -> None:
     if session.scalar(select(Buyer.id).limit(1)) is not None:
         return
+    if session.get(Organization, DEFAULT_ORGANIZATION_ID) is None:
+        session.add(Organization(id=DEFAULT_ORGANIZATION_ID, name="KoroFarm Demo Organization", slug="korofarm-demo"))
+        session.flush()
     buyer = Buyer(name="Harbour View Hotel (Synthetic)", buyer_type="HOTEL", destination="Montego Bay, Jamaica")
     node = FulfilmentNode(name="Montego Bay Collection Hub (Synthetic)", node_type="COLLECTION_CENTRE", parish="St. James")
     farmers = [Farmer(name=name, parish=parish) for name, parish in FARMERS]
@@ -90,6 +94,9 @@ def seed_competition_demo(session: Session) -> UUID:
     """
     if session.get(Requirement, DEMO_REQUIREMENT_ID) is not None:
         return DEMO_REQUIREMENT_ID
+    if session.get(Organization, DEFAULT_ORGANIZATION_ID) is None:
+        session.add(Organization(id=DEFAULT_ORGANIZATION_ID, name="KoroFarm Demo Organization", slug="korofarm-demo"))
+        session.flush()
     buyer = Buyer(id=DEMO_BUYER_ID, name="Harbour View Hotel (Synthetic)", buyer_type="HOTEL",
                   destination="Montego Bay, Jamaica")
     node = FulfilmentNode(id=DEMO_NODE_ID, name="Montego Bay Collection Hub (Synthetic)",

@@ -16,6 +16,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(process.env.NEXT_PUBLIC_ORGANIZATION_ID ? { 'X-Organization-ID': process.env.NEXT_PUBLIC_ORGANIZATION_ID } : {}),
         ...options.headers,
       },
       signal: options.signal ?? controller?.signal,

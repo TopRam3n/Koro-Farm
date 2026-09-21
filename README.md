@@ -128,3 +128,23 @@ npm run test:e2e
 The Playwright suite exercises the production frontend against PostgreSQL and
 captures the five competition-flow screenshots. CI runs migrations, backend
 tests, frontend checks, and that full-stack browser gate with local services.
+
+## Governance and capability evaluations
+
+Pilot accounts are invite-only. Live API requests must include the authenticated
+Supabase bearer token and `X-Organization-ID`; set
+`NEXT_PUBLIC_ORGANIZATION_ID` for the selected membership context. Public
+self-registration is intentionally disabled.
+
+Run the complete structured capability suite and zero-tolerance safety gate:
+
+```powershell
+python -m src.backend.scripts.evaluate_agents --release-gate
+python -m src.backend.scripts.evaluate_agents --capability recovery_coordinator
+python -m src.backend.scripts.evaluate_agents --test-id orchestrator-002
+```
+
+The latest JSON report is written to `tests/agent_eval/reports/latest.json`.
+The architecture inventory is in `docs/agents/AGENT_ARCHITECTURE.md`; current
+authorization coverage and remaining blockers are recorded in
+`docs/governance/GOVERNANCE_PHASE_STATUS.md`.

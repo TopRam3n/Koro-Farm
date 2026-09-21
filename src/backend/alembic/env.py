@@ -20,6 +20,9 @@ from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.supply.domain.models import Farmer, ProductionLot  # noqa: F401
 from src.backend.app.supply.domain.planning_models import SupplyAllocation, SupplyPlan  # noqa: F401
 from src.backend.app.programmes.domain.models import Programme  # noqa: F401
+from src.backend.app.identity.domain.models import (  # noqa: F401
+    Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
+)
 
 config = context.config
 if config.config_file_name is not None:
