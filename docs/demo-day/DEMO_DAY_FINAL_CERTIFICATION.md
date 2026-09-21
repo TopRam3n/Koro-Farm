@@ -1,6 +1,6 @@
 # KoroFarm demo-day final certification
 
-Assessment date: 2026-09-20
+Assessment date: 2026-09-21
 
 ## Decision
 
