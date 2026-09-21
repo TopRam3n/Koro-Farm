@@ -86,4 +86,4 @@ export const fulfilment = {
   rejectedKg: 0,
 };
 
-export const formatJmd = (value: number) => `J$${value.toLocaleString('en-JM')}`;
+export const formatJmd = (value: number) => `J$${value.toLocaleString('en-JM', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

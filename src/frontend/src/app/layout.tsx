@@ -4,7 +4,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'KoroFarm | Supply Assurance',
-  description: 'Caribbean agricultural supply assurance and execution layer',
+  description: 'Agentic Supply Assurance for Caribbean Food Systems',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { Zap, Loader2 } from 'lucide-react';
+import { Sprout, Loader2 } from 'lucide-react';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -53,19 +53,19 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-8">
       <div className="w-full max-w-md">
-        <div className="glass-card rounded-2xl p-8 space-y-6">
+        <div className="rounded-[14px] border border-white/[0.08] bg-card p-8 space-y-6 sm:p-10">
           {/* Logo */}
           <div className="text-center space-y-2">
             <div className="flex items-center justify-center gap-2 mb-4">
               <div className="p-2 rounded-xl bg-primary/10">
-                <Zap className="h-6 w-6 text-primary" />
+                <Sprout className="h-6 w-6 text-primary" />
               </div>
-              <span className="text-xl font-bold text-foreground">Koro Farm</span>
+              <span className="text-xl font-bold text-foreground">KoroFarm</span>
             </div>
             <h1 className="text-2xl font-bold text-foreground">Create account</h1>
-            <p className="text-muted-foreground">Join to guarantee supply assurance</p>
+            <p className="text-muted-foreground">Create an account for supply assurance operations</p>
           </div>
 
           {/* Form */}

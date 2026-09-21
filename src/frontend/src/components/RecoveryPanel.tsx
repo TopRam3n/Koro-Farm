@@ -1,16 +1,13 @@
-import { Check, CircleAlert, RotateCcw } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Check, Circle, Info, RotateCcw } from 'lucide-react';
 import { RecoveryStep } from '@/lib/mockdata';
+import { StatusBadge } from '@/components/StatusBadge';
 
 export function RecoveryPanel({ steps, status }: { steps: RecoveryStep[]; status?: string }) {
   const complete = status === 'completed';
-  const label = status ? status.replace(/_/g, ' ') : 'No recovery active';
-  return <Card>
-    <CardHeader className="flex-row items-center justify-between space-y-0 pb-4"><div><p className="font-mono text-xs uppercase tracking-[0.18em] text-warning">Agent activity</p><CardTitle className="mt-2 text-lg">Recovery run</CardTitle></div><Badge variant="outline" className={complete ? 'border-success/30 text-success' : 'border-warning/30 text-warning'}><RotateCcw className="mr-1.5 h-3.5 w-3.5" />{label}</Badge></CardHeader>
-    <CardContent className="space-y-4">
-      {steps.length ? steps.map((step, index) => <div className="flex gap-3" key={step.label}><div className="relative flex w-6 justify-center"><div className={`z-10 flex h-6 w-6 items-center justify-center rounded-full ${complete ? 'bg-success text-success-foreground' : 'bg-warning text-warning-foreground'}`}><Check className="h-3.5 w-3.5" /></div>{index < steps.length - 1 && <div className="absolute top-6 h-9 w-px bg-success/30" />}</div><div className="pb-1"><p className="text-sm font-medium">{step.label}</p><p className="text-xs leading-5 text-muted-foreground">{step.detail}</p></div></div>) : <p className="text-sm text-muted-foreground">No disruption has been recorded for this requirement.</p>}
-      <div className="mt-2 flex items-start gap-2 border-t border-border/60 pt-4 text-xs text-muted-foreground"><CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Decisions use deterministic quantity and cost calculations. No fulfilment is claimed before receipt and grading evidence.</div>
-    </CardContent>
-  </Card>;
+  return <section id="recovery" className="operational-panel h-full p-5 sm:p-6" aria-labelledby="recovery-title">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="section-eyebrow">Accountable orchestration</p><h2 id="recovery-title" className="mt-2 text-xl font-semibold">Recovery & agent activity</h2><p className="mt-1 text-sm text-muted-foreground">Every action is structured, attributable, and auditable.</p></div>{status ? <StatusBadge status={complete ? 'COMPLETED' : 'AT RISK'} /> : <StatusBadge status="NOT ASSESSED" />}</div>
+    {steps.length ? <ol className="mt-7">{steps.map((step, index) => <li className="grid grid-cols-[28px_minmax(0,1fr)] gap-3" key={`${step.label}-${index}`}><div className="flex flex-col items-center"><span className={`z-10 grid h-7 w-7 place-items-center rounded-full border ${step.state === 'complete' ? 'border-success/30 bg-success/15 text-success' : 'border-warning/40 bg-warning/10 text-warning'}`}>{step.state === 'complete' ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-2.5 w-2.5 fill-current" />}</span>{index < steps.length - 1 && <span className="min-h-10 w-px flex-1 bg-white/[0.09]" />}</div><div className="pb-5"><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-medium">{step.label}</p><span className="text-[10px] uppercase tracking-wider text-muted-foreground">System · verified</span></div><p className="mt-1 text-xs leading-5 text-muted-foreground">{step.detail}</p></div></li>)}</ol> : <div className="mt-7 border-y border-white/[0.07] py-8 text-center"><RotateCcw className="mx-auto h-5 w-5 text-muted-foreground" /><p className="mt-3 text-sm font-medium">No supply disruptions require attention.</p><p className="mt-1 text-xs text-muted-foreground">Recovery activity will appear here when committed supply changes.</p></div>}
+    <details className="mt-2 rounded-md border border-white/[0.07] bg-white/[0.025] p-3"><summary className="cursor-pointer list-none text-xs font-medium text-accent">Why this action?</summary><div className="mt-3 grid gap-2 text-xs leading-5 text-muted-foreground sm:grid-cols-2"><p><span className="text-foreground">Reason:</span> {steps[0]?.detail ?? 'No shortfall detected'}</p><p><span className="text-foreground">Constraints:</span> matching crop, grade, valid harvest window, authorized standby</p></div></details>
+    <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-muted-foreground"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />Decision rationale shows structured evidence, not hidden model reasoning. Physical delivery is never claimed by recovery.</p>
+  </section>;
 }
