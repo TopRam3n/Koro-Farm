@@ -44,6 +44,12 @@ class IngestionStatus(StrEnum):
     DUPLICATE = "DUPLICATE"
 
 
+class ImportStatus(StrEnum):
+    PREVIEWED = "PREVIEWED"
+    IMPORTED = "IMPORTED"
+    REJECTED = "REJECTED"
+
+
 class SecureActionPurpose(StrEnum):
     CONFIRM_QUANTITY = "CONFIRM_QUANTITY"
     CHANGE_AVAILABLE_QUANTITY = "CHANGE_AVAILABLE_QUANTITY"
@@ -132,3 +138,34 @@ class OutboundMessage(Base):
     delivery_state: Mapped[str] = mapped_column(String(40), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     result: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+class BulkImport(Base):
+    __tablename__ = "bulk_imports"
+    __table_args__ = (UniqueConstraint("organization_id", "entity_type", "file_digest",
+                                       name="uq_bulk_import_file"),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    actor_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    source_file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[ImportStatus] = mapped_column(Enum(ImportStatus, native_enum=False), nullable=False)
+    accepted_rows: Mapped[int] = mapped_column(nullable=False)
+    rejected_rows: Mapped[int] = mapped_column(nullable=False)
+    warning_rows: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BulkImportRow(Base):
+    __tablename__ = "bulk_import_rows"
+    __table_args__ = (UniqueConstraint("import_id", "row_number", name="uq_bulk_import_row_number"),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    import_id: Mapped[UUID] = mapped_column(ForeignKey("bulk_imports.id"), nullable=False, index=True)
+    row_number: Mapped[int] = mapped_column(nullable=False)
+    row_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    normalized_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    validation_errors: Mapped[list] = mapped_column(JSON, nullable=False)
+    warnings: Mapped[list] = mapped_column(JSON, nullable=False)
+    resulting_entity_id: Mapped[UUID | None] = mapped_column()

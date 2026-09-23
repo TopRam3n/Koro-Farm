@@ -4,12 +4,14 @@ from decimal import Decimal
 from uuid import UUID
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
+from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 from src.backend.app.ingestion.domain.models import (
     FreshnessStatus, IngestionRecord, OperationalObservation, SecureActionLink,
     SourceChannel, VerificationStatus,
 )
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from src.backend.app.demand.domain.models import Buyer, Requirement
 
 
 def _lot(session) -> tuple[Farmer, ProductionLot]:
@@ -50,6 +52,12 @@ def test_valid_farmer_secure_response_preserves_provenance(client, session) -> N
     assert response.status_code == 200
     assert response.json()["verification_status"] == "SELF_REPORTED"
     assert response.json()["freshness_status"] == "CURRENT"
+    retry = client.post(
+        f"/v1/secure-actions/{link['token']}", headers={"Idempotency-Key": "farmer-response-1"},
+        json={"available_quantity_kg": "95", "evidence_reference": "synthetic://farmer-confirmation/1"},
+    )
+    assert retry.status_code == 200
+    assert retry.json() == response.json()
     session.refresh(lot)
     assert lot.available_quantity_kg == Decimal("95.000")
     record = session.get(IngestionRecord, UUID(response.json()["ingestion_record_id"]))
@@ -117,3 +125,73 @@ def test_coordinator_channel_and_cross_tenant_target_are_rejected(client, sessio
         "confirmation_status": "UNCONFIRMED",
     })
     assert bad_channel.status_code == 422
+
+
+def test_csv_preview_reports_invalid_rows_and_confirm_is_idempotent(client, session) -> None:
+    content = "name,parish\nCSV Farmer,Manchester\nMissing Parish,\nCSV Farmer,Manchester\n"
+    preview = client.post("/v1/ingestion/imports/preview", json={
+        "entity_type": "farmers", "source_file_name": "farmers.csv", "csv_content": content,
+    })
+    assert preview.status_code == 201
+    body = preview.json()
+    assert body["accepted_rows"] == 1
+    assert body["rejected_rows"] == 2
+    assert body["rows"][1]["errors"] == ["parish is required"]
+    assert body["rows"][2]["errors"] == ["duplicate row in file"]
+    confirmed = client.post(f"/v1/ingestion/imports/{body['import_id']}/confirm",
+                            headers={"Idempotency-Key": "farmers-import-1"})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["imported_rows"] == 1
+    assert client.post(f"/v1/ingestion/imports/{body['import_id']}/confirm",
+                       headers={"Idempotency-Key": "farmers-import-1"}).json() == confirmed.json()
+    assert session.query(Farmer).filter_by(name="CSV Farmer").count() == 1
+    record = session.query(IngestionRecord).filter_by(
+        channel=SourceChannel.CSV_IMPORT, target_entity_type="farmers"
+    ).one()
+    event = session.get(DomainEvent, record.resulting_event_id)
+    assert event.event_type == "ingestion.entity_created"
+    assert event.correlation_id == record.correlation_id
+    assert session.query(OutboxMessage).filter_by(event_id=event.id).count() == 1
+    duplicate = client.post("/v1/ingestion/imports/preview", json={
+        "entity_type": "farmers", "source_file_name": "renamed.csv", "csv_content": content,
+    })
+    assert duplicate.status_code == 409
+
+
+def test_csv_production_lot_and_requirement_imports_use_scoped_parents(client, session) -> None:
+    farmer, _ = _lot(session)
+    buyer = Buyer(organization_id=DEFAULT_ORGANIZATION_ID, name="CSV Buyer", buyer_type="HOTEL", destination="Jamaica")
+    session.add(buyer); session.commit()
+    lot_csv = (
+        "farmer_id,crop,harvest_start,harvest_end,expected_quantity_kg,available_quantity_kg,grade,availability_confidence,parish\n"
+        f"{farmer.id},GINGER,2026-11-01,2026-11-10,200,180,A,HIGH,Manchester\n"
+    )
+    lot_preview = client.post("/v1/ingestion/imports/preview", json={
+        "entity_type": "production_lots", "source_file_name": "lots.csv", "csv_content": lot_csv,
+    }).json()
+    assert client.post(f"/v1/ingestion/imports/{lot_preview['import_id']}/confirm",
+                       headers={"Idempotency-Key": "lots-import"}).status_code == 200
+    requirement_csv = (
+        "buyer_id,crop,grade,required_quantity_kg,delivery_window_start,delivery_window_end\n"
+        f"{buyer.id},GINGER,A,300,2026-11-05,2026-11-12\n"
+    )
+    requirement_preview = client.post("/v1/ingestion/imports/preview", json={
+        "entity_type": "buyer_requirements", "source_file_name": "requirements.csv",
+        "csv_content": requirement_csv,
+    }).json()
+    assert client.post(f"/v1/ingestion/imports/{requirement_preview['import_id']}/confirm",
+                       headers={"Idempotency-Key": "requirements-import"}).status_code == 200
+    assert session.query(ProductionLot).filter_by(farmer_id=farmer.id).count() == 2
+    requirement = session.query(Requirement).filter_by(buyer_id=buyer.id).one()
+    record = session.query(IngestionRecord).filter_by(
+        channel=SourceChannel.CSV_IMPORT, target_entity_id=requirement.id
+    ).one()
+    assert session.get(DomainEvent, record.resulting_event_id).event_type == "requirement.created"
+
+
+def test_csv_templates_are_downloadable_and_unknown_template_is_rejected(client) -> None:
+    response = client.get("/v1/ingestion/imports/templates/farmers")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.text == "name,parish\r\n"
+    assert client.get("/v1/ingestion/imports/templates/shipments").status_code == 404

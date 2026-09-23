@@ -24,7 +24,7 @@ from src.backend.app.identity.domain.models import (  # noqa: F401
     Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
 )
 from src.backend.app.ingestion.domain.models import (  # noqa: F401
-    IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink,
+    BulkImport, BulkImportRow, IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink,
 )
 
 config = context.config

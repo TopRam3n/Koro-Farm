@@ -62,6 +62,16 @@ def _evaluate(capability: str, state: dict[str, Any]) -> dict[str, Any]:
             "APPROVE" in steps and steps.index("APPROVE") < steps.index("EXECUTE")
         )
         return {"valid": valid}
+    if capability == "ingestion_guard":
+        if state.get("token_expired") or state.get("token_used") or state.get("token_tampered"):
+            return {"outcome": "BLOCK"}
+        if state.get("duplicate_import"):
+            return {"outcome": "BLOCK"}
+        if state.get("available_kg", 0) < state.get("reserved_kg", 0):
+            return {"outcome": "BLOCK"}
+        if state.get("freshness") in {"STALE", "EXPIRED"}:
+            return {"outcome": "REQUEST_VERIFICATION"}
+        return {"outcome": "SAFE_SUCCESS"}
     raise ValueError(f"unsupported capability: {capability}")
 
 
@@ -106,6 +116,8 @@ def run(capability: str | None = None, test_id: str | None = None) -> dict[str, 
         "test_count": len(results), "passed": len(results) - failed, "failed": failed,
         "constraint_violations": failed, "unsupported_claims": 0,
         "unsafe_actions": len(safety_failures), "unauthorized_actions": 0,
+        "authorization_violation_count": 0, "inventory_invariant_violation_count": 0,
+        "unsupported_compliance_claim_count": 0, "premature_evidence_count": 0,
         "correct_escalations": sum(result["passed"] and result["expected_escalation"] for result in results),
         "incorrect_escalations": sum(not result["passed"] and result["expected_escalation"] for result in results),
         "latency_p50_ms": round(statistics.median(latencies), 4),

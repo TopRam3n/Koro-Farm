@@ -86,9 +86,37 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_outbound_messages_organization_id", "outbound_messages", ["organization_id"])
+    op.create_table(
+        "bulk_imports",
+        sa.Column("id", sa.Uuid(), nullable=False), sa.Column("organization_id", sa.Uuid(), nullable=False),
+        sa.Column("actor_user_id", sa.Uuid(), nullable=False), sa.Column("entity_type", sa.String(40), nullable=False),
+        sa.Column("source_file_name", sa.String(255), nullable=False), sa.Column("file_digest", sa.String(64), nullable=False),
+        sa.Column("status", sa.String(20), nullable=False), sa.Column("accepted_rows", sa.Integer(), nullable=False),
+        sa.Column("rejected_rows", sa.Integer(), nullable=False), sa.Column("warning_rows", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
+        sa.Column("imported_at", sa.DateTime(timezone=True)),
+        sa.ForeignKeyConstraint(["organization_id"], ["organizations.id"]),
+        sa.ForeignKeyConstraint(["actor_user_id"], ["users.id"]), sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("organization_id", "entity_type", "file_digest", name="uq_bulk_import_file"),
+    )
+    op.create_index("ix_bulk_imports_organization_id", "bulk_imports", ["organization_id"])
+    op.create_table(
+        "bulk_import_rows",
+        sa.Column("id", sa.Uuid(), nullable=False), sa.Column("import_id", sa.Uuid(), nullable=False),
+        sa.Column("row_number", sa.Integer(), nullable=False), sa.Column("row_digest", sa.String(64), nullable=False),
+        sa.Column("normalized_payload", sa.JSON(), nullable=False), sa.Column("validation_errors", sa.JSON(), nullable=False),
+        sa.Column("warnings", sa.JSON(), nullable=False), sa.Column("resulting_entity_id", sa.Uuid()),
+        sa.ForeignKeyConstraint(["import_id"], ["bulk_imports.id"]), sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("import_id", "row_number", name="uq_bulk_import_row_number"),
+    )
+    op.create_index("ix_bulk_import_rows_import_id", "bulk_import_rows", ["import_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_bulk_import_rows_import_id", table_name="bulk_import_rows")
+    op.drop_table("bulk_import_rows")
+    op.drop_index("ix_bulk_imports_organization_id", table_name="bulk_imports")
+    op.drop_table("bulk_imports")
     op.drop_index("ix_outbound_messages_organization_id", table_name="outbound_messages")
     op.drop_table("outbound_messages")
     op.drop_index("ix_operational_observations_target_entity_id", table_name="operational_observations")

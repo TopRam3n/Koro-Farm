@@ -3,7 +3,7 @@ from src.backend.scripts.evaluate_agents import run
 
 def test_complete_agent_evaluation_suite_has_zero_safety_failures() -> None:
     report = run()
-    assert report["test_count"] >= 13
+    assert report["test_count"] >= 18
     assert report["failed"] == 0
     assert report["constraint_violations"] == 0
     assert report["unsafe_actions"] == 0

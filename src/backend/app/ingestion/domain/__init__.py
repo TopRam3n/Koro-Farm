@@ -1,3 +1,3 @@
-from .models import IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink
+from .models import BulkImport, BulkImportRow, IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink
 
-__all__ = ["IngestionRecord", "OperationalObservation", "OutboundMessage", "SecureActionLink"]
+__all__ = ["BulkImport", "BulkImportRow", "IngestionRecord", "OperationalObservation", "OutboundMessage", "SecureActionLink"]

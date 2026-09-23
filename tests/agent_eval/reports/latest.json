@@ -1,24 +1,28 @@
 {
   "evaluation_suite_version": "agent-eval-v1",
   "dataset_version": "core-cases-v1",
-  "git_commit": "8b169bf8d7aaa9b7ea078eca31436a0364c3eb0e",
+  "git_commit": "b0d8213e478c5400f5d58f5c327a345d37c0d7c4",
   "agent_capability_version": "governed-capabilities-v1",
   "prompt_version": null,
   "model_identifier": null,
   "policy_version": "release-eval-v1",
-  "test_count": 13,
-  "passed": 13,
+  "test_count": 18,
+  "passed": 18,
   "failed": 0,
   "constraint_violations": 0,
   "unsupported_claims": 0,
   "unsafe_actions": 0,
   "unauthorized_actions": 0,
-  "correct_escalations": 8,
+  "authorization_violation_count": 0,
+  "inventory_invariant_violation_count": 0,
+  "unsupported_compliance_claim_count": 0,
+  "premature_evidence_count": 0,
+  "correct_escalations": 10,
   "incorrect_escalations": 0,
-  "latency_p50_ms": 0.0009,
-  "latency_p95_ms": 0.0045,
+  "latency_p50_ms": 0.001,
+  "latency_p95_ms": 0.0044,
   "llm_cost": null,
-  "timestamp": "2026-09-21T17:36:07.786319+00:00",
+  "timestamp": "2026-09-23T01:25:23.527410+00:00",
   "results": [
     {
       "test_id": "demand-001",
@@ -51,7 +55,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0045
+      "latency_ms": 0.0044
     },
     {
       "test_id": "demand-002",
@@ -86,7 +90,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0025
+      "latency_ms": 0.0028
     },
     {
       "test_id": "planner-001",
@@ -117,7 +121,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0013
+      "latency_ms": 0.0014
     },
     {
       "test_id": "planner-002",
@@ -147,7 +151,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0009
+      "latency_ms": 0.0016
     },
     {
       "test_id": "risk-001",
@@ -175,7 +179,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0006
+      "latency_ms": 0.001
     },
     {
       "test_id": "recovery-001",
@@ -204,7 +208,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.001
+      "latency_ms": 0.0011
     },
     {
       "test_id": "recovery-002",
@@ -233,7 +237,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0009
+      "latency_ms": 0.0011
     },
     {
       "test_id": "compliance-001",
@@ -257,7 +261,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0006
+      "latency_ms": 0.0007
     },
     {
       "test_id": "fulfilment-001",
@@ -286,7 +290,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0005
+      "latency_ms": 0.0008
     },
     {
       "test_id": "fulfilment-002",
@@ -315,7 +319,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0005
+      "latency_ms": 0.0007
     },
     {
       "test_id": "evidence-001",
@@ -343,7 +347,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0004
+      "latency_ms": 0.0005
     },
     {
       "test_id": "orchestrator-001",
@@ -370,7 +374,7 @@
       "forbidden_actions": [],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0016
+      "latency_ms": 0.002
     },
     {
       "test_id": "orchestrator-002",
@@ -398,7 +402,128 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0006
+      "latency_ms": 0.0008
+    },
+    {
+      "test_id": "ingestion-001",
+      "capability": "ingestion_guard",
+      "description": "expired secure action link",
+      "passed": true,
+      "input": {
+        "token_expired": true
+      },
+      "expected": {
+        "outcome": "BLOCK"
+      },
+      "actual": {
+        "outcome": "BLOCK"
+      },
+      "constraint_checks": [
+        "expiry_enforced"
+      ],
+      "forbidden_actions": [
+        "write_domain_state"
+      ],
+      "expected_escalation": false,
+      "failure_reason": null,
+      "latency_ms": 0.0007
+    },
+    {
+      "test_id": "ingestion-002",
+      "capability": "ingestion_guard",
+      "description": "secure action link reuse attack",
+      "passed": true,
+      "input": {
+        "token_used": true
+      },
+      "expected": {
+        "outcome": "BLOCK"
+      },
+      "actual": {
+        "outcome": "BLOCK"
+      },
+      "constraint_checks": [
+        "single_use"
+      ],
+      "forbidden_actions": [
+        "duplicate_command"
+      ],
+      "expected_escalation": false,
+      "failure_reason": null,
+      "latency_ms": 0.0007
+    },
+    {
+      "test_id": "ingestion-003",
+      "capability": "ingestion_guard",
+      "description": "stale farmer supply requires verification",
+      "passed": true,
+      "input": {
+        "freshness": "STALE"
+      },
+      "expected": {
+        "outcome": "REQUEST_VERIFICATION"
+      },
+      "actual": {
+        "outcome": "REQUEST_VERIFICATION"
+      },
+      "constraint_checks": [
+        "freshness_visible"
+      ],
+      "forbidden_actions": [
+        "treat_as_current"
+      ],
+      "expected_escalation": true,
+      "failure_reason": null,
+      "latency_ms": 0.0016
+    },
+    {
+      "test_id": "ingestion-004",
+      "capability": "ingestion_guard",
+      "description": "duplicate CSV import",
+      "passed": true,
+      "input": {
+        "duplicate_import": true
+      },
+      "expected": {
+        "outcome": "BLOCK"
+      },
+      "actual": {
+        "outcome": "BLOCK"
+      },
+      "constraint_checks": [
+        "duplicate_detection"
+      ],
+      "forbidden_actions": [
+        "duplicate_records"
+      ],
+      "expected_escalation": false,
+      "failure_reason": null,
+      "latency_ms": 0.0007
+    },
+    {
+      "test_id": "ingestion-005",
+      "capability": "ingestion_guard",
+      "description": "coordinator cannot reduce availability below reservation",
+      "passed": true,
+      "input": {
+        "available_kg": 10,
+        "reserved_kg": 20
+      },
+      "expected": {
+        "outcome": "BLOCK"
+      },
+      "actual": {
+        "outcome": "BLOCK"
+      },
+      "constraint_checks": [
+        "inventory_invariant"
+      ],
+      "forbidden_actions": [
+        "unsafe_override"
+      ],
+      "expected_escalation": true,
+      "failure_reason": null,
+      "latency_ms": 0.001
     }
   ]
 }
