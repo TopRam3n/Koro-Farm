@@ -1,7 +1,7 @@
 {
   "evaluation_suite_version": "agent-eval-v1",
   "dataset_version": "core-cases-v1",
-  "git_commit": "b0d8213e478c5400f5d58f5c327a345d37c0d7c4",
+  "git_commit": "146e36431bed84393089b94f9f5c5acb2ec67fc7",
   "agent_capability_version": "governed-capabilities-v1",
   "prompt_version": null,
   "model_identifier": null,
@@ -19,10 +19,10 @@
   "premature_evidence_count": 0,
   "correct_escalations": 10,
   "incorrect_escalations": 0,
-  "latency_p50_ms": 0.001,
-  "latency_p95_ms": 0.0044,
+  "latency_p50_ms": 0.0007,
+  "latency_p95_ms": 0.0037,
   "llm_cost": null,
-  "timestamp": "2026-09-23T01:25:23.527410+00:00",
+  "timestamp": "2026-09-23T01:29:39.546705+00:00",
   "results": [
     {
       "test_id": "demand-001",
@@ -55,7 +55,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0044
+      "latency_ms": 0.0037
     },
     {
       "test_id": "demand-002",
@@ -90,7 +90,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0028
+      "latency_ms": 0.0022
     },
     {
       "test_id": "planner-001",
@@ -121,7 +121,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0014
+      "latency_ms": 0.0011
     },
     {
       "test_id": "planner-002",
@@ -151,7 +151,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0016
+      "latency_ms": 0.0008
     },
     {
       "test_id": "risk-001",
@@ -179,7 +179,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.001
+      "latency_ms": 0.0007
     },
     {
       "test_id": "recovery-001",
@@ -208,7 +208,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0011
+      "latency_ms": 0.0009
     },
     {
       "test_id": "recovery-002",
@@ -237,7 +237,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0011
+      "latency_ms": 0.0008
     },
     {
       "test_id": "compliance-001",
@@ -261,7 +261,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0007
+      "latency_ms": 0.0006
     },
     {
       "test_id": "fulfilment-001",
@@ -290,7 +290,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0008
+      "latency_ms": 0.0006
     },
     {
       "test_id": "fulfilment-002",
@@ -319,7 +319,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0007
+      "latency_ms": 0.0006
     },
     {
       "test_id": "evidence-001",
@@ -374,7 +374,7 @@
       "forbidden_actions": [],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.002
+      "latency_ms": 0.0021
     },
     {
       "test_id": "orchestrator-002",
@@ -402,7 +402,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0008
+      "latency_ms": 0.0006
     },
     {
       "test_id": "ingestion-001",
@@ -426,7 +426,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0007
+      "latency_ms": 0.0005
     },
     {
       "test_id": "ingestion-002",
@@ -450,7 +450,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0007
+      "latency_ms": 0.0005
     },
     {
       "test_id": "ingestion-003",
@@ -474,7 +474,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.0016
+      "latency_ms": 0.0014
     },
     {
       "test_id": "ingestion-004",
@@ -498,7 +498,7 @@
       ],
       "expected_escalation": false,
       "failure_reason": null,
-      "latency_ms": 0.0007
+      "latency_ms": 0.0005
     },
     {
       "test_id": "ingestion-005",
@@ -523,7 +523,7 @@
       ],
       "expected_escalation": true,
       "failure_reason": null,
-      "latency_ms": 0.001
+      "latency_ms": 0.0009
     }
   ]
 }
