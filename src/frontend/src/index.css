@@ -68,6 +68,51 @@
   }
 }
 
+.control-center-shell {
+  --background: 210 7% 8%;
+  --foreground: 210 12% 94%;
+  --card: 210 7% 11%;
+  --card-foreground: 210 12% 94%;
+  --popover: 210 7% 11%;
+  --popover-foreground: 210 12% 94%;
+  --primary: 190 48% 60%;
+  --primary-foreground: 210 12% 8%;
+  --secondary: 210 7% 15%;
+  --secondary-foreground: 210 12% 94%;
+  --muted: 210 7% 15%;
+  --muted-foreground: 210 8% 68%;
+  --accent: 190 48% 60%;
+  --accent-foreground: 210 12% 8%;
+  --border: 210 7% 23%;
+  --input: 210 7% 23%;
+  --ring: 190 48% 60%;
+  --sidebar-background: 210 8% 6%;
+  --sidebar-foreground: 210 8% 72%;
+  --sidebar-primary: 190 48% 60%;
+  --sidebar-primary-foreground: 210 12% 8%;
+  --sidebar-accent: 210 7% 15%;
+  --sidebar-accent-foreground: 210 12% 94%;
+  --sidebar-border: 210 7% 18%;
+  --sidebar-ring: 190 48% 60%;
+  background-color: hsl(var(--background));
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.control-center-shell > aside { background-color: hsl(var(--sidebar-background)); }
+.control-center-shell nav summary { font-size: 0.6875rem; }
+.control-center-shell nav a { min-height: 2.5rem; font-size: 0.8125rem; }
+.control-center-shell header { background-color: hsl(var(--background)); backdrop-filter: none; }
+.control-center-shell aside > div:last-child p { display: none; }
+.control-center-shell aside > div:last-child .text-success { color: hsl(var(--muted-foreground)); }
+.control-center-shell aside > div:last-child .text-success > span { display: none; }
+.control-center-shell header > div:last-child > span { display: none; }
+.control-center-shell header a[aria-label="View exceptions"] > span { display: none; }
+
+@media (min-width: 1280px) {
+  .control-center-shell { grid-template-columns: 224px minmax(0, 1fr); }
+  .control-center-shell > aside { width: 224px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

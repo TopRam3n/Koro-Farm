@@ -1,6 +1,7 @@
 'use client';
 
-import { Bell, CircleDot, Moon, RefreshCw, Sprout, Sun, UserRound } from 'lucide-react';
+import { Bell, CircleDot, Moon, RefreshCw, Sun, UserRound } from 'lucide-react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useTheme } from 'next-themes';
 import { Button } from '@/components/ui/button';
@@ -23,15 +24,7 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-border/70 bg-background/90 px-6 py-4 backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1500px] items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="rounded-md bg-primary p-2 text-primary-foreground">
-              <Sprout className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">Koro<span className="text-primary">Farm</span></h1>
-              <p className="text-xs text-muted-foreground">Supply assurance control room</p>
-            </div>
-          </div>
+          <Image src="/brand/korofarm-wordmark.png" alt="KoroFarm — Supply Assurance OS" width={150} height={50} className="h-auto w-[150px] object-contain" priority />
           <Badge variant="outline" className="ml-4 border-primary/30 bg-primary/5 text-primary">
             <CircleDot className="mr-2 h-3 w-3" />
             Demo programme

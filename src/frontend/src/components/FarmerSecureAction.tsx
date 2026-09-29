@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { CheckCircle2, Loader2, Sprout } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
+import Image from 'next/image';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 type Action = { purpose: string; request_reference: string; farmer_name: string; crop: string; expires_at: string; constraints: Record<string, unknown> };
@@ -37,7 +38,7 @@ export function FarmerSecureAction() {
     setState('done');
   };
 
-  return <main className="grid min-h-screen place-items-center bg-background p-4"><section className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-card p-6 shadow-2xl sm:p-8"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary/10 text-primary"><Sprout className="h-5 w-5" /></span><div><strong>KoroFarm</strong><p className="text-xs text-muted-foreground">Secure farmer response</p></div></div>
+  return <main className="grid min-h-screen place-items-center bg-background p-4"><section className="w-full max-w-md rounded-2xl border border-white/[0.1] bg-card p-6 shadow-2xl sm:p-8"><div className="flex items-center gap-3"><Image src="/brand/korofarm-mark.png" alt="" width={40} height={40} className="h-10 w-10 shrink-0 object-contain" /><div><strong>KoroFarm</strong><p className="text-xs text-muted-foreground">Secure farmer response</p></div></div>
     {state === 'loading' && <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
     {state === 'error' && <div role="alert" className="mt-8 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm"><strong>Response unavailable</strong><p className="mt-2 text-muted-foreground">{message}</p></div>}
     {state === 'done' && <div className="py-12 text-center"><CheckCircle2 className="mx-auto h-8 w-8 text-success" /><h1 className="mt-4 text-xl font-semibold">Response recorded</h1><p className="mt-2 text-sm text-muted-foreground">Your self-reported response is timestamped and awaiting the applicable verification process. This link cannot be reused.</p></div>}
