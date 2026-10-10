@@ -1,9 +1,10 @@
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react-swc";
 import path from "path";
 
+// NOTE: This config targets pure TypeScript/logic unit tests (domain selectors, state machines).
+// Component tests requiring JSX transforms will be added in Sprint 3+ with the appropriate
+// plugin version aligned with the project's vite/next setup.
 export default defineConfig({
-  plugins: [react()],
   test: {
     environment: "jsdom",
     globals: true,

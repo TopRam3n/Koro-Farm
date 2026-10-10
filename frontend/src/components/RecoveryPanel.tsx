@@ -1,7 +1,7 @@
 import { Check, CircleAlert, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RecoveryStep } from '@/lib/mockdata';
+import type { RecoveryStep } from '@/domain/types';
 
 export function RecoveryPanel({ steps }: { steps: RecoveryStep[] }) {
   return <Card>

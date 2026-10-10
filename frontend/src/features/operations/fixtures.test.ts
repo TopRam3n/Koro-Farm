@@ -1,0 +1,2 @@
+import { describe, expect, it } from 'vitest'; import { escalations } from './fixtures';
+describe('operations triage', () => { it('does not fabricate resolved operations items', () => expect(escalations.every(item => ['OPEN', 'ASSIGNED'].includes(item.status))).toBe(true)); it('provides related context for every escalation', () => expect(escalations.every(item => item.relatedEntityId && item.contextHref)).toBe(true)) });

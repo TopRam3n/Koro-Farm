@@ -1,0 +1,1 @@
+export default function Page() { return <main className="mx-auto max-w-xl p-8"><h1 className="text-2xl font-semibold">Account awaiting activation</h1><p className="mt-3 text-sm text-muted-foreground">Your KoroFarm membership is pending and protected application areas remain unavailable until it becomes active.</p></main> }

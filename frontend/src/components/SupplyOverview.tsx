@@ -1,7 +1,7 @@
 import { CheckCircle2, Package, ShieldCheck, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Allocation, SupplyMetrics } from '@/lib/mockdata';
+import type { LegacyAllocation as Allocation, SupplyMetrics } from '@/domain/types';
 
 interface SupplyOverviewProps {
   metrics: SupplyMetrics;
@@ -35,8 +35,9 @@ export function SupplyOverview({ metrics, allocations }: SupplyOverviewProps) {
             </div>
             <p className="font-mono text-sm text-success">{coverage}% covered</p>
           </div>
-          <div className="h-3 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-success transition-all" style={{ width: `${coverage}%` }} />
+          <div className="flex h-3 overflow-hidden rounded-full bg-muted" aria-label={`${metrics.committedKg} kg committed, ${metrics.standbyKg} kg standby, ${metrics.shortfallKg} kg uncovered`}>
+            <div className="h-full bg-success transition-all" style={{ width: `${Math.min(100, coverage)}%` }} title="Committed coverage" />
+            {metrics.shortfallKg > 0 && <div className="h-full border-l border-background bg-warning/50" style={{ width: `${Math.min(metrics.standbyKg, metrics.shortfallKg) / metrics.requiredKg * 100}%`, backgroundImage: 'repeating-linear-gradient(135deg, transparent 0 4px, currentColor 4px 5px)' }} title="Standby capacity" />}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div className="border-l-2 border-primary pl-3"><p className="text-muted-foreground">Required</p><p className="font-semibold">{metrics.requiredKg} kg</p></div>

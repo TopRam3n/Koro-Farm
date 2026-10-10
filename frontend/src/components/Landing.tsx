@@ -66,15 +66,15 @@ export default function Landing() {
       <div className="intro">
         <div className="intro-text">
           <h1 className="hide">
-            <span className="text">Guarantee</span>
-          </h1>
-
-          <h1 className="hide">
-            <span className="text">Your</span>
+            <span className="text">Maintain</span>
           </h1>
 
           <h1 className="hide">
             <span className="text">Supply</span>
+          </h1>
+
+          <h1 className="hide">
+            <span className="text">Coverage</span>
           </h1>
         </div>
       </div>

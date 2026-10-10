@@ -1,0 +1,1 @@
+export default function Page() { return <main className="mx-auto max-w-xl p-8"><h1 className="text-2xl font-semibold">Account setup required</h1><p className="mt-3 text-sm text-muted-foreground">You are signed in, but no active KoroFarm application membership is available. Access is not derived from signup selections or browser storage.</p></main> }

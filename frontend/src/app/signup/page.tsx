@@ -1,3 +1,6 @@
-import Signup from '@/pages/Signup';
+import Link from 'next/link';
+import { Sprout, Building2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
 
-export default Signup;
+export default function SignupRouter() { return <main className="mx-auto flex min-h-screen max-w-3xl items-center p-5"><div className="w-full"><p className="font-mono text-xs uppercase tracking-wider text-primary">Create account</p><h1 className="mt-2 text-4xl font-semibold">How will you use KoroFarm?</h1><div className="mt-8 grid gap-4 sm:grid-cols-2"><Choice href="/signup/farmer" icon={Sprout} title="I GROW" body="I have crops to supply. Receive direct procurement requests for your produce." /><Choice href="/signup/buyer" icon={Building2} title="I BUY" body="I purchase produce for a hotel, supermarket, restaurant, or institution. Submit requirements and monitor supply coverage." /></div><p className="mt-6 text-sm text-muted-foreground">Already registered? <Link className="text-primary underline" href="/login">Sign in</Link></p></div></main>; }
+function Choice({ href, icon: Icon, title, body }: { href: string; icon: typeof Sprout; title: string; body: string }) { return <Link href={href}><Card className="h-full transition-colors hover:border-primary"><CardContent className="p-6"><Icon className="h-7 w-7 text-primary" /><h2 className="mt-5 text-xl font-semibold">{title}</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{body}</p></CardContent></Card></Link>; }

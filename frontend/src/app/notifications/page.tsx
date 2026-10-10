@@ -1,3 +1,3 @@
-import Notifications from '@/pages/Notifications';
+import Notifications from '@/views/Notifications';
 
 export default Notifications;

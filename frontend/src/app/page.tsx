@@ -1,4 +1,4 @@
-import Index from '@/pages/Index';
+import Index from '@/views/Index';
 import { AuthGate } from '@/components/AuthGate';
 
 export default function Page() {
