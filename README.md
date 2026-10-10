@@ -136,6 +136,29 @@ Supabase bearer token and `X-Organization-ID`; set
 `NEXT_PUBLIC_ORGANIZATION_ID` for the selected membership context. Public
 self-registration is intentionally disabled.
 
+### Farmer and customer access
+
+Organization administrators invite an existing Supabase account from
+`/admin/users`, assign its role, and link farmer accounts to a farm or customer
+accounts to a buyer. The invitee signs in and accepts the one-time token at
+`/signup`. `PLATFORM_ADMIN` (developer) access is internal-only and cannot be
+granted through organization invitations.
+
+Farmer accounts land in `/farmer` and submit expected crop, harvest window,
+quantity, and estimated grade. A forecast is not orderable: the farmer must
+separately report the kilograms ready before the lot appears in the customer
+marketplace. Both actions are recorded as self-reported ingestion evidence with
+low availability confidence until independently confirmed. Customer accounts
+land in `/marketplace`, browse available lots, place quantity-checked orders,
+and create crop/quantity availability watches. Orders reserve listed quantity
+and remain subject to fulfilment; in-app alerts refresh every 30 seconds while
+the marketplace is open. Email and SMS alerts are not configured.
+
+To preview the offline farmer or customer experience only, set
+`NEXT_PUBLIC_DEMO_ROLE=FARMER` or `NEXT_PUBLIC_DEMO_ROLE=BUYER` alongside the
+explicit demo flags. Demo role selection is synthetic and does not authenticate
+or authorize a real account.
+
 Run the complete structured capability suite and zero-tolerance safety gate:
 
 ```powershell

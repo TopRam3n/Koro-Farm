@@ -9,6 +9,44 @@ const baseAllocations = [
 
 let phase: 'initial' | 'risk' | 'restored' = 'initial';
 
+type DemoLot = {
+  id: string; farmer_id: string; farmer_name: string; parish: string; crop: string;
+  harvest_start: string; harvest_end: string; expected_quantity_kg: string;
+  available_quantity_kg: string; reserved_quantity_kg: string; quality_grade_estimate: string;
+  availability_confidence: string; status: string; last_verified_at: string; version: number;
+};
+
+const demoLots: DemoLot[] = [
+  { id: 'demo-market-ginger', farmer_id: 'demo-farmer-1', farmer_name: 'Grace Campbell', parish: 'St. Mary', crop: 'GINGER', harvest_start: '2026-10-12', harvest_end: '2026-10-24', expected_quantity_kg: '80.000', available_quantity_kg: '80.000', reserved_quantity_kg: '0.000', quality_grade_estimate: 'A', availability_confidence: 'MEDIUM', status: 'AVAILABLE', last_verified_at: '2026-10-08T12:00:00Z', version: 1 },
+  { id: 'demo-market-yam', farmer_id: 'demo-farmer-2', farmer_name: 'Leon Brown', parish: 'St. Elizabeth', crop: 'YAM', harvest_start: '2026-10-15', harvest_end: '2026-10-29', expected_quantity_kg: '120.000', available_quantity_kg: '120.000', reserved_quantity_kg: '0.000', quality_grade_estimate: 'B', availability_confidence: 'LOW', status: 'AVAILABLE', last_verified_at: '2026-10-08T12:00:00Z', version: 1 },
+  { id: 'demo-market-plantain', farmer_id: 'demo-farmer-3', farmer_name: 'Marcia Reid', parish: 'Clarendon', crop: 'PLANTAIN', harvest_start: '2026-10-18', harvest_end: '2026-10-30', expected_quantity_kg: '65.000', available_quantity_kg: '65.000', reserved_quantity_kg: '0.000', quality_grade_estimate: 'A', availability_confidence: 'MEDIUM', status: 'AVAILABLE', last_verified_at: '2026-10-08T12:00:00Z', version: 1 },
+];
+
+const demoOrders: Array<{ id: string; production_lot_id: string; farmer_name: string; parish: string; crop: string; quantity_kg: string; status: string; created_at: string }> = [];
+const demoWatches: Array<{ id: string; crop: string; minimum_quantity_kg: number }> = [];
+const demoAlerts: Array<{ id: string; watch_id: string; production_lot_id: string; crop: string; minimum_quantity_kg: string; available_quantity_kg: string; farmer_name: string; parish: string; quality_grade_estimate: string; created_at: string; read: boolean }> = [];
+
+function demoRole() { return process.env.NEXT_PUBLIC_DEMO_ROLE ?? 'SUPPLY_COORDINATOR'; }
+
+function assertDemoRole(allowed: string[]) {
+  if (!allowed.includes(demoRole())) throw new Error('This workspace is not available for the selected demo role.');
+}
+
+function demoAvailability(lot: DemoLot) {
+  return {
+    production_lot_id: lot.id, farmer_id: lot.farmer_id, farmer_name: lot.farmer_name,
+    parish: lot.parish, crop: lot.crop, quality_grade_estimate: lot.quality_grade_estimate,
+    harvest_start: lot.harvest_start, harvest_end: lot.harvest_end,
+    expected_quantity_kg: lot.expected_quantity_kg,
+    available_quantity_kg: (Number(lot.available_quantity_kg) - Number(lot.reserved_quantity_kg)).toFixed(3),
+    availability_confidence: lot.availability_confidence, last_reported_at: lot.last_verified_at,
+  };
+}
+
+function demoRequestBody<T>(options: RequestInit): T {
+  return options.body ? JSON.parse(String(options.body)) as T : {} as T;
+}
+
 export function resetDemoState() { phase = 'initial'; }
 
 function assurance() {
@@ -43,6 +81,107 @@ function assurance() {
 
 export async function demoApiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = options.method ?? 'GET';
+  if (path === '/me') return {
+    id: `demo-${demoRole().toLowerCase()}`, email: `${demoRole().toLowerCase()}@demo.korofarm.test`, name: 'Demo account',
+    active_organization_id: 'demo-organization', active_role: demoRole(),
+    active_farmer_id: demoRole() === 'FARMER' ? 'demo-farmer-self' : null,
+    active_buyer_id: demoRole() === 'BUYER' ? 'demo-buyer' : null,
+  } as T;
+  if (path === '/production-lots' && method === 'GET') {
+    const lots = demoRole() === 'FARMER' ? demoLots.filter(lot => lot.farmer_id === 'demo-farmer-self') : demoLots;
+    return lots.map(lot => ({
+      id: lot.id, farmer_id: lot.farmer_id, crop: lot.crop, harvest_start: lot.harvest_start,
+      harvest_end: lot.harvest_end, expected_quantity_kg: lot.expected_quantity_kg,
+      available_quantity_kg: lot.available_quantity_kg, reserved_quantity_kg: lot.reserved_quantity_kg,
+      quality_grade_estimate: lot.quality_grade_estimate, availability_confidence: lot.availability_confidence,
+      parish: lot.parish, status: lot.status, last_verified_at: lot.last_verified_at, version: lot.version,
+    })) as T;
+  }
+  if (path === '/v1/ingestion/farmer-production-lots' && method === 'POST') {
+    assertDemoRole(['FARMER']);
+    const payload = demoRequestBody<{ crop: string; harvest_start: string; harvest_end: string; expected_quantity_kg: string; quality_grade_estimate: string }>(options);
+    const lot: DemoLot = {
+      id: `demo-farmer-report-${Date.now()}`, farmer_id: 'demo-farmer-self', farmer_name: 'My Demo Farm', parish: 'St. Mary',
+      crop: payload.crop, harvest_start: payload.harvest_start, harvest_end: payload.harvest_end,
+      expected_quantity_kg: Number(payload.expected_quantity_kg).toFixed(3),
+      available_quantity_kg: '0.000', reserved_quantity_kg: '0.000',
+      quality_grade_estimate: payload.quality_grade_estimate, availability_confidence: 'LOW', status: 'UNAVAILABLE',
+      last_verified_at: new Date().toISOString(), version: 1,
+    };
+    demoLots.unshift(lot);
+    return { production_lot_id: lot.id, ingestion_record_id: `demo-ingestion-${Date.now()}`, verification_status: 'SELF_REPORTED', availability_confidence: 'LOW' } as T;
+  }
+  const farmerAvailability = path.match(/^\/v1\/ingestion\/farmer-production-lots\/([^/]+)\/availability$/);
+  if (farmerAvailability && method === 'POST') {
+    assertDemoRole(['FARMER']);
+    const lot = demoLots.find(item => item.id === farmerAvailability[1] && item.farmer_id === 'demo-farmer-self');
+    if (!lot) throw new Error('production lot not found');
+    const payload = demoRequestBody<{ available_quantity_kg: string }>(options);
+    const quantity = Number(payload.available_quantity_kg);
+    if (quantity < Number(lot.reserved_quantity_kg) || quantity > Number(lot.expected_quantity_kg)) {
+      throw new Error('ready quantity must be between reserved stock and expected harvest');
+    }
+    lot.available_quantity_kg = quantity.toFixed(3);
+    lot.status = quantity > Number(lot.reserved_quantity_kg) ? 'AVAILABLE' : 'UNAVAILABLE';
+    lot.last_verified_at = new Date().toISOString();
+    lot.version += 1;
+    return { production_lot_id: lot.id, ingestion_record_id: `demo-ingestion-${Date.now()}`, available_quantity_kg: lot.available_quantity_kg, status: lot.status, verification_status: 'SELF_REPORTED' } as T;
+  }
+  if (path.startsWith('/marketplace/availability') && method === 'GET') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    const query = path.split('?')[1];
+    const crop = query ? new URLSearchParams(query).get('crop') : null;
+    const items = demoLots.filter(lot => Number(lot.available_quantity_kg) > Number(lot.reserved_quantity_kg))
+      .filter(lot => !crop || lot.crop === crop).map(demoAvailability);
+    return { items } as T;
+  }
+  if (path === '/marketplace/orders' && method === 'GET') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    return { items: [...demoOrders] } as T;
+  }
+  if (path === '/marketplace/orders' && method === 'POST') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    const payload = demoRequestBody<{ production_lot_id: string; quantity_kg: string }>(options);
+    const lot = demoLots.find(item => item.id === payload.production_lot_id);
+    if (!lot || lot.status !== 'AVAILABLE') throw new Error('available production lot not found');
+    const quantity = Number(payload.quantity_kg);
+    const remaining = Number(lot.available_quantity_kg) - Number(lot.reserved_quantity_kg);
+    if (quantity <= 0 || quantity > remaining) throw new Error(`only ${remaining.toFixed(3)} kg remains available`);
+    lot.reserved_quantity_kg = (Number(lot.reserved_quantity_kg) + quantity).toFixed(3);
+    lot.version += 1;
+    const order = { id: `demo-order-${Date.now()}`, production_lot_id: lot.id, farmer_name: lot.farmer_name, parish: lot.parish, crop: lot.crop, quantity_kg: quantity.toFixed(3), status: 'PLACED', created_at: new Date().toISOString() };
+    demoOrders.unshift(order);
+    return order as T;
+  }
+  if (path === '/marketplace/watches' && method === 'POST') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    const payload = demoRequestBody<{ crop: string; minimum_quantity_kg: string }>(options);
+    const watch = { id: `demo-watch-${Date.now()}`, crop: payload.crop, minimum_quantity_kg: Number(payload.minimum_quantity_kg) };
+    demoWatches.push(watch);
+    return { ...watch, minimum_quantity_kg: String(watch.minimum_quantity_kg), active: true } as T;
+  }
+  if (path === '/marketplace/alerts' && method === 'GET') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    for (const watch of demoWatches) {
+      for (const lot of demoLots.filter(item => item.crop === watch.crop && Number(item.available_quantity_kg) - Number(item.reserved_quantity_kg) >= watch.minimum_quantity_kg)) {
+        const existing = demoAlerts.find(alert => alert.watch_id === watch.id && alert.production_lot_id === lot.id);
+        if (existing) {
+          existing.available_quantity_kg = (Number(lot.available_quantity_kg) - Number(lot.reserved_quantity_kg)).toFixed(3);
+        } else {
+          demoAlerts.unshift({ id: `demo-alert-${Date.now()}-${demoAlerts.length}`, watch_id: watch.id, production_lot_id: lot.id, crop: lot.crop, minimum_quantity_kg: watch.minimum_quantity_kg.toFixed(3), available_quantity_kg: (Number(lot.available_quantity_kg) - Number(lot.reserved_quantity_kg)).toFixed(3), farmer_name: lot.farmer_name, parish: lot.parish, quality_grade_estimate: lot.quality_grade_estimate, created_at: new Date().toISOString(), read: false });
+        }
+      }
+    }
+    return { items: [...demoAlerts] } as T;
+  }
+  const readAlert = path.match(/^\/marketplace\/alerts\/([^/]+)\/read$/);
+  if (readAlert && method === 'POST') {
+    assertDemoRole(['BUYER', 'PLATFORM_ADMIN']);
+    const alert = demoAlerts.find(item => item.id === readAlert[1]);
+    if (!alert) throw new Error('availability alert not found');
+    alert.read = true;
+    return { id: alert.id, read: true } as T;
+  }
   if (path.endsWith('/assurance')) return structuredClone(assurance()) as T;
   if (path.endsWith('/fulfilment')) return { required_kg: '500.000', committed_kg: assurance().committed_quantity_kg, received_kg: '0.000', accepted_kg: '0.000', rejected_kg: '0.000', accepted_shortfall_kg: '500.000' } as T;
   if (path.endsWith('/events')) {

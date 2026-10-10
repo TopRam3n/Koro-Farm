@@ -9,6 +9,7 @@ class RoleCode(StrEnum):
     WAREHOUSE_OPERATOR = "WAREHOUSE_OPERATOR"
     AUDITOR = "AUDITOR"
     FARMER = "FARMER"
+    BUYER = "BUYER"
 
 
 class PermissionCode(StrEnum):
@@ -38,6 +39,11 @@ class PermissionCode(StrEnum):
     APPROVAL_POLICY_MANAGE = "approval_policy.manage"
     AGENT_EVALUATION_VIEW = "agent_evaluation.view"
     AGENT_EVALUATION_RUN = "agent_evaluation.run"
+    FARMER_SUPPLY_REPORT = "farmer_supply.report"
+    MARKETPLACE_VIEW = "marketplace.view"
+    ORDER_VIEW = "order.view"
+    ORDER_CREATE = "order.create"
+    AVAILABILITY_ALERT_MANAGE = "availability_alert.manage"
 
 
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[PermissionCode]] = {
@@ -70,5 +76,12 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[PermissionCode]] = {
         PermissionCode.RECEIVING_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW,
         PermissionCode.USER_VIEW, PermissionCode.AUDIT_VIEW, PermissionCode.APPROVAL_POLICY_VIEW,
     }),
-    RoleCode.FARMER: frozenset({PermissionCode.SUPPLY_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW}),
+    RoleCode.FARMER: frozenset({
+        PermissionCode.SUPPLY_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW,
+        PermissionCode.FARMER_SUPPLY_REPORT,
+    }),
+    RoleCode.BUYER: frozenset({
+        PermissionCode.MARKETPLACE_VIEW, PermissionCode.ORDER_VIEW,
+        PermissionCode.ORDER_CREATE, PermissionCode.AVAILABILITY_ALERT_MANAGE,
+    }),
 }

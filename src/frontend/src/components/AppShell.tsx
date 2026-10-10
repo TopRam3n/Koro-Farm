@@ -1,10 +1,11 @@
 'use client';
 
-import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, ListTodo, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, SlidersHorizontal, Tractor, Unplug, UserRoundCog, Workflow, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, ListTodo, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, ShoppingBasket, SlidersHorizontal, Tractor, Unplug, UserRoundCog, Workflow, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useIdentity } from '@/hooks/useIdentity';
 
 type NavItem = readonly [string, string, typeof LayoutDashboard];
 type NavGroup = { label: string; items: readonly NavItem[] };
@@ -18,6 +19,18 @@ const groups: readonly NavGroup[] = [
   { label: 'Administration', items: [['Users & Access', '/admin/users', UserRoundCog], ['Organization', '/admin/organization', Building2], ['Approval Policies', '/admin/approval-policies', SlidersHorizontal], ['Settings', '/settings', Settings]] },
 ] as const;
 
+const farmerGroups: readonly NavGroup[] = [
+  { label: 'My farm', items: [['My harvest', '/farmer', Tractor]] },
+  { label: 'Account', items: [['Notifications', '/notifications', Bell], ['Profile', '/profile', UserRoundCog]] },
+];
+
+const buyerGroups: readonly NavGroup[] = [
+  { label: 'Shop', items: [['Available produce', '/marketplace', ShoppingBasket], ['My orders', '/marketplace#orders', ClipboardCheck], ['Food alerts', '/marketplace#alerts', Bell]] },
+  { label: 'Account', items: [['Profile', '/profile', UserRoundCog]] },
+];
+
+const adminWorkspaceGroup: NavGroup = { label: 'Partner workspaces', items: [['Farmer portal', '/farmer', Tractor], ['Customer marketplace', '/marketplace', ShoppingBasket]] };
+
 export function AppShell({ children, programme = 'Harbour View Hotel (Synthetic) · Ginger', className = '', compactNavGroups = false }: { children: React.ReactNode; programme?: string; className?: string; compactNavGroups?: boolean }) {
   const [open, setOpen] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -27,7 +40,9 @@ export function AppShell({ children, programme = 'Harbour View Hotel (Synthetic)
   const paletteTriggerRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const pathname = usePathname();
-  const flatItems = useMemo(() => groups.flatMap(group => group.items), []);
+  const identity = useIdentity();
+  const visibleGroups = useMemo(() => identity.data?.active_role === 'FARMER' ? farmerGroups : identity.data?.active_role === 'BUYER' ? buyerGroups : identity.data?.active_role === 'PLATFORM_ADMIN' ? [...groups, adminWorkspaceGroup] : groups, [identity.data?.active_role]);
+  const flatItems = useMemo(() => visibleGroups.flatMap(group => group.items), [visibleGroups]);
   const results = flatItems.filter(([label]) => label.toLowerCase().includes(query.toLowerCase()));
 
   const closePalette = () => {

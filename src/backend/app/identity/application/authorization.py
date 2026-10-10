@@ -21,6 +21,7 @@ class AuthorizationContext:
     role: RoleCode
     permissions: frozenset[PermissionCode]
     farmer_id: UUID | None = None
+    buyer_id: UUID | None = None
 
 
 def get_authorization_context(
@@ -64,6 +65,7 @@ def get_authorization_context(
         role=membership.role_code,
         permissions=ROLE_PERMISSIONS[membership.role_code],
         farmer_id=membership.farmer_id,
+        buyer_id=membership.buyer_id,
     )
 
 
@@ -71,6 +73,17 @@ def require_permission(permission: PermissionCode) -> Callable:
     def dependency(context: AuthorizationContext = Depends(get_authorization_context)) -> AuthorizationContext:
         if permission not in context.permissions:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "permission denied")
+        return context
+
+    return dependency
+
+
+def require_roles(*roles: RoleCode) -> Callable:
+    allowed_roles = frozenset(roles)
+
+    def dependency(context: AuthorizationContext = Depends(get_authorization_context)) -> AuthorizationContext:
+        if context.role not in allowed_roles:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "role does not have access to this workspace")
         return context
 
     return dependency

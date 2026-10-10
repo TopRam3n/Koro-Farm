@@ -21,11 +21,12 @@ from src.backend.app.supply.domain.models import Farmer, ProductionLot  # noqa: 
 from src.backend.app.supply.domain.planning_models import SupplyAllocation, SupplyPlan  # noqa: F401
 from src.backend.app.programmes.domain.models import Programme  # noqa: F401
 from src.backend.app.identity.domain.models import (  # noqa: F401
-    Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
+    AccessRequest, Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
 )
 from src.backend.app.ingestion.domain.models import (  # noqa: F401
     BulkImport, BulkImportRow, IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink,
 )
+from src.backend.app.marketplace.domain.models import AvailabilityAlert, AvailabilityWatch, MarketplaceOrder  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

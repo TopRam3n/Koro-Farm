@@ -34,7 +34,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -45,7 +45,9 @@ export default function Login() {
         title: "Welcome back!",
         description: "Successfully logged in.",
       });
-      router.push('/');
+      const next = new URLSearchParams(window.location.search).get('next');
+      const hasAccessRequest = ['FARMER', 'BUYER'].includes(data.user?.user_metadata?.requested_access_role);
+      router.push(next === '/signup' || hasAccessRequest ? '/signup' : '/');
     } catch (error) {
       toast({
         title: "Login failed",
