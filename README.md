@@ -144,6 +144,19 @@ accounts to a buyer. The invitee signs in and accepts the one-time token at
 `/signup`. `PLATFORM_ADMIN` (developer) access is internal-only and cannot be
 granted through organization invitations.
 
+Applicants can also create an account from the sign-in page and request Farmer
+or Customer access. Supabase email confirmation must be enabled; only verified
+accounts can submit requests. The configured `ACCESS_REQUEST_REVIEWER_EMAIL`
+(defaults to `allensava13@gmail.com`) reviews the in-app queue in Users & Access.
+That email must itself have an active organization membership with the
+organization-admin invite permission; the email address alone does not grant
+review authority. If overriding the backend setting, also set the matching
+frontend `NEXT_PUBLIC_ACCESS_REQUEST_REVIEWER_EMAIL`. Approval links the account to an existing farm or buyer and
+activates the membership. Developer access cannot be requested. Requests are
+currently scoped to the configured pilot organization
+(`DEFAULT_ORGANIZATION_ID`); do not use this as multi-tenant production
+onboarding without tenant-specific organization selection and isolation tests.
+
 Farmer accounts land in `/farmer` and submit expected crop, harvest window,
 quantity, and estimated grade. A forecast is not orderable: the farmer must
 separately report the kilograms ready before the lot appears in the customer

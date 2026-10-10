@@ -114,9 +114,9 @@ export default function Login() {
 
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
-            Pilot access is invite-only.{' '}
+            New to KoroFarm?{' '}
             <Link href="/signup" className="text-primary hover:underline font-medium">
-              Invitation details
+              Create an account or request access
             </Link>
           </p>
         </div>
