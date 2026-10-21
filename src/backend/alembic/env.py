@@ -28,10 +28,23 @@ from src.backend.app.ingestion.domain.models import (  # noqa: F401
 )
 from src.backend.app.marketplace.domain.models import AvailabilityAlert, AvailabilityWatch, MarketplaceOrder  # noqa: F401
 
+# Load .env if present
+env_file = Path(__file__).resolve().parents[1] / ".env"
+if env_file.exists():
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, val = line.split("=", 1)
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key not in os.environ:
+                os.environ[key] = val
+
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 if database_url := os.getenv("DATABASE_URL"):
+    if database_url.startswith("postgresql://"):
+        database_url = f"postgresql+psycopg://{database_url[len('postgresql://'):]}"
     config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = Base.metadata
@@ -44,7 +57,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    configuration = config.get_section(config.config_ini_section, {})
+    if url := config.get_main_option("sqlalchemy.url"):
+        configuration["sqlalchemy.url"] = url
+    connectable = engine_from_config(configuration, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

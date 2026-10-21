@@ -12,7 +12,10 @@ def database_url() -> str:
 
 
 def create_engine_from_url(url: str | None = None) -> Engine:
-    return create_engine(url or database_url(), pool_pre_ping=True)
+    resolved_url = url or database_url()
+    if resolved_url.startswith("postgresql://"):
+        resolved_url = f"postgresql+psycopg://{resolved_url[len('postgresql://'):]}"
+    return create_engine(resolved_url, pool_pre_ping=True)
 
 
 def create_session_factory(url: str | None = None) -> sessionmaker[Session]:
