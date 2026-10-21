@@ -17,6 +17,12 @@ class MembershipStatus(StrEnum):
     INACTIVE = "INACTIVE"
 
 
+class AccessRequestStatus(StrEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class UserAccount(Base):
     __tablename__ = "users"
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -67,9 +73,25 @@ class OrganizationMembership(Base):
     role_code: Mapped[RoleCode] = mapped_column(ForeignKey("roles.code"), nullable=False)
     status: Mapped[MembershipStatus] = mapped_column(Enum(MembershipStatus, native_enum=False), nullable=False)
     farmer_id: Mapped[UUID | None] = mapped_column(ForeignKey("farmers.id"), nullable=True)
+    buyer_id: Mapped[UUID | None] = mapped_column(ForeignKey("buyers.id"), nullable=True)
     invited_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     invitation_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class AccessRequest(Base):
+    __tablename__ = "access_requests"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    requested_role: Mapped[RoleCode] = mapped_column(Enum(RoleCode, native_enum=False), nullable=False)
+    status: Mapped[AccessRequestStatus] = mapped_column(
+        Enum(AccessRequestStatus, native_enum=False), nullable=False, default=AccessRequestStatus.PENDING,
+    )
+    reviewed_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

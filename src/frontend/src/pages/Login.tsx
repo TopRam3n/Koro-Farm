@@ -34,7 +34,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -45,7 +45,9 @@ export default function Login() {
         title: "Welcome back!",
         description: "Successfully logged in.",
       });
-      router.push('/');
+      const next = new URLSearchParams(window.location.search).get('next');
+      const hasAccessRequest = ['FARMER', 'BUYER'].includes(data.user?.user_metadata?.requested_access_role);
+      router.push(next === '/signup' || hasAccessRequest ? '/signup' : '/');
     } catch (error) {
       toast({
         title: "Login failed",
@@ -112,9 +114,9 @@ export default function Login() {
 
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
-            Pilot access is invite-only.{' '}
+            New to KoroFarm?{' '}
             <Link href="/signup" className="text-primary hover:underline font-medium">
-              Invitation details
+              Create an account or request access
             </Link>
           </p>
         </div>

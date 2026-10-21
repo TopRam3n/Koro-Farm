@@ -155,6 +155,42 @@ Supabase bearer token and `X-Organization-ID`; set
 `NEXT_PUBLIC_ORGANIZATION_ID` for the selected membership context. Public
 self-registration is intentionally disabled.
 
+### Farmer and customer access
+
+Organization administrators invite an existing Supabase account from
+`/admin/users`, assign its role, and link farmer accounts to a farm or customer
+accounts to a buyer. The invitee signs in and accepts the one-time token at
+`/signup`. `PLATFORM_ADMIN` (developer) access is internal-only and cannot be
+granted through organization invitations.
+
+Applicants can also create an account from the sign-in page and request Farmer
+or Customer access. Supabase email confirmation must be enabled; only verified
+accounts can submit requests. The configured `ACCESS_REQUEST_REVIEWER_EMAIL`
+(defaults to `allensava13@gmail.com`) reviews the in-app queue in Users & Access.
+That email must itself have an active organization membership with the
+organization-admin invite permission; the email address alone does not grant
+review authority. If overriding the backend setting, also set the matching
+frontend `NEXT_PUBLIC_ACCESS_REQUEST_REVIEWER_EMAIL`. Approval links the account to an existing farm or buyer and
+activates the membership. Developer access cannot be requested. Requests are
+currently scoped to the configured pilot organization
+(`DEFAULT_ORGANIZATION_ID`); do not use this as multi-tenant production
+onboarding without tenant-specific organization selection and isolation tests.
+
+Farmer accounts land in `/farmer` and submit expected crop, harvest window,
+quantity, and estimated grade. A forecast is not orderable: the farmer must
+separately report the kilograms ready before the lot appears in the customer
+marketplace. Both actions are recorded as self-reported ingestion evidence with
+low availability confidence until independently confirmed. Customer accounts
+land in `/marketplace`, browse available lots, place quantity-checked orders,
+and create crop/quantity availability watches. Orders reserve listed quantity
+and remain subject to fulfilment; in-app alerts refresh every 30 seconds while
+the marketplace is open. Email and SMS alerts are not configured.
+
+To preview the offline farmer or customer experience only, set
+`NEXT_PUBLIC_DEMO_ROLE=FARMER` or `NEXT_PUBLIC_DEMO_ROLE=BUYER` alongside the
+explicit demo flags. Demo role selection is synthetic and does not authenticate
+or authorize a real account.
+
 Run the complete structured capability suite and zero-tolerance safety gate:
 
 ```powershell

@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from src.backend.app.core.auth import get_current_user
 from src.backend.app.identity.application.authorization import get_authorization_context
 from src.backend.app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
-from src.backend.app.identity.domain.permissions import RoleCode
+from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
 from src.backend.app.main import app
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
@@ -14,6 +14,14 @@ from src.backend.app.supply.domain.models import Farmer, ProductionLot, Producti
 
 ORG_A = UUID("00000000-0000-0000-0000-000000001001")
 ORG_B = UUID("00000000-0000-0000-0000-000000001002")
+
+
+def test_farmer_and_buyer_roles_are_limited_to_their_workflows() -> None:
+    assert PermissionCode.FARMER_SUPPLY_REPORT in ROLE_PERMISSIONS[RoleCode.FARMER]
+    assert PermissionCode.REQUIREMENT_CREATE not in ROLE_PERMISSIONS[RoleCode.FARMER]
+    assert PermissionCode.ORDER_CREATE in ROLE_PERMISSIONS[RoleCode.BUYER]
+    assert PermissionCode.USER_MANAGE_ROLE not in ROLE_PERMISSIONS[RoleCode.BUYER]
+    assert ROLE_PERMISSIONS[RoleCode.PLATFORM_ADMIN] == frozenset(PermissionCode)
 
 
 def _identity(session, role: RoleCode, status: MembershipStatus = MembershipStatus.ACTIVE,
@@ -102,6 +110,27 @@ def test_invitation_acceptance_and_role_change_lifecycle(client, session) -> Non
     accepted = client.post("/invitations/accept", json={"token": token})
     assert accepted.status_code == 200
     assert accepted.json()["status"] == "ACTIVE"
+
+
+def test_buyer_invitation_requires_an_organization_owned_buyer(client, session) -> None:
+    admin, _ = _identity(session, RoleCode.ORGANIZATION_ADMIN)
+    buyer = Buyer(organization_id=ORG_A, name="Local Buyer", buyer_type="HOTEL", destination="Kingston")
+    other_buyer = Buyer(organization_id=ORG_B, name="Other Buyer", buyer_type="HOTEL", destination="Kingston")
+    session.add_all([buyer, other_buyer])
+    session.commit()
+    _as(client, admin)
+
+    payload = {"user_id": str(uuid4()), "email": "customer@example.test", "display_name": "Customer User", "role": "BUYER"}
+    assert client.post("/admin/users/invitations", headers={"X-Organization-ID": str(ORG_A)}, json=payload).status_code == 422
+
+    payload["buyer_id"] = str(other_buyer.id)
+    assert client.post("/admin/users/invitations", headers={"X-Organization-ID": str(ORG_A)}, json=payload).status_code == 404
+
+    payload["buyer_id"] = str(buyer.id)
+    response = client.post("/admin/users/invitations", headers={"X-Organization-ID": str(ORG_A)}, json=payload)
+    assert response.status_code == 201
+    membership = session.get(OrganizationMembership, UUID(response.json()["membership_id"]))
+    assert membership.buyer_id == buyer.id
 
 
 def test_warehouse_operator_cannot_create_procurement_requirement(client, session) -> None:

@@ -9,14 +9,14 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
-from src.backend.app.identity.domain.permissions import PermissionCode
+from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 from src.backend.app.ingestion.domain.models import (
     BulkImport, BulkImportRow, FreshnessStatus, ImportStatus, IngestionRecord, IngestionStatus, OperationalObservation,
     SecureActionLink, SecureActionPurpose, SourceChannel, VerificationStatus,
@@ -24,7 +24,7 @@ from src.backend.app.ingestion.domain.models import (
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
+from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade
 from src.backend.app.supply.domain.models import ProductionLotStatus
 
 router = APIRouter(prefix="/v1/ingestion", tags=["ingestion"])
@@ -61,6 +61,27 @@ class CoordinatorObservation(BaseModel):
     evidence_reference: str | None = Field(default=None, max_length=500)
 
 
+class FarmerSupplyReport(BaseModel):
+    crop: Crop
+    harvest_start: date
+    harvest_end: date
+    expected_quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    quality_grade_estimate: Grade
+    evidence_reference: str | None = Field(default=None, max_length=500)
+
+    @field_validator("harvest_end")
+    @classmethod
+    def valid_harvest_window(cls, end: date, info):
+        start = info.data.get("harvest_start")
+        if start:
+            DateWindow(start, end)
+        return end
+
+
+class FarmerAvailabilityReport(BaseModel):
+    available_quantity_kg: Decimal = Field(ge=0, max_digits=12, decimal_places=3)
+
+
 class ImportPreviewCommand(BaseModel):
     entity_type: str
     source_file_name: str = Field(min_length=1, max_length=255)
@@ -83,7 +104,8 @@ def _record(
     correlation_id = uuid4()
     event = DomainEvent(
         event_type="production.observation_recorded", aggregate_type="production_lot", aggregate_id=lot.id,
-        correlation_id=correlation_id, actor_type="farmer" if channel == SourceChannel.SECURE_LINK else "coordinator",
+        correlation_id=correlation_id,
+        actor_type="farmer" if channel in {SourceChannel.SECURE_LINK, SourceChannel.PORTAL} else "coordinator",
         payload={"production_lot_id": str(lot.id), "farmer_id": str(farmer_id), "channel": channel.value,
                  "fields": sorted(payload), "verification_status": verification.value},
         occurred_at=datetime.now(timezone.utc),
@@ -108,7 +130,9 @@ def _record(
             source_actor=source_actor, source_channel=channel, effective_at=effective_at,
             verified_at=datetime.now(timezone.utc) if verification == VerificationStatus.COORDINATOR_CONFIRMED else None,
             verification_status=verification,
-            verification_method="farmer secure response" if channel == SourceChannel.SECURE_LINK else "coordinator-assisted entry",
+            verification_method=("farmer portal report" if channel == SourceChannel.PORTAL else
+                                 "farmer secure response" if channel == SourceChannel.SECURE_LINK else
+                                 "coordinator-assisted entry"),
             freshness_status=FreshnessStatus.CURRENT, freshness_expires_at=expires_at,
             supporting_evidence_reference=evidence,
         ))
@@ -131,6 +155,138 @@ def _apply_observation(lot: ProductionLot, payload: dict) -> None:
     lot.last_verified_at = datetime.now(timezone.utc)
     lot.version += 1
     lot.validate()
+
+
+@router.post("/farmer-production-lots", status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(PermissionCode.FARMER_SUPPLY_REPORT))])
+def report_farmer_supply(
+    payload: FarmerSupplyReport,
+    context: AuthorizationContext = Depends(get_authorization_context),
+    session: Session = Depends(get_session),
+) -> dict:
+    if context.role != RoleCode.FARMER or context.farmer_id is None:
+        raise HTTPException(403, "a linked farmer membership is required")
+    farmer = session.scalar(select(Farmer).where(
+        Farmer.id == context.farmer_id,
+        Farmer.organization_id == context.organization_id,
+        Farmer.active.is_(True),
+    ))
+    if farmer is None:
+        raise HTTPException(404, "farmer account not found")
+
+    now = datetime.now(timezone.utc)
+    lot = ProductionLot(
+        farmer_id=farmer.id,
+        crop=payload.crop,
+        harvest_start=payload.harvest_start,
+        harvest_end=payload.harvest_end,
+        expected_quantity_kg=payload.expected_quantity_kg,
+        available_quantity_kg=Decimal("0"),
+        reserved_quantity_kg=Decimal("0"),
+        quality_grade_estimate=payload.quality_grade_estimate,
+        availability_confidence=AvailabilityConfidence.LOW,
+        parish=farmer.parish,
+        status=ProductionLotStatus.UNAVAILABLE,
+        last_verified_at=now,
+    )
+    try:
+        lot.validate()
+        session.add(lot)
+        session.flush()
+        values = {
+            "crop": payload.crop.value,
+            "harvest_start": payload.harvest_start.isoformat(),
+            "harvest_end": payload.harvest_end.isoformat(),
+            "expected_quantity_kg": str(payload.expected_quantity_kg),
+            "quality_grade_estimate": payload.quality_grade_estimate.value,
+            "availability_confidence": AvailabilityConfidence.LOW.value,
+        }
+        record = _record(
+            session,
+            organization_id=context.organization_id,
+            channel=SourceChannel.PORTAL,
+            external_reference=f"farmer-portal:{uuid4()}",
+            actor_user_id=context.user_id,
+            farmer_id=farmer.id,
+            lot=lot,
+            payload=values,
+            verification=VerificationStatus.SELF_REPORTED,
+            effective_at=now,
+            evidence=payload.evidence_reference,
+            source_actor=f"farmer:{farmer.id};user:{context.user_id}",
+        )
+        session.commit()
+        return {
+            "production_lot_id": str(lot.id),
+            "ingestion_record_id": str(record.id),
+            "verification_status": VerificationStatus.SELF_REPORTED.value,
+            "availability_confidence": lot.availability_confidence.value,
+        }
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/farmer-production-lots/{lot_id}/availability",
+             dependencies=[Depends(require_permission(PermissionCode.FARMER_SUPPLY_REPORT))])
+def report_farmer_availability(
+    lot_id: UUID,
+    payload: FarmerAvailabilityReport,
+    context: AuthorizationContext = Depends(get_authorization_context),
+    session: Session = Depends(get_session),
+) -> dict:
+    if context.role != RoleCode.FARMER or context.farmer_id is None:
+        raise HTTPException(403, "a linked farmer membership is required")
+    lot = session.scalar(
+        select(ProductionLot)
+        .join(Farmer, Farmer.id == ProductionLot.farmer_id)
+        .where(
+            ProductionLot.id == lot_id,
+            ProductionLot.farmer_id == context.farmer_id,
+            Farmer.organization_id == context.organization_id,
+            Farmer.active.is_(True),
+        )
+        .with_for_update()
+    )
+    if lot is None:
+        raise HTTPException(404, "production lot not found")
+    if payload.available_quantity_kg > lot.expected_quantity_kg:
+        raise HTTPException(422, "ready quantity cannot exceed the reported expected harvest")
+    if payload.available_quantity_kg < lot.reserved_quantity_kg:
+        raise HTTPException(409, "ready quantity cannot be below already reserved stock")
+
+    lot.available_quantity_kg = payload.available_quantity_kg
+    lot.status = (ProductionLotStatus.AVAILABLE
+                  if payload.available_quantity_kg > lot.reserved_quantity_kg
+                  else ProductionLotStatus.UNAVAILABLE)
+    lot.last_verified_at = datetime.now(timezone.utc)
+    lot.version += 1
+    values = {
+        "available_quantity_kg": str(payload.available_quantity_kg),
+        "status": lot.status.value,
+    }
+    record = _record(
+        session,
+        organization_id=context.organization_id,
+        channel=SourceChannel.PORTAL,
+        external_reference=f"farmer-portal-availability:{uuid4()}",
+        actor_user_id=context.user_id,
+        farmer_id=context.farmer_id,
+        lot=lot,
+        payload=values,
+        verification=VerificationStatus.SELF_REPORTED,
+        effective_at=lot.last_verified_at,
+        evidence=None,
+        source_actor=f"farmer:{context.farmer_id};user:{context.user_id}",
+    )
+    session.commit()
+    return {
+        "production_lot_id": str(lot.id),
+        "ingestion_record_id": str(record.id),
+        "available_quantity_kg": str(lot.available_quantity_kg),
+        "status": lot.status.value,
+        "verification_status": VerificationStatus.SELF_REPORTED.value,
+    }
 
 
 @router.post("/secure-links", status_code=status.HTTP_201_CREATED,

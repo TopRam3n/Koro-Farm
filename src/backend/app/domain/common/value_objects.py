@@ -44,7 +44,15 @@ class DateWindow:
 
 
 class Crop(StrEnum):
+    BANANA = "BANANA"
+    BREADFRUIT = "BREADFRUIT"
+    CALLALOO = "CALLALOO"
+    CASSAVA = "CASSAVA"
     GINGER = "GINGER"
+    MANGO = "MANGO"
+    PLANTAIN = "PLANTAIN"
+    SWEET_POTATO = "SWEET_POTATO"
+    YAM = "YAM"
 
 
 class Grade(StrEnum):
