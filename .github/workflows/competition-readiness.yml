@@ -41,7 +41,7 @@ jobs:
       - run: python -m pytest src/backend/tests -ra
       - run: npm ci
         working-directory: src/frontend
-      - run: npm run lint && npx tsc --noEmit && npm run test && npm run build
+      - run: npm run lint && npm run test && npm run build && npx tsc --noEmit
         working-directory: src/frontend
       - run: python -m src.backend.scripts.reset_demo
       - name: Start backend and wait for health

@@ -23,11 +23,13 @@ for (const width of [1440, 390]) {
 }
 
 test('missing official snapshot shows an error and retry recovers', async ({ page }) => {
-  await page.route('**/agriculture/intelligence.json', route => route.fulfill({ status:503, body:'unavailable' }));
+  for (const source of ['**/agriculture/intelligence.json', '**/agricultural-intelligence']) {
+    await page.route(source, route => route.fulfill({ status:503, body:'unavailable' }));
+  }
   await page.goto('/intelligence-lab');
   await expect(page.getByRole('heading', {name:'Agricultural intelligence unavailable',exact:true})).toBeVisible();
   await expect(page.getByText('2026 Q1: 0 tonnes')).toHaveCount(0);
-  await page.unroute('**/agriculture/intelligence.json');
+  for (const source of ['**/agriculture/intelligence.json', '**/agricultural-intelligence']) await page.unroute(source);
   await page.getByRole('button', {name:'Retry data request'}).click();
   await expect(page.getByText('2026 Q1: 4,069 tonnes')).toBeVisible();
 });
@@ -35,7 +37,9 @@ test('missing official snapshot shows an error and retry recovers', async ({ pag
 test('incomplete snapshot fails safely without a render crash', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.route('**/agriculture/intelligence.json', route => route.fulfill({ json: { schema_version:1, series:[] } }));
+  for (const source of ['**/agriculture/intelligence.json', '**/agricultural-intelligence']) {
+    await page.route(source, route => route.fulfill({ json: { schema_version:1, series:[] } }));
+  }
   await page.goto('/intelligence-lab');
   await expect(page.getByRole('heading', {name:'Agricultural intelligence unavailable',exact:true})).toBeVisible();
   await expect(page.getByText(/artifact is incomplete or invalid/)).toBeVisible();

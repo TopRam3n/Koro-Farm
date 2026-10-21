@@ -14,7 +14,7 @@ export default function Profile() {
 	const identity = useIdentity();
 	const router = useRouter();
 	const displayName = identity.data?.name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Programme operator';
-	const roleLabel = identity.data?.active_role === 'PLATFORM_ADMIN' ? 'Developer / platform admin' : identity.data?.active_role?.replaceAll('_', ' ') || 'Pending invitation';
+	const roleLabel = identity.data?.active_role === 'PLATFORM_ADMIN' ? 'Developer / platform admin' : identity.data?.active_role?.replace(/_/g, ' ') || 'Pending invitation';
 
 	const handleSignOut = async () => {	
 		await signOut();
