@@ -1,0 +1,438 @@
+<div class="developer-portal-view" style="padding-top: 20px; padding-bottom: 50px;">
+    <div class="row">
+        <div class="col-md-12">
+            <h1>API Developer Portal</h1>
+            <hr>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Main Content Column -->
+        <div class="col-md-8">
+
+            <!-- Nav tabs -->
+            <ul class="nav nav-tabs" role="tablist">
+                <li role="presentation" class="active"><a href="#tab-welcome" aria-controls="tab-welcome" role="tab"
+                        data-toggle="tab">Welcome</a></li>
+                <li role="presentation"><a href="#tab-qb" aria-controls="tab-qb" role="tab" data-toggle="tab">Query
+                        Builder</a></li>
+                <li role="presentation"><a href="#tab-api" aria-controls="tab-api" role="tab" data-toggle="tab">API
+                        Documentation</a></li>
+            </ul>
+
+            <!-- Tab panes -->
+            <div class="tab-content" style="padding-top: 20px;">
+                <!-- Welcome Tab -->
+                <div role="tabpanel" class="tab-pane active" id="tab-welcome">
+                    <h3>Welcome</h3>
+                    <p>Here you can find information about how to access FAOSTAT data programmatically.</p>
+                    <div class="alert alert-info" style="margin-bottom: 20px;">
+                        <i class="fa fa-info-circle"></i> Data is provided according to the FAO statistical database <a
+                            href="https://www.fao.org/contact-us/terms/db-terms-of-use/en/" target="_blank"
+                            class="alert-link">Terms of Use</a>.
+                    </div>
+
+                    <!-- Authentication Status -->
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h3 class="panel-title"><i class="fa fa-id-card-o"></i> Authentication Status</h3>
+                        </div>
+                        <div class="panel-body">
+                            <div id="auth-status-loading">Loading authentication details...</div>
+                            <div id="auth-status-content" style="display:none;">
+                                <!-- Logged In Content -->
+                                <div id="auth-content-logged-in" style="display:none;">
+                                    <p><strong>Authentication Method:</strong> <span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em;">Authenticated</span>
+                                    </p>
+                                    <p><strong>User Identity:</strong> <span id="user-email"
+                                            style="font-weight: bold;"></span>
+                                    </p>
+
+                                    <br>
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <h4 style="margin: 0;">Your Personal Access Token</h4>
+                                        <button id="btn-copy-token" class="btn btn-default btn-xs"
+                                            title="Copy to clipboard" style="padding: 4px 10px;">
+                                            <i class="fa fa-clipboard"></i> Copy Token
+                                        </button>
+                                    </div>
+                                    <p class="text-muted small">Use this token for your external development and
+                                        programmatic
+                                        access.</p>
+                                    <div class="alert alert-info" role="alert"
+                                        style="position: relative; padding-right: 15px;">
+                                        <pre id="access-token"
+                                            style="max-height: 120px; overflow-y: auto; background-color: #f5f5f5; color: #333; border: 1px solid #ccc; white-space: pre-wrap; word-break: break-all; margin-bottom: 0;"></pre>
+                                    </div>
+
+                                    <!-- Token Expiration Info -->
+                                    <div class="token-lifecycle-info small text-muted"
+                                        style="margin-top: 10px; margin-bottom: 20px;">
+                                        <p><i class="fa fa-clock-o"></i> <strong>Token Lifespan:</strong> Your access
+                                            token is
+                                            valid for <strong>60 minutes</strong>.
+                                            Your session refresh token remains valid for <strong>5 days</strong> of
+                                            inactivity.
+                                        </p>
+                                    </div>
+
+                                    <div id="copy-success-msg" class="text-success small"
+                                        style="display: none; margin-top: -10px; margin-bottom: 10px;">
+                                        <i class="fa fa-check"></i> Token copied to clipboard!
+                                    </div>
+                                </div>
+
+                                <!-- Guest Content (Restricted) -->
+                                <div id="auth-content-guest" style="display:none;">
+                                    <p><strong>Authentication Method:</strong> <span class="label"
+                                            style="background-color: #f0ad4e; color: white; padding: 0.2em 0.6em; border-radius: 0.25em;">None</span>
+                                    </p>
+                                    <div class="alert alert-warning" style="margin-top: 15px;">
+                                        <h4><i class="fa fa-lock"></i> API Access Restricted</h4>
+                                        <p>To obtain a personal API token for your own applications, please sign in or
+                                            create an
+                                            account.</p>
+                                        <br>
+                                        <a id="btn-login-cognito" class="btn btn-primary btn-sm"
+                                            style="cursor: pointer;"><i class="fa fa-sign-in"></i> Sign In /
+                                            Register</a>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="auth-status-error" style="display:none;">
+                                <div class="alert alert-danger">
+                                    <i class="fa fa-exclamation-circle"></i> Error loading authentication status.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Authentication Guide -->
+                    <h3>Authentication Guide</h3>
+                    <p>To access protected endpoints, you must include your Access Token in the HTTP
+                        <code>Authorization</code>
+                        header of your requests.
+                    </p>
+
+                    <div class="well">
+                        <p>Header Format:</p>
+                        <p><code>Authorization: Bearer &lt;YOUR_ACCESS_TOKEN&gt;</code></p>
+                    </div>
+
+                    <p>Obtaining a Token Programmatically:</p>
+                    <p>If you need to retrieve a token programmatically (e.g., from a script or server), you can use the
+                        authentication endpoint:</p>
+                    <pre style="background-color: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px;">curl -X POST "{{baseUrl}}auth/login" \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=YOUR_EMAIL" \
+     -d 'password=YOUR_PASSWORD'</pre>
+
+                    <p><strong>Example 1 (API Discovery):</strong></p>
+                    <p class="small text-muted">Retrieve the list of all available data groups and domains.</p>
+                    <pre style="background-color: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px;">curl -X GET "{{baseUrl}}en/groupsanddomains" \
+     -H "Authorization: Bearer &lt;YOUR_ACCESS_TOKEN&gt;"</pre>
+
+                    <p><strong>Example 2 (Data Retrieval):</strong></p>
+                    <p class="small text-muted">Retrieve wheat production (element: 2510, item: 15) for Italy (area:106)
+                        in 2022 from the Crops and Livestock Products domain (QCL).</p>
+                    <pre id="curl-example"
+                        style="background-color: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px;">curl -X GET "{{baseUrl}}en/data/QCL?area=106&item=15&element=2510&year=2022" \
+     -H "Authorization: Bearer &lt;YOUR_ACCESS_TOKEN&gt;"</pre>
+
+                </div> <!-- End Welcome Tab -->
+
+                <!-- Query Builder Tab -->
+                <div role="tabpanel" class="tab-pane" id="tab-qb">
+                    <h3>Query Builder</h3>
+                    <p>Select a domain and its dimensions to generate an exact API query for the data you need. You can
+                        use the generated query URL in your scripts or paste it as <strong>Power Query in
+                            Excel</strong>.</p>
+
+                    <div class="panel panel-default">
+                        <div class="panel-body" style="background-color: #f9f9f9;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div data-role="qb-groups"></div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div data-role="qb-domains"></div>
+                                </div>
+                            </div>
+                            <div class="row" style="margin-top: 15px;">
+                                <div data-role="qb-filters" style="padding-left: 15px; padding-right: 15px;"></div>
+                            </div>
+                            <div class="row" style="margin-top: 20px;">
+                                <div class="col-md-12 text-right">
+                                    <button id="btn-reset-query" class="btn btn-default" style="margin-right: 10px;"><i
+                                            class="fa fa-refresh"></i> Reset</button>
+                                    <button id="btn-generate-query" class="btn btn-primary"><i class="fa fa-cogs"></i>
+                                        Generate Query</button>
+                                </div>
+                            </div>
+                            <div id="qb-result-container" style="display: none; margin-top: 20px;">
+                                <label>Generated API Endpoint:</label>
+                                <div class="input-group input-group-lg">
+                                    <input type="text" id="qb-generated-query" class="form-control" readonly
+                                        style="font-family: monospace; font-size: 14px;">
+                                    <span class="input-group-btn">
+                                        <button class="btn btn-success" type="button" id="btn-copy-qb-query"
+                                            title="Copy to clipboard"
+                                            style="padding-left: 20px; padding-right: 20px;"><i
+                                                class="fa fa-clipboard"></i> Copy</button>
+                                    </span>
+                                </div>
+
+                                <div id="excel-result-container"
+                                    style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 20px;">
+                                    <div
+                                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                        <h4 style="margin: 0;"><i class="fa fa-file-excel-o"></i> Power Query Snippet
+                                            for Excel</h4>
+                                        <button id="btn-copy-excel-snippet" class="btn btn-success btn-xs">
+                                            <i class="fa fa-clipboard"></i> Copy Excel Snippet
+                                        </button>
+                                    </div>
+                                    <p class="text-muted small">Use this code in Excel (Data > Get Data > From Other
+                                        Sources > Blank Query > Advanced Editor).</p>
+                                    <pre id="excel-snippet"
+                                        style="background-color: #272822; color: #f8f8f2; padding: 15px; border-radius: 5px; font-family: monospace; overflow-x: auto; font-size: 13px;"></pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div> <!-- End Query Builder Tab -->
+
+                <!-- API Documentation Tab -->
+                <div role="tabpanel" class="tab-pane" id="tab-api">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h3 style="margin-top: 0;">API Documentation</h3>
+                        <div class="api-docs-actions">
+                            <a href="{{siteUrl}}docs/redoc-static.html" target="_blank" class="btn btn-success btn-sm"
+                                style="margin-right: 10px;">
+                                <i class="fa fa-eye"></i> Browse Interactive API Docs
+                            </a>
+                            <a href="{{siteUrl}}docs/faostat_openapi.yaml" target="_blank"
+                                download="faostat_openapi.yaml" class="btn btn-primary btn-sm">
+                                <i class="fa fa-download"></i> View / Download OpenAPI Spec (.yaml)
+                            </a>
+                        </div>
+                    </div>
+
+                    <p>Refer to the table below for a list of available API endpoints defined in the OpenAPI
+                        specification.</p>
+
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered table-hover">
+                            <thead>
+                                <tr>
+                                    <th style="width: 15%; text-align: center;">Method</th>
+                                    <th style="width: 40%;">Endpoint</th>
+                                    <th style="width: 45%;">Summary</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/ping</code></td>
+                                    <td>Ping service to check API status</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">POST</span>
+                                    </td>
+                                    <td><code>/auth/login</code></td>
+                                    <td>Retrieve JWT tokens with credentials</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/bulkdownloads/{domain_code}/</code></td>
+                                    <td>List of available bulk downloads</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/codes/{dimension_id}/{domain_code}</code></td>
+                                    <td>Returns FAOSTAT code list</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/codes/{id}/{domain_code}/</code></td>
+                                    <td>List of codes for given codelist</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/data/{domain_code}</code></td>
+                                    <td>Get FAOSTAT data</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">POST</span>
+                                    </td>
+                                    <td><code>/{lang}/datasize/</code></td>
+                                    <td>Calculate size of the query</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/definitions/domain/{domain_code}</code></td>
+                                    <td>Domain definitions</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/definitions/domain/{domain_code}/{type}</code></td>
+                                    <td>Domain definitions by type</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/definitions/types</code></td>
+                                    <td>Definitions types</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/dimensions/{domain_code}/</code></td>
+                                    <td>Domain Structure definition</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/documents/{domain_code}/</code></td>
+                                    <td>List of available documents</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/domains/{group_code}/</code></td>
+                                    <td>List of available domains</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/groups/</code></td>
+                                    <td>List of available groups</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/groupsanddomains</code></td>
+                                    <td>Groups and domains tree Structure</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/metadata/{domain_code}</code></td>
+                                    <td>FAOSTAT metadata</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #337ab7; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">GET</span>
+                                    </td>
+                                    <td><code>/{lang}/metadata_print/{domain_code}</code></td>
+                                    <td>Metadata in printable format</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">POST</span>
+                                    </td>
+                                    <td><code>/{lang}/rankings/</code></td>
+                                    <td>Get Rankings data</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">POST</span>
+                                    </td>
+                                    <td><code>/{lang}/report/data/</code></td>
+                                    <td>Get Report Data</td>
+                                </tr>
+                                <tr>
+                                    <td class="text-center"><span class="label"
+                                            style="background-color: #5cb85c; color: white; padding: 0.2em 0.6em; border-radius: 0.25em; display: inline-block; width: 60px;">POST</span>
+                                    </td>
+                                    <td><code>/{lang}/report/headers/</code></td>
+                                    <td>Get Report Headers</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                </div> <!-- End API Documentation Tab -->
+            </div> <!-- End Tab panes -->
+
+        </div>
+
+        <!-- Sidebar Column -->
+        <div class="col-md-4">
+            <div class="elegant-card z-depth-1 hoverable">
+                <div class="card-content">
+                    <h4>System Status</h4>
+                    <p>API Endpoint: <span id="api-system-endpoint" class="text-muted">{{baseUrl}}ping</span></p>
+                    <div id="system-status-container">
+                        <p><strong>Status:</strong> <span id="api-status-badge" class="label label-default"
+                                style="padding: 0.2em 0.6em; border-radius: 0.25em;">Checking...</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="elegant-card z-depth-1 hoverable" style="margin-top: 20px;">
+                <div class="card-content">
+                    <h4>Libraries & Ecosystem</h4>
+                    <p>Integrate FAOSTAT into your projects using these community-driven tools:</p>
+                    <ul class="list-unstyled">
+                        <li style="margin-bottom: 8px;">
+                            <strong>Python</strong>
+                            <a href="https://pypi.org/project/faostat/" target="_blank">
+                                <i class="fa fa-code"></i> FAOSTAT Package
+                            </a>
+                        </li>
+                        <li style="margin-bottom: 8px;">
+                            <strong>MCP</strong>
+                            <a href="https://github.com/berba-q/faostat-mcp" target="_blank">
+                                <i class="fa fa-code"></i> FAOSTAT MCP
+                            </a>
+                        </li>
+                        <li style="margin-bottom: 8px;">
+                            <strong>R</strong>
+                            <a href="https://cran.r-project.org/web/packages/FAOSTAT/" target="_blank">
+                                <i class="fa fa-code"></i> FAOSTAT Package
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="elegant-card z-depth-1 hoverable" style="margin-top: 20px;">
+                <div class="card-content">
+                    <h4>Feedback</h4>
+                    <p>Found a bug or have a suggestion?</p>
+                    <a href="mailto:faostat@fao.org?subject=FAOSTAT%20Developer%20Portal%20Feedback"
+                        class="btn btn-default btn-block">
+                        <i class="fa fa-envelope"></i> Send Feedback
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

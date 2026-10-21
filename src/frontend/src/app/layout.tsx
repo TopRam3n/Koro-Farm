@@ -3,8 +3,8 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'KoroFarm | Supply Assurance',
-  description: 'Agentic Supply Assurance for Caribbean Food Systems',
+  title: 'KoroFarm | Agricultural Intelligence & Coordination',
+  description: 'Agricultural intelligence and coordination infrastructure for the Caribbean. Understand production. Anticipate risk. Coordinate action.',
   icons: {
     icon: '/brand/korofarm-mark.png',
     shortcut: '/brand/korofarm-mark.png',

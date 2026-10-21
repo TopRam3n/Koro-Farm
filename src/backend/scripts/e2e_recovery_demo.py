@@ -14,6 +14,8 @@ from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.domain.common import Crop, Grade
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.programmes.domain.models import Programme  # noqa: F401 — register FK target
+from src.backend.app.identity.domain.models import Organization  # noqa: F401 — register FK target
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.economics.domain.models import LotCostInput
 from src.backend.app.domain.common import AvailabilityConfidence

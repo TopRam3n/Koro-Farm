@@ -1,0 +1,167 @@
+{
+  "artifact_version": "6266e42a52c6beff2211929cdcc52726f7d4a8b52c59a591512c21e897ec5121",
+  "artifact_sha256": "35afa002842522eaffed6eac0792248719a10acfb69f3f6a72dd59ddbe8b8b00",
+  "model_source_sha256": "690d42683b7d06868572dab8d3379cd74df5ce4ab95137d999528b246018062e",
+  "initial_training_start": "2016 Q1",
+  "initial_training_end": "2020 Q4",
+  "initial_valid_training_observations": 19,
+  "initial_usable_ridge_training_rows": 15,
+  "selection_periods": [
+    "2021 Q1",
+    "2021 Q2",
+    "2021 Q3",
+    "2021 Q4",
+    "2022 Q1",
+    "2022 Q2",
+    "2022 Q3",
+    "2022 Q4",
+    "2023 Q1",
+    "2023 Q2",
+    "2023 Q3",
+    "2023 Q4"
+  ],
+  "later_evaluation_periods": [
+    "2024 Q1",
+    "2024 Q2",
+    "2024 Q3",
+    "2024 Q4",
+    "2025 Q1",
+    "2025 Q2",
+    "2025 Q3",
+    "2025 Q4"
+  ],
+  "final_model_training_end": "2025 Q4",
+  "final_valid_training_observations": 39,
+  "untouched_holdout": false,
+  "holdout_note": "2024-2025 was used in the final release-selection gate. It is a later retrospective evaluation window, not an untouched independent holdout. Earlier later-window actuals enter subsequent expanding-window training prefixes.",
+  "tuning_note": "The saved implementation fixes alpha=10 and lag/seasonal features; no model was tuned or refitted by this audit. No timestamped preregistration proves the full historical design process.",
+  "availability_note": "At each simulated origin, all validated observations through the preceding quarter are assumed available. Actual publication delays and historical revisions are unknown.",
+  "quarantine_note": "2016 Q3 is null and excluded from targets and any regression rows needing it as a lag; calendar positions are preserved.",
+  "paired_errors": [
+    {
+      "period": "2024 Q1",
+      "training_start": "2016 Q1",
+      "training_end": "2023 Q4",
+      "valid_training_observations": 31,
+      "usable_ridge_training_rows": 27,
+      "ridge_absolute_error_tonnes": 706.9115531964799,
+      "seasonal_absolute_error_tonnes": 941.0,
+      "improvement_tonnes": 234.08844680352013
+    },
+    {
+      "period": "2024 Q2",
+      "training_start": "2016 Q1",
+      "training_end": "2024 Q1",
+      "valid_training_observations": 32,
+      "usable_ridge_training_rows": 28,
+      "ridge_absolute_error_tonnes": 879.5280423115228,
+      "seasonal_absolute_error_tonnes": 772.0,
+      "improvement_tonnes": -107.52804231152277
+    },
+    {
+      "period": "2024 Q3",
+      "training_start": "2016 Q1",
+      "training_end": "2024 Q2",
+      "valid_training_observations": 33,
+      "usable_ridge_training_rows": 29,
+      "ridge_absolute_error_tonnes": 33.75821767521211,
+      "seasonal_absolute_error_tonnes": 226.0,
+      "improvement_tonnes": 192.2417823247879
+    },
+    {
+      "period": "2024 Q4",
+      "training_start": "2016 Q1",
+      "training_end": "2024 Q3",
+      "valid_training_observations": 34,
+      "usable_ridge_training_rows": 30,
+      "ridge_absolute_error_tonnes": 1.5601584677774554,
+      "seasonal_absolute_error_tonnes": 405.0,
+      "improvement_tonnes": 403.43984153222254
+    },
+    {
+      "period": "2025 Q1",
+      "training_start": "2016 Q1",
+      "training_end": "2024 Q4",
+      "valid_training_observations": 35,
+      "usable_ridge_training_rows": 31,
+      "ridge_absolute_error_tonnes": 970.9177852187358,
+      "seasonal_absolute_error_tonnes": 381.0,
+      "improvement_tonnes": -589.9177852187358
+    },
+    {
+      "period": "2025 Q2",
+      "training_start": "2016 Q1",
+      "training_end": "2025 Q1",
+      "valid_training_observations": 36,
+      "usable_ridge_training_rows": 32,
+      "ridge_absolute_error_tonnes": 931.8125287514194,
+      "seasonal_absolute_error_tonnes": 1612.0,
+      "improvement_tonnes": 680.1874712485806
+    },
+    {
+      "period": "2025 Q3",
+      "training_start": "2016 Q1",
+      "training_end": "2025 Q2",
+      "valid_training_observations": 37,
+      "usable_ridge_training_rows": 33,
+      "ridge_absolute_error_tonnes": 27.181573232035134,
+      "seasonal_absolute_error_tonnes": 634.0,
+      "improvement_tonnes": 606.8184267679649
+    },
+    {
+      "period": "2025 Q4",
+      "training_start": "2016 Q1",
+      "training_end": "2025 Q3",
+      "valid_training_observations": 38,
+      "usable_ridge_training_rows": 34,
+      "ridge_absolute_error_tonnes": 878.5879494158307,
+      "seasonal_absolute_error_tonnes": 708.0,
+      "improvement_tonnes": -170.58794941583074
+    }
+  ],
+  "yearly_mae_tonnes": {
+    "2024": {
+      "ridge_lags": 405.43949291274805,
+      "seasonal_naive": 586.0
+    },
+    "2025": {
+      "ridge_lags": 702.1249591545053,
+      "seasonal_naive": 833.75
+    }
+  },
+  "later_metrics": {
+    "previous_quarter": {
+      "n": 8,
+      "mae_tonnes": 781.625,
+      "wape_pct": 20.075769737053328,
+      "bias_tonnes": 139.125
+    },
+    "seasonal_naive": {
+      "n": 8,
+      "mae_tonnes": 709.875,
+      "wape_pct": 18.232895623976628,
+      "bias_tonnes": -182.125
+    },
+    "seasonal_average": {
+      "n": 8,
+      "mae_tonnes": 721.5034722222222,
+      "wape_pct": 18.53156894011551,
+      "bias_tonnes": -529.6319444444443
+    },
+    "ridge_lags": {
+      "n": 8,
+      "mae_tonnes": 553.7822260336267,
+      "wape_pct": 14.223706322499801,
+      "bias_tonnes": -105.81367368298527
+    }
+  },
+  "wins": 5,
+  "losses": 3,
+  "ties": 0,
+  "mean_paired_improvement_tonnes": 156.09277396637333,
+  "drop_one_improvement_range_tonnes": [
+    81.22210292605801,
+    262.6657109928175
+  ],
+  "interpretation": "Preliminary descriptive retrospective evidence: lower mean error in both years and all leave-one-quarter-out summaries, but only eight correlated targets, 5 wins/3 losses, release selection used this window, and publication vintages are unknown. No statistical-significance or prospective-performance claim."
+}

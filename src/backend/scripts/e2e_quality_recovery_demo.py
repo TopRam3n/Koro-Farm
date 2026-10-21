@@ -15,6 +15,8 @@ from src.backend.app.economics.domain.models import LotCostInput
 from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.programmes.domain.models import Programme  # noqa: F401 — register FK target
+from src.backend.app.identity.domain.models import Organization  # noqa: F401 — register FK target
 from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation

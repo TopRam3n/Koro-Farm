@@ -11,6 +11,7 @@ test('real 500kg / 80kg competition flow', async ({ page, browser }) => {
   page.on('console', message => { if (message.type() === 'warning') consoleWarnings.push(message.text()); });
   page.on('pageerror', error => consoleErrors.push(error.message));
   await page.goto(requirementPath);
+  await expect(page.locator('[data-app-mode]')).toBeVisible();
   const demoMode = await page.locator('[data-app-mode="demo"]').count() > 0;
   await expect(page.getByTestId('committed-kg')).toContainText('500');
   await expect(page.getByTestId('standby-kg')).toContainText('100');

@@ -43,6 +43,11 @@ function assurance() {
 
 export async function demoApiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = options.method ?? 'GET';
+  if (method === 'GET' && path === '/agricultural-intelligence') {
+    const response = await fetch('/agriculture/intelligence.json');
+    if (!response.ok) throw new Error('Cached official agricultural statistics unavailable');
+    return response.json() as Promise<T>;
+  }
   if (path.endsWith('/assurance')) return structuredClone(assurance()) as T;
   if (path.endsWith('/fulfilment')) return { required_kg: '500.000', committed_kg: assurance().committed_quantity_kg, received_kg: '0.000', accepted_kg: '0.000', rejected_kg: '0.000', accepted_shortfall_kg: '500.000' } as T;
   if (path.endsWith('/events')) {

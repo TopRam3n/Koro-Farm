@@ -1,0 +1,2065 @@
+components:
+  schemas:
+    CodeItem:
+      properties:
+        aggregate_type:
+          type: string
+        code:
+          type: string
+        label:
+          type: string
+      type: object
+    CodeResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/CodeItem'
+          type: array
+        metadata:
+          properties:
+            datasource:
+              type: string
+            output_type:
+              type: string
+            processing_time:
+              type: integer
+          type: object
+      type: object
+    DataResponse:
+      properties:
+        data:
+          items:
+            properties:
+              Area:
+                type: string
+              Area Code (M49):
+                type: string
+              Domain:
+                type: string
+              Domain Code:
+                type: string
+              Element:
+                type: string
+              Element Code:
+                type: string
+              Flag:
+                type: string
+              Flag Description:
+                type: string
+              Item:
+                type: string
+              Item Code (CPC):
+                type: string
+              Note:
+                type: string
+              Unit:
+                type: string
+              Value:
+                type: string
+              Year:
+                type: string
+              Year Code:
+                type: string
+            type: object
+          type: array
+        metadata:
+          properties:
+            datasource:
+              type: string
+            dsd:
+              items:
+                properties:
+                  data_type:
+                    type: string
+                  key:
+                    type: string
+                  label:
+                    type: string
+                  type:
+                    type: string
+                type: object
+              type: array
+            output_type:
+              type: string
+            processing_time:
+              type: integer
+          type: object
+      type: object
+    Dimension:
+      properties:
+        href:
+          type: string
+        id:
+          type: string
+        parameter:
+          type: string
+        subdimensions:
+          items:
+            $ref: '#/components/schemas/Subdimension'
+          type: array
+      type: object
+    DimensionsResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/Dimension'
+          type: array
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+      type: object
+    DomainMetadata:
+      properties:
+        FocalPoint:
+          type: string
+        date_update:
+          format: date
+          type: string
+        domain_code:
+          type: string
+        domain_level:
+          type: integer
+        domain_name:
+          type: string
+        group_code:
+          type: string
+        group_name:
+          type: string
+        note_update:
+          type: string
+        release_current:
+          type: string
+        release_next:
+          type: string
+        release_note:
+          type: string
+        release_note_expiry:
+          format: date
+          type: string
+        sdg_flag:
+          type: string
+        sdg_text:
+          type: string
+        state_current:
+          type: string
+        state_next:
+          type: string
+        subdomain_flag:
+          type: string
+        subgroup_flag:
+          type: string
+        year_current:
+          type: string
+        year_next:
+          type: string
+      type: object
+    GroupsAndDomainsResponse:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/DomainMetadata'
+          type: array
+        metadata:
+          properties:
+            datasource:
+              type: string
+            output_type:
+              type: string
+            processing_time:
+              type: integer
+          type: object
+      type: object
+    Metadata:
+      properties:
+        datasource:
+          type: string
+        output_type:
+          type: string
+        processing_time:
+          type: integer
+      type: object
+    Options:
+      properties:
+        selectType:
+          type: string
+        type:
+          type: string
+        visible:
+          type: boolean
+      type: object
+    Subdimension:
+      properties:
+        coding_systems:
+          items:
+            type: string
+          type: array
+        href:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        options:
+          $ref: '#/components/schemas/Options'
+        parameter:
+          type: string
+      type: object
+    blacklist:
+      default: '[]'
+      description: List of codes not allowed in the output.
+      items:
+        type: string
+      title: Blacklist
+      type: array
+    code:
+      description: Object's code.
+      title: Code
+      type: string
+    coding_system:
+      default: ''
+      description: Alternate coding system applied to a dimension
+      title: Coding System
+      type: string
+    datasource:
+      description: Name code of the datasource.
+      enum:
+      - production
+      title: Datasource
+      type: string
+    description:
+      description: Object's description.
+      title: Description
+      type: string
+    dimension:
+      description: Object representing a single dimension of a FAOSTAT dataset.
+      properties:
+        description:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        parameter:
+          description: Name of the procedure's parameter mapped to this dimenison.
+          title: Procedure Parameter
+          type: string
+        service:
+          description: Relative link to the service capable to provide codes for the
+            current dimension.
+          title: Service
+          type: string
+        subdimensions:
+          description: Codelists composing the current one.
+          items:
+            title: Subdimension
+            type: string
+          title: Subdimensions
+          type: array
+      title: Dimension
+      type: object
+    faostat_code:
+      description: Code used in the FAOSTAT codelists.
+      properties:
+        aggregate_type:
+          type: string
+        code:
+          type: string
+        label:
+          type: string
+        parent:
+          type: string
+      title: FAOSTAT Code
+      type: object
+    label:
+      description: Object's label.
+      title: Label
+      type: string
+    lang:
+      default: en
+      description: Language of the data retrieved.
+      enum:
+      - en
+      - fr
+      - es
+      title: Language
+      type: string
+    metadata:
+      description: Meta information about the request.
+      properties:
+        output_type:
+          type: string
+        parameters:
+          description: Procedure parameters.
+          items:
+            description: Procedure parameter.
+            title: Parameter
+            type: string
+          title: Parameters
+          type: array
+      title: Metadata
+      type: object
+    ord:
+      description: Object's order.
+      title: Ord
+      type: integer
+    output_type:
+      default: objects
+      description: Format of the output.
+      enum:
+      - objects
+      - csv
+      title: Output Type
+      type: string
+    pivot:
+      default: false
+      description: Used to retrieve the pivot configuration on the requested data
+      title: Pivot
+      type: boolean
+    report_code:
+      description: Report Code
+      title: Report Code
+      type: string
+    section:
+      description: Name code of the FAOSTAT website section.
+      enum:
+      - download
+      - browse
+      - compare
+      title: Section
+      type: string
+    whitelist:
+      default: '[]'
+      description: List of codes allowed in the output.
+      items:
+        type: string
+      title: Whitelist
+      type: array
+    Auth:
+      type: object
+      properties:
+        AuthenticationResult:
+          type: object
+          properties:
+            AccessToken:
+              type: string
+            ExpiresIn:
+              type: integer
+            IdToken:
+              type: string
+            RefreshToken:
+              type: string
+            TokenType:
+              type: string
+        ChallengeParameters:
+          type: object
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+info:
+  description: API for accessing FAOSTAT (Food and Agriculture Organization Corporate
+    Statistical Database) data
+  title: FAOSTAT API
+  version: 1.0.0
+openapi: 3.0.0
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      summary: User Login
+      description: Returns AccessToken, IdToken and RefreshToken from Cognito by providing username and password.
+      operationId: auth_login
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                  description: User's username (usually an email).
+                password:
+                  type: string
+                  format: password
+                  description: User's password.
+              required:
+              - username
+              - password
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auth'
+        "401":
+          description: Unauthorized
+        "400":
+          description: Bad Request
+  /ping:
+    get:
+      description: FAOSTAT ping.
+      operationId: get_ping
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: Ping
+  /{lang}/bulkdownloads/{domain_code}/:
+    get:
+      description: List of available bulk downloads.
+      operationId: get_bulkdownloads
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: List of available bulk downloads.
+                    items:
+                      description: FAOSTAT bulk download file
+                      properties:
+                        code:
+                          type: string
+                        content:
+                          description: Description of the archive's content.
+                          title: Content
+                          type: string
+                        date:
+                          description: Last update.
+                          title: Date
+                          type: string
+                        filename:
+                          description: Name of the archive.
+                          title: Filename
+                          type: string
+                        label:
+                          type: string
+                      title: Bulk Downloads
+                      type: object
+                    title: Bulk Downloads
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Bulk Downloads
+  /{lang}/codes/{dimension_id}/{domain_code}:
+    get:
+      description: Get the code list (e.g. countries, regions, or special groups),
+        used to describe a selected dimension (dimension_id) of a given domain (domain_code).
+      operationId: getCodeList
+      parameters:
+      - description: The language code for the response. This parameter determines
+          the language of the returned code list, including labels and descriptions.
+          Options are 'en' for English, 'fr' for French, and 'es' for Spanish. This
+          allows users to receive code lists in their preferred language, facilitating
+          better understanding and use of the codes.
+        in: path
+        name: lang
+        required: true
+        schema:
+          $ref: '#/components/schemas/lang'
+      - description: The identifier for the specific dimension within the domain.
+          This could be 'countries', 'regions', 'items', 'elements', etc. It specifies
+          which set of codes you want to retrieve. For example, 'countries' would
+          return a list of country codes and names, while 'items' might return a list
+          of agricultural products or commodities relevant to the domain.
+        in: path
+        name: dimension_id
+        required: true
+        schema:
+          example: countries
+          type: string
+      - description: The unique identifier for the FAOSTAT domain. This code specifies
+          the context for the dimension codes being retrieved. Different domains may
+          have different sets of codes for the same dimension (e.g., the list of relevant
+          countries might differ between crop production and trade statistics).
+        in: path
+        name: domain_code
+        required: true
+        schema:
+          example: QCL
+          type: string
+      - description: A boolean flag to control the inclusion of list information in
+          the response. When true (default), it includes details about which lists
+          (e.g., M49, FAO, ISO3) the codes belong to. This is useful for understanding
+          the classification systems used and how codes might relate across different
+          standards.
+        in: query
+        name: show_lists
+        schema:
+          default: true
+          type: boolean
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeResponse'
+          description: Successful response
+      summary: Returns FAOSTAT code list
+  /{lang}/codes/{id}/{domain_code}/:
+    get:
+      description: List of codes for the given codelist.
+      operationId: get_codes
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: query
+        name: report_code
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: id
+        required: true
+        schema:
+          description: ID of the FAOSTAT codelist to be retrieved.
+          enum:
+          - areas
+          - countries
+          - regions
+          - specialgroups
+          - items
+          - itemsaggregated
+          - elements
+          - years
+          title: Codelist ID
+          type: string
+      - in: query
+        name: whitelist
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: blacklist
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: show_lists
+        required: false
+        schema:
+          default: true
+          description: Determines whether codes representing lists must be included
+            in the output.
+          title: Show Lists
+          type: boolean
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'codes' service.
+                properties:
+                  data:
+                    description: List of available codes.
+                    items:
+                      type: string
+                    title: Codes
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Codes
+  /{lang}/data/{domain_code}:
+    get:
+      description: FAOSTAT data.
+      operationId: get_data
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+          enum: [objects, csv]
+      - in: query
+        name: area
+        required: false
+        schema:
+          type: string
+          description: Alias for area dimension codes.
+      - in: query
+        name: year
+        required: false
+        schema:
+          type: string
+          description: Alias for year dimension codes.
+      - in: query
+        name: item
+        required: false
+        schema:
+          type: string
+          description: Alias for item dimension codes.
+      - in: query
+        name: element
+        required: false
+        schema:
+          type: string
+          description: Alias for element dimension codes.
+      - in: query
+        name: List1Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 1.
+      - in: query
+        name: List2Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 2.
+      - in: query
+        name: List3Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 3.
+      - in: query
+        name: List4Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 4.
+      - in: query
+        name: List5Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 5.
+      - in: query
+        name: List6Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 6.
+      - in: query
+        name: List7Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 7.
+      - in: query
+        name: List8Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 8.
+      - in: query
+        name: List9Codes
+        required: false
+        schema:
+          type: string
+          description: Comma-separated list of codes for dimension 9.
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: Data
+  /{lang}/datasize/:
+    post:
+      description: Size of the query.
+      operationId: post_datasize
+      parameters:
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_codes
+        required: false
+        schema:
+          description: FAOSTAT domain code.
+          items:
+            type: string
+          title: Domain code
+          type: array
+      - in: query
+        name: List1Codes
+        required: false
+        schema:
+          description: List of codes for dimension 1.
+          items:
+            type: string
+          title: Dimension 1 codes
+          type: array
+      - in: query
+        name: List2Codes
+        required: false
+        schema:
+          description: List of codes for dimension 2.
+          items:
+            type: string
+          title: Dimension 2 codes
+          type: array
+      - in: query
+        name: List3Codes
+        required: false
+        schema:
+          description: List of codes for dimension 3.
+          items:
+            type: string
+          title: Dimension 3 codes
+          type: array
+      - in: query
+        name: List4Codes
+        required: false
+        schema:
+          description: List of codes for dimension 4.
+          items:
+            type: string
+          title: Dimension 4 codes
+          type: array
+      - in: query
+        name: List5Codes
+        required: false
+        schema:
+          description: List of codes for dimension 5.
+          items:
+            type: string
+          title: Dimension 5 codes
+          type: array
+      - in: query
+        name: List6Codes
+        required: false
+        schema:
+          description: List of codes for dimension 6.
+          items:
+            type: string
+          title: Dimension 6 codes
+          type: array
+      - in: query
+        name: List7Codes
+        required: false
+        schema:
+          description: List of codes for dimension 7.
+          items:
+            type: string
+          title: Dimension 7 codes
+          type: array
+      - in: query
+        name: List8Codes
+        required: false
+        schema:
+          description: List of codes for dimension 8.
+          items:
+            type: string
+          title: Dimension 8 codes
+          type: array
+      - in: query
+        name: List9Codes
+        required: false
+        schema:
+          description: List of codes for dimension 9.
+          items:
+            type: string
+          title: Dimension 9 codes
+          type: array
+      - in: query
+        name: no_records
+        required: false
+        schema:
+          default: 1
+          description: Flag that determines that only the size of the query must be
+            computed.
+          title: Number of Records
+          type: integer
+      - in: query
+        name: null_values
+        required: false
+        schema:
+          default: false
+          description: Flag to determine whether null values will be shown or not.
+          title: Null Values
+          type: boolean
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'abbreviations' service.
+                properties:
+                  data:
+                    description: FAOSTAT abbreviations.
+                    properties:
+                      code:
+                        type: string
+                      label:
+                        type: string
+                    title: Abbreviations
+                    type: object
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: datasize
+  /{lang}/definitions/domain/{domain_code}:
+    get:
+      description: FAOSTAT domain definitions.
+      operationId: get_definitions_domain
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: definitions domain
+  /{lang}/definitions/domain/{domain_code}/{type}:
+    get:
+      description: FAOSTAT domain definitions by type.
+      operationId: get_definitions_domain_by_type
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: query
+        name: type
+        required: true
+        schema:
+          title: Type code
+          type: string
+      - in: path
+        name: type
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: definitions domain by type
+  /{lang}/definitions/types:
+    get:
+      description: FAOSTAT definitions types.
+      operationId: get_definitions_types
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: definitions types
+  /{lang}/definitions/types/{type}:
+    get:
+      description: FAOSTAT definitions by type.
+      operationId: get_definitions_by_type
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: type
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: type
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: definitions by type
+  /{lang}/dimensions/{domain_code}/:
+    get:
+      description: Definition of FAOSTAT domain.
+      operationId: get_dimensions
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: report_code
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: query
+        name: full
+        required: false
+        schema:
+          default: false
+          description: Returns the full dimension object.
+          title: Full response
+          type: boolean
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'dimensions' service.
+                properties:
+                  data:
+                    description: FAOSTAT domain structure.
+                    items:
+                      type: string
+                    title: Dimensions
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Domain Structure
+  /{lang}/documents/{domain_code}/:
+    get:
+      description: List of available documents.
+      operationId: get_documents
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: List of available documents.
+                    items:
+                      description: FAOSTAT document
+                      properties:
+                        CreatedDate:
+                          description: Date of creation.
+                          title: Creation Date
+                          type: string
+                        DomainCode:
+                          type: string
+                        FileName:
+                          description: Name of the file.
+                          title: Filename
+                          type: string
+                        FilePath:
+                          description: Path to the file.
+                          title: Filepath
+                          type: string
+                      title: Documents
+                      type: object
+                    title: Documents
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Documents
+  /{lang}/domains/{group_code}/:
+    get:
+      description: List of available FAOSTAT domains.
+      operationId: get_domains
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: group_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: query
+        name: whitelist
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: blacklist
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: group_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: List of available domains.
+                    items:
+                      description: FAOSTAT domain
+                      properties:
+                        code:
+                          type: string
+                        label:
+                          type: string
+                      title: Domain
+                      type: object
+                    title: Domains
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Domains
+  /{lang}/groups/:
+    get:
+      description: List of available FAOSTAT groups.
+      operationId: get_groups
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: whitelist
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: blacklist
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: List of available groups.
+                    items:
+                      type: string
+                    title: Groups
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Groups
+  /{lang}/groupsanddomains:
+    get:
+      description: FAOSTAT groups and domains tree.
+      operationId: get_groupsanddomains
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: section
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'domainstree' service.
+                properties:
+                  data:
+                    description: FAOSTAT domains tree.
+                    items:
+                      description: Single domain contained in the domains tree.
+                      properties:
+                        DomainName:
+                          type: string
+                        DomainaCode:
+                          type: string
+                        GroupCode:
+                          type: string
+                        GroupName:
+                          type: string
+                      title: Domain
+                      type: object
+                    title: Domains Tree
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Groups and domains
+  /{lang}/metadata/{domain_code}:
+    get:
+      description: FAOSTAT metadata.
+      operationId: get_metadata
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: metadata
+  /{lang}/metadata_print/{domain_code}:
+    get:
+      description: FAOSTAT metadata in printable format
+      operationId: get_metadata_print
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: metadata_print
+  /{lang}/rankings/:
+    post:
+      description: FAOSTAT Rankings.
+      operationId: post_rankings
+      parameters:
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_codes
+        required: false
+        schema:
+          description: FAOSTAT domain codes.
+          items:
+            type: string
+          title: Domain code
+          type: array
+      - in: query
+        name: List1Codes
+        required: false
+        schema:
+          description: List of codes for dimension 1.
+          items:
+            type: string
+          title: Dimension 1 codes
+          type: array
+      - in: query
+        name: List2Codes
+        required: false
+        schema:
+          description: List of codes for dimension 2.
+          items:
+            type: string
+          title: Dimension 2 codes
+          type: array
+      - in: query
+        name: List3Codes
+        required: false
+        schema:
+          description: List of codes for dimension 3.
+          items:
+            type: string
+          title: Dimension 3 codes
+          type: array
+      - in: query
+        name: List4Codes
+        required: false
+        schema:
+          description: List of codes for dimension 4.
+          items:
+            type: string
+          title: Dimension 4 codes
+          type: array
+      - in: query
+        name: List5Codes
+        required: false
+        schema:
+          description: List of codes for dimension 5.
+          items:
+            type: string
+          title: Dimension 5 codes
+          type: array
+      - in: query
+        name: List6Codes
+        required: false
+        schema:
+          description: List of codes for dimension 6.
+          items:
+            type: string
+          title: Dimension 6 codes
+          type: array
+      - in: query
+        name: List7Codes
+        required: false
+        schema:
+          description: List of codes for dimension 7.
+          items:
+            type: string
+          title: Dimension 7 codes
+          type: array
+      - in: query
+        name: List8Codes
+        required: false
+        schema:
+          description: List of codes for dimension 8.
+          items:
+            type: string
+          title: Dimension 8 codes
+          type: array
+      - in: query
+        name: List9Codes
+        required: false
+        schema:
+          description: List of codes for dimension 9.
+          items:
+            type: string
+          title: Dimension 9 codes
+          type: array
+      - in: query
+        name: filter_list
+        required: false
+        schema:
+          description: Index of the dimension to be used as filter.
+          title: Filter List
+          type: integer
+      - in: query
+        name: rank_type
+        required: false
+        schema:
+          default: ASC
+          description: Type of ranking.
+          enum:
+          - ASC
+          - DESC
+          title: Rank Type
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: '5'
+          description: Number of results.
+          title: Results
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'abbreviations' service.
+                properties:
+                  data:
+                    description: FAOSTAT abbreviations.
+                    properties:
+                      code:
+                        type: string
+                      label:
+                        type: string
+                    title: Abbreviations
+                    type: object
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Rankings
+  /{lang}/report/data/:
+    post:
+      description: FAOSTAT Report Data.
+      operationId: post_reportdata
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: report_code
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: List1Codes
+        required: true
+        schema:
+          description: List of codes for dimension 1.
+          items:
+            type: string
+          title: Dimension 1 codes
+          type: array
+      - in: query
+        name: List2Codes
+        required: true
+        schema:
+          description: List of codes for dimension 2.
+          items:
+            type: string
+          title: Dimension 2 codes
+          type: array
+      - in: query
+        name: List3Codes
+        required: true
+        schema:
+          description: List of codes for dimension 3.
+          items:
+            type: string
+          title: Dimension 3 codes
+          type: array
+      - in: query
+        name: List4Codes
+        required: true
+        schema:
+          description: List of codes for dimension 4.
+          items:
+            type: string
+          title: Dimension 4 codes
+          type: array
+      - in: query
+        name: List5Codes
+        required: true
+        schema:
+          description: List of codes for dimension 5.
+          items:
+            type: string
+          title: Dimension 5 codes
+          type: array
+      - in: query
+        name: List6Codes
+        required: true
+        schema:
+          description: List of codes for dimension 6.
+          items:
+            type: string
+          title: Dimension 6 codes
+          type: array
+      - in: query
+        name: List7Codes
+        required: true
+        schema:
+          description: List of codes for dimension 7.
+          items:
+            type: string
+          title: Dimension 7 codes
+          type: array
+      - in: query
+        name: List8Codes
+        required: true
+        schema:
+          description: List of codes for dimension 8.
+          items:
+            type: string
+          title: Dimension 8 codes
+          type: array
+      - in: query
+        name: List9Codes
+        required: true
+        schema:
+          description: List of codes for dimension 9.
+          items:
+            type: string
+          title: Dimension 9 codes
+          type: array
+      - in: query
+        name: List1AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 1.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List2AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 2.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List3AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 3.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List4AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 4.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List5AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 5.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List6AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 6.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List7AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 7.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List8AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 8.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List9AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 9.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: LatestYear
+        required: false
+        schema:
+          default: false
+          description: Flag to determine whether data is returning only the latest
+            year available or not
+          title: Latest Year
+          type: boolean
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'reportdata' service.
+                properties:
+                  data:
+                    description: FAOSTAT Report Data.
+                    items:
+                      description: Single report data
+                      properties:
+                        Col1:
+                          description: Content of the column 1.
+                          title: Column 1
+                          type: string
+                        Col2:
+                          description: Content of the column 2.
+                          title: Column 2
+                          type: string
+                        Col3:
+                          description: Content of the column 3.
+                          title: Column 3
+                          type: string
+                        Col4:
+                          description: Content of the column 4.
+                          title: Column 4
+                          type: string
+                        Col5:
+                          description: Content of the column 5.
+                          title: Column 5
+                          type: string
+                        Col6:
+                          description: Content of the column 6.
+                          title: Column 6
+                          type: string
+                        Col7:
+                          description: Content of the column 7.
+                          title: Column 7
+                          type: string
+                        Col8:
+                          description: Content of the column 8.
+                          title: Column 8
+                          type: string
+                        Col9:
+                          description: Content of the column 9.
+                          title: Column 9
+                          type: string
+                        RowShade:
+                          description: Shade of the row.
+                          title: Row Shade
+                          type: integer
+                      title: Report Data
+                      type: object
+                    title: Report Data
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Report Data
+  /{lang}/report/headers/:
+    post:
+      description: FAOSTAT Report Headers.
+      operationId: post_reportheaders
+      parameters:
+      - in: query
+        name: output_type
+        required: false
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: report_code
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: List1Codes
+        required: true
+        schema:
+          description: List of codes for dimension 1.
+          items:
+            type: string
+          title: Dimension 1 codes
+          type: array
+      - in: query
+        name: List2Codes
+        required: true
+        schema:
+          description: List of codes for dimension 2.
+          items:
+            type: string
+          title: Dimension 2 codes
+          type: array
+      - in: query
+        name: List3Codes
+        required: true
+        schema:
+          description: List of codes for dimension 3.
+          items:
+            type: string
+          title: Dimension 3 codes
+          type: array
+      - in: query
+        name: List4Codes
+        required: true
+        schema:
+          description: List of codes for dimension 4.
+          items:
+            type: string
+          title: Dimension 4 codes
+          type: array
+      - in: query
+        name: List5Codes
+        required: true
+        schema:
+          description: List of codes for dimension 5.
+          items:
+            type: string
+          title: Dimension 5 codes
+          type: array
+      - in: query
+        name: List6Codes
+        required: true
+        schema:
+          description: List of codes for dimension 6.
+          items:
+            type: string
+          title: Dimension 6 codes
+          type: array
+      - in: query
+        name: List7Codes
+        required: true
+        schema:
+          description: List of codes for dimension 7.
+          items:
+            type: string
+          title: Dimension 7 codes
+          type: array
+      - in: query
+        name: List8Codes
+        required: true
+        schema:
+          description: List of codes for dimension 8.
+          items:
+            type: string
+          title: Dimension 8 codes
+          type: array
+      - in: query
+        name: List9Codes
+        required: true
+        schema:
+          description: List of codes for dimension 9.
+          items:
+            type: string
+          title: Dimension 9 codes
+          type: array
+      - in: query
+        name: List1AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 1.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List2AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 2.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List3AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 3.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List4AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 4.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List5AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 5.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List6AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 6.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List7AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 7.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List8AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 8.
+          title: Alternative coding system
+          type: string
+      - in: query
+        name: List9AltCodes
+        required: false
+        schema:
+          description: Alternative coding system to be used for dimension 9.
+          title: Alternative coding system
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                description: Output of 'reportheaders' service.
+                properties:
+                  data:
+                    description: FAOSTAT Report Headers.
+                    items:
+                      description: Single report header
+                      properties:
+                        Border:
+                          description: Directives for the cell's border.
+                          title: Border
+                          type: string
+                        ColNo:
+                          description: Number of the column.
+                          title: Column Number
+                          type: integer
+                        ColSpan:
+                          description: Span of the column.
+                          title: Col Span
+                          type: integer
+                        Label:
+                          type: string
+                        RowNo:
+                          description: Number of the row.
+                          title: Row Number
+                          type: integer
+                        RowSpan:
+                          description: Span of the row.
+                          title: Row Span
+                          type: integer
+                      title: Report Header
+                      type: object
+                    title: Report Headers
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: Report Headers
+  /{lang}/search:
+    get:
+      description: FAOSTAT search.
+      operationId: get_search
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: q
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: Search
+  /{lang}/suggestions:
+    get:
+      description: FAOSTAT suggestions.
+      operationId: get_suggestions
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: q
+        required: true
+        schema:
+          title: Query string to be sent
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+          description: Successful response
+      summary: Suggestions
+  /{lang}/updates/{domain_code}/:
+    get:
+      description: Domain History Updates.
+      operationId: get_updates
+      parameters:
+      - in: query
+        name: datasource
+        required: false
+        schema:
+          type: string
+      - in: path
+        name: lang
+        required: true
+        schema:
+          type: string
+      - in: query
+        name: domain_code
+        required: true
+        schema:
+          title: Domain code
+          type: string
+      - in: path
+        name: domain_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  data:
+                    description: List of updates
+                    items:
+                      description: FAOSTAT History Update
+                      properties:
+                        Date_Update:
+                          description: Date of update.
+                          title: Update Date
+                          type: string
+                        DomainCode:
+                          type: string
+                        Note:
+                          description: Note
+                          title: Note
+                          type: string
+                        Update_Type:
+                          description: Type of the update
+                          title: Type
+                          type: string
+                      title: History
+                      type: object
+                    title: History
+                    type: array
+                  metadata:
+                    type: string
+                type: object
+          description: Successful response
+      summary: History Updates
+servers:
+- url: https://faostatservices.fao.org/api/v1
+  description: Production server, available on the internet. Data is up to date.

@@ -1,0 +1,14 @@
+# October 20 founder walkthrough (6 minutes)
+
+Superseded for the final rehearsal by [the verified five-minute walkthrough](LILY_MEETING_FIVE_MINUTES.md). The final audit clarifies that the later evaluation window was used in release selection and is not an untouched holdout.
+
+Prepare by October 19: run the documented checks, start the explicit demo-mode production frontend, and open `/intelligence-lab`. Local operational records are synthetic; national statistics are official cached Ministry estimates. Do not call the historical 2026 Q1 estimate current.
+
+1. **0:00–0:40 — Mission.** Explain agricultural intelligence and coordination for Caribbean economic resilience. Show the restrained introduction on My Work and the Intelligence Lab navigation link.
+2. **0:40–1:50 — What we know.** Show 2016–2025 iceberg production and farmgate prices, latest 2025 Q4 production of 3,110 tonnes and J$1,150.02/kg price. Open original sources. Explain the quarantined 2016 Q3 cell and visible gap. Show the separately labelled FAOSTAT annual section: 1,496 Jamaica observations for 2016–2024; its broader lettuce/chicory category is neither mapped to iceberg nor converted to quarters.
+3. **1:50–3:00 — What we estimate.** Show the 20-quarter evaluation table: seasonal naive MAE 595.15 tonnes; ridge MAE 498.96 tonnes. Explain latest-vintage retrospective evaluation and unknown historical release timing. Show the 2026 Q1 estimate of approximately 4,069 tonnes from the 2025 Q4 cutoff; it is not a forecast for today's quarter. No calibrated interval or shortage prediction is claimed.
+4. **3:00–4:20 — What we coordinate now.** Open `/requirements/00000000-0000-0000-0000-000000000500`. Show 500 kg committed and 100 kg standby. Simulate an 80 kg dropout, show 420 kg coverage, run authorized recovery and return to 500 kg. Distinguish commitments from accepted/delivered produce. Scenario Lab remains a separate non-persistent simulation.
+5. **4:20–5:10 — Governance.** Show traceability/audit evidence and distinguish observation, prediction, recommendation, authorization and verified outcome. National forecast information does not mutate commitments. No autonomous four-agent expansion is implemented.
+6. **5:10–6:00 — Partnership and future value.** Show the labelled Value Pathways concept. Request Ministry publication vintages, conflict clarification and updated quarters, plus pilot demand/stock and processing-capacity partners. Explain that prospective validation and certified tenant isolation are required before broader real-data operational claims.
+
+Fallback: source statistics and the evaluated artifact are local and reproducible, so the demonstration does not depend on the Ministry site being reachable that day. Live API failures remain visible rather than switching into demo data.

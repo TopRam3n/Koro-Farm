@@ -1,4 +1,23 @@
-# KoroFarm Supply Assurance Platform
+# KoroFarm — Agricultural Intelligence & Coordination Infrastructure
+
+The Intelligence Lab serves preserved official Jamaican quarterly statistics, separate FAOSTAT annual context and a frozen experimental production forecast. Supply assurance remains an operational application. Agro-processing is planned. The historical forecast is preliminary retrospective evidence, not a validated shortage predictor.
+
+For a database-free offline preview:
+
+```powershell
+Set-Location src/frontend
+npm.cmd ci
+$env:NEXT_PUBLIC_APP_MODE='demo'
+$env:NEXT_PUBLIC_AUTH_MODE='demo'
+npm.cmd run build
+npm.cmd run start -- --hostname 127.0.0.1
+```
+
+Open `/intelligence-lab` for verified cached statistics and the labelled historical forecast. Operational demo records are synthetic. No source downloads or model training are required to run this preview.
+
+Install backend validation/ingestion dependencies from the repository root with `python -m pip install -e "src/backend[dev,intelligence]"`. Run `python -m pytest src/backend/tests -q` and `python -m src.backend.scripts.verify_saved_agricultural_provenance` for regression and snapshot checks. The nine PostgreSQL-specific checks require `POSTGRES_TEST_DATABASE_URL`.
+
+See [reliability verification](docs/ML_RELIABILITY_HOTFIX.md), [data sources](docs/AGRICULTURAL_DATA_SOURCES.md) and [the demo walkthrough](docs/LILY_MEETING_FIVE_MINUTES.md). Historical publication vintages and original training-execution provenance cannot be certified retroactively. Preserve the saved model; do not retrain it as a startup step.
 
 KoroFarm is an enterprise agricultural supply-assurance platform for buyer programmes, demand commitments, production-lot coordination, disruption recovery, fulfilment, and trade evidence. Planning is deterministic: committed and standby reservations are separate, landed-cost and risk snapshots are immutable, and physical acceptance never gets conflated with planned coverage. A quality rejection triggers the same reserve-first recovery policy as a farmer dropout; solicited supply never counts as committed until the farmer explicitly accepts.
 

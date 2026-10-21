@@ -1,0 +1,71 @@
+{
+  "url": "https://faostatservices.fao.org/api/v1/en/data/QCL?area=109&element=2312%2C2510&year=2016%2C2017%2C2018%2C2019%2C2020%2C2021%2C2022%2C2023%2C2024%2C2025&output_type=objects",
+  "http_last_modified": null,
+  "domain": "QCL",
+  "area_code": "109",
+  "requested_years": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025
+  ],
+  "query": {
+    "area": "109",
+    "element": "2312,2510",
+    "year": "2016,2017,2018,2019,2020,2021,2022,2023,2024,2025",
+    "output_type": "objects"
+  },
+  "auth_method": "official_browser_guest",
+  "retrieved_at": "2026-10-17T18:18:02.792305+00:00",
+  "publication_date": null,
+  "sha256": "716934145a9c0a0bd28a84ffb596979fabc3dd2c760c26542f880938292d77b0",
+  "local_file": "raw/qcl-jamaica-2016-2025-716934145a9c.json",
+  "contracts": [
+    {
+      "url": "https://www.fao.org/faostat/en/docs/faostat_openapi.yaml",
+      "sha256": "15b4fb7edb555c4f635b2122739f75f233fe4cfacd6ba31a95d9734088faf337",
+      "local_file": "raw/15b4fb7edb55-openapi.yaml"
+    },
+    {
+      "url": "https://www.fao.org/faostat/en/src/js/FAOSTATAPIClient.js",
+      "sha256": "d92ab84ebde9bda9a686aa93a33b0f2ca299d95f59a0e322febca6368a697765",
+      "local_file": "raw/d92ab84ebde9-api-client.js"
+    },
+    {
+      "url": "https://www.fao.org/faostat/en/src/js/templates/developer-portal.hbs",
+      "sha256": "af122c4d9ef1fa5b7d802080bd4334672715f6ab411f3e4508db302a0193905e",
+      "local_file": "raw/af122c4d9ef1-developer-portal.hbs"
+    },
+    {
+      "url": "https://www.fao.org/faostat/en/src/js/views/developer-portal-view.js",
+      "sha256": "b5d12349ffd91861b5586056c83623fe1d108f39be48da011fc49274751b72a9",
+      "local_file": "raw/b5d12349ffd9-developer-portal-view.js"
+    }
+  ],
+  "metadata_sources": [
+    {
+      "url": "https://faostatservices.fao.org/api/v1/en/codes/area/QCL/",
+      "http_last_modified": null,
+      "sha256": "2a517201ab13a2bf72180a0034bd2d2889c4699e9212bb96ff13d74a81e0fbd3",
+      "local_file": "raw/2a517201ab13a2bf-metadata.json"
+    },
+    {
+      "url": "https://faostatservices.fao.org/api/v1/en/codes/element/QCL/",
+      "http_last_modified": null,
+      "sha256": "1a82a6ccc26dcac4ff33c66418df4de75062c46eb11bd2d6beccfd248c8cd82b",
+      "local_file": "raw/1a82a6ccc26dcac4-metadata.json"
+    },
+    {
+      "url": "https://faostatservices.fao.org/api/v1/en/bulkdownloads/QCL/",
+      "http_last_modified": null,
+      "sha256": "0de82f8ab5dd3c779c80839a12412d158a91d8565e568b2c096267725d654dc8",
+      "local_file": "raw/0de82f8ab5dd3c77-metadata.json"
+    }
+  ]
+}

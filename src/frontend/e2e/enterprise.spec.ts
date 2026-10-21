@@ -6,7 +6,7 @@ const routes = [
   ['/programmes', 'Programmes'],
   ['/demand', 'Demand'],
   ['/supply', 'Supply Network'],
-  ['/assurance', 'Assurance Center'],
+  ['/assurance', 'Supply Assurance Control Room'],
   ['/scenario-lab', 'KoroFarm Scenario Lab'],
   ['/fulfilment', 'Fulfilment Center'],
   ['/network', 'Network Intelligence'],

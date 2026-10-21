@@ -20,6 +20,10 @@ build-backend = "setuptools.build_meta"
 include = ["app*"]
 
 [project.optional-dependencies]
+intelligence = [
+    "pdfplumber==0.11.10",
+    "numpy>=1.26,<3",
+]
 dev = [
     "httpx>=0.28",
     "pytest>=8.3",

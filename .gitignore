@@ -41,3 +41,14 @@ dist-ssr
 *.tsbuildinfo
 pytest-cache-files-*/
 src/frontend/artifacts/demo-video/page@*.webm
+
+# Generated verification output and local creative/agent workspaces
+src/frontend/artifacts/
+tmp/
+brag-output*/
+orgvid/
+.agents/
+.github/hooks/
+.github/skills/
+.impeccable/
+skills-lock.json

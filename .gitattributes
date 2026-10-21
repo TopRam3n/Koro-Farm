@@ -1,0 +1,4 @@
+# Preserved source receipts and model snapshots are byte-hashed. Never rewrite
+# their line endings on commit/checkout across Windows and Linux.
+data/agriculture/** -text -whitespace
+src/frontend/public/agriculture/** -text -whitespace

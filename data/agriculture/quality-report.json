@@ -1,0 +1,431 @@
+{
+  "dataset_version": "d7134d44ec36dc9bd83e260bbcb210612df5db88358b19a1aec0e70b9b2802ec",
+  "extraction_version": "moa-iceberg-text-v1",
+  "documents": [
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2025.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2024.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2023.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2022.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2021.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2020_1.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2019_0.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2018.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2017.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2016_0.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2025.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2024.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2023.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2022.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2021.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2019_0.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2018.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2017.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_prices_2016.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2025.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2024.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2023.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2022.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2021.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2020.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2019.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2018.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2017.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/Area_reaped_2016.pdf",
+      "status": "parsed",
+      "cells": 4
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_2025.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_2024.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate_2023.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate%202022.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate%202021.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate%202020.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate%202019_0.pdf",
+      "status": "parsed",
+      "cells": 12
+    },
+    {
+      "url": "https://moa.gov.jm/sites/default/files/farmgate%202016.pdf",
+      "status": "parsed",
+      "cells": 12
+    }
+  ],
+  "source_versions": 37,
+  "extracted_cells": 212,
+  "normalized_records": 120,
+  "validated_counts": {
+    "production": 39,
+    "area": 40,
+    "price": 40
+  },
+  "conflicts": [
+    {
+      "id": "JAM:national:iceberg_lettuce:production:2016:Q3",
+      "period": "2016 Q3",
+      "measurement": "production",
+      "reason": "Conflicting official source values",
+      "values": [
+        {
+          "value": 2525.0,
+          "url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2016_0.pdf",
+          "page": 1
+        },
+        {
+          "value": 2998.0,
+          "url": "https://moa.gov.jm/sites/default/files/farmgate%202016.pdf",
+          "page": 3
+        }
+      ]
+    }
+  ],
+  "gaps": [
+    "2016 Q3: production"
+  ],
+  "annual_checks": [
+    {
+      "year": 2025,
+      "measurement": "production",
+      "quarterly_sum": 16533.0,
+      "annual_value": 16532.0,
+      "difference": 1.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2025.pdf",
+      "status": "within_rounding_tolerance",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2024,
+      "measurement": "production",
+      "quarterly_sum": 14614.0,
+      "annual_value": 14615.0,
+      "difference": -1.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2024.pdf",
+      "status": "within_rounding_tolerance",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2023,
+      "measurement": "production",
+      "quarterly_sum": 15076.0,
+      "annual_value": 15076.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2023.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2022,
+      "measurement": "production",
+      "quarterly_sum": 16592.0,
+      "annual_value": 16592.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2022.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2021,
+      "measurement": "production",
+      "quarterly_sum": 14735.0,
+      "annual_value": 14736.0,
+      "difference": -1.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2021.pdf",
+      "status": "within_rounding_tolerance",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2020,
+      "measurement": "production",
+      "quarterly_sum": 12680.0,
+      "annual_value": 12680.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2020_1.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2019,
+      "measurement": "production",
+      "quarterly_sum": 12119.0,
+      "annual_value": 12119.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2019_0.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2018,
+      "measurement": "production",
+      "quarterly_sum": 13051.0,
+      "annual_value": 13051.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2018.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2017,
+      "measurement": "production",
+      "quarterly_sum": 10791.0,
+      "annual_value": 10791.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2017.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2016,
+      "measurement": "production",
+      "quarterly_sum": 11641.0,
+      "annual_value": 11641.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/crop_production_by_quarter_2016_0.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2025,
+      "measurement": "area",
+      "quarterly_sum": 1196.0,
+      "annual_value": 1196.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2025.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2024,
+      "measurement": "area",
+      "quarterly_sum": 1088.0,
+      "annual_value": 1088.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2024.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2023,
+      "measurement": "area",
+      "quarterly_sum": 1111.0,
+      "annual_value": 1110.0,
+      "difference": 1.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2023.pdf",
+      "status": "within_rounding_tolerance",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2022,
+      "measurement": "area",
+      "quarterly_sum": 1174.0,
+      "annual_value": 1173.0,
+      "difference": 1.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2022.pdf",
+      "status": "within_rounding_tolerance",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2021,
+      "measurement": "area",
+      "quarterly_sum": 1029.0,
+      "annual_value": 1029.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2021.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2020,
+      "measurement": "area",
+      "quarterly_sum": 902.0,
+      "annual_value": 902.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2020.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2019,
+      "measurement": "area",
+      "quarterly_sum": 875.0,
+      "annual_value": 875.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2019.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2018,
+      "measurement": "area",
+      "quarterly_sum": 911.0,
+      "annual_value": 911.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2018.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2017,
+      "measurement": "area",
+      "quarterly_sum": 759.0,
+      "annual_value": 759.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/area_reaped_by_quarter_2017.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    },
+    {
+      "year": 2016,
+      "measurement": "area",
+      "quarterly_sum": 796.0,
+      "annual_value": 796.0,
+      "difference": 0.0,
+      "source_url": "https://moa.gov.jm/sites/default/files/Area_reaped_2016.pdf",
+      "status": "exact",
+      "tolerance": 2.5
+    }
+  ],
+  "sanity_checks_passed": true,
+  "notes": [
+    "Annual/quarter sums may differ through independent rounding; tolerance is 2.5 displayed units (five rounded cells).",
+    "Annual prices are not summed or assumed to be unweighted averages.",
+    "No 2026 records linked on the four inspected indexes.",
+    "Historical publication dates and revision vintages are unknown; no real-time availability claim."
+  ]
+}
