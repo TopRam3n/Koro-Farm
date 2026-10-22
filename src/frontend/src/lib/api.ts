@@ -1,3 +1,4 @@
+
 import { supabase } from '@/integrations/supabase/client';
 import { demoApiFetch } from '@/lib/demoApi';
 
@@ -5,18 +6,27 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (process.env.NEXT_PUBLIC_APP_MODE === 'demo') return demoApiFetch<T>(path, options);
+
+  // Compatibility with the October 10 Demo Orders UI
+  if (path.startsWith('/demo-farmer-availability/')) {
+    path = `/demo-orders/availability/${encodeURIComponent(path.split('/')[2])}`;
+  }
+
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   const controller = options.signal ? null : new AbortController();
   const timeout = controller ? setTimeout(() => controller.abort(), 10_000) : null;
   let response: Response;
+
   try {
     response = await fetch(`${API_URL}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(process.env.NEXT_PUBLIC_ORGANIZATION_ID ? { 'X-Organization-ID': process.env.NEXT_PUBLIC_ORGANIZATION_ID } : {}),
+        ...(process.env.NEXT_PUBLIC_ORGANIZATION_ID
+          ? { 'X-Organization-ID': process.env.NEXT_PUBLIC_ORGANIZATION_ID }
+          : {}),
         ...options.headers,
       },
       signal: options.signal ?? controller?.signal,

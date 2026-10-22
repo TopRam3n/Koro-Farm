@@ -1,6 +1,6 @@
-import { ControlCenterView } from '@/components/ControlCenterView';
+import { CommandCenter } from '@/components/CommandCenter';
 import { AuthGate } from '@/components/AuthGate';
 
 export default function Page() {
-  return <AuthGate><ControlCenterView /></AuthGate>;
+  return <AuthGate><CommandCenter /></AuthGate>;
 }
