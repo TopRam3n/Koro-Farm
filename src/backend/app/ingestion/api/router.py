@@ -14,18 +14,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
-from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
-from src.backend.app.ingestion.domain.models import (
+from app.assurance.domain.models import DomainEvent, OutboxMessage
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from app.identity.domain.permissions import PermissionCode, RoleCode
+from app.ingestion.domain.models import (
     BulkImport, BulkImportRow, FreshnessStatus, ImportStatus, IngestionRecord, IngestionStatus, OperationalObservation,
     SecureActionLink, SecureActionPurpose, SourceChannel, VerificationStatus,
 )
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade
-from src.backend.app.supply.domain.models import ProductionLotStatus
+from app.main_dependencies import get_session
+from app.supply.domain.models import Farmer, ProductionLot
+from app.demand.domain.models import Buyer, Requirement
+from app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade
+from app.supply.domain.models import ProductionLotStatus
 
 router = APIRouter(prefix="/v1/ingestion", tags=["ingestion"])
 public_router = APIRouter(prefix="/v1/secure-actions", tags=["secure farmer actions"])

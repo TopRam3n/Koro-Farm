@@ -7,11 +7,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.application.recovery import committed_quantity
-from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.programmes.domain.models import Programme, ProgrammeStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.assurance.application.recovery import committed_quantity
+from app.demand.domain.models import Buyer, Requirement, SupplyHealth
+from app.main_dependencies import get_session
+from app.programmes.domain.models import Programme, ProgrammeStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
 router = APIRouter(prefix="/programmes", tags=["programmes"])
 

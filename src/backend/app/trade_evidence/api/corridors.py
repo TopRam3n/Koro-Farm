@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
+from app.main_dependencies import get_session
+from app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/trade-corridors", tags=["trade-corridors"])
 

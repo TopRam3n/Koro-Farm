@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.infrastructure.database.base import Base
+from app.infrastructure.database.base import Base
 
 
 class SupplyPlanStatus(StrEnum):

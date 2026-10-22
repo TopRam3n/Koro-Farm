@@ -9,14 +9,14 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.core.auth import get_current_user
-from src.backend.app.identity.application.authorization import (
+from app.core.auth import get_current_user
+from app.identity.application.authorization import (
     AuthorizationContext,
     forbid_platform_admin_assignment,
     get_authorization_context,
     require_permission,
 )
-from src.backend.app.identity.domain.models import (
+from app.identity.domain.models import (
     AccessRequest,
     AccessRequestStatus,
     DEFAULT_ORGANIZATION_ID,
@@ -25,10 +25,10 @@ from src.backend.app.identity.domain.models import (
     OrganizationMembership,
     UserAccount,
 )
-from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.demand.domain.models import Buyer
-from src.backend.app.supply.domain.models import Farmer
+from app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
+from app.main_dependencies import get_session
+from app.demand.domain.models import Buyer
+from app.supply.domain.models import Farmer
 
 router = APIRouter(tags=["identity and access"])
 

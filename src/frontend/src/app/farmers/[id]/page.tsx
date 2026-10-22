@@ -1,2 +1,16 @@
-import { AuthGate } from '@/components/AuthGate'; import { ModuleWorkspace } from '@/components/ModuleWorkspace';
-export default async function Page({params}:{params:Promise<{id:string}>}){ const {id}=await params; return <AuthGate><ModuleWorkspace kind="farmer" entityId={id} /></AuthGate>; }
+import { AuthGate } from '@/components/AuthGate';
+import { FarmerHistoryProfile } from '@/components/FarmerHistoryProfile';
+
+export default async function Page({
+    params,
+}: {
+    params: Promise<{ id: string }>;
+}) {
+    const { id } = await params;
+
+    return (
+        <AuthGate>
+            <FarmerHistoryProfile farmerId={id} />
+        </AuthGate>
+    );
+}

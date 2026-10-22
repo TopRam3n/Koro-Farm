@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-from src.backend.app.economics.domain.models import LotCostInput
+from app.economics.domain.models import LotCostInput
 
 MONEY_QUANTUM = Decimal("0.01")
 

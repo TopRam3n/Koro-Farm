@@ -1,23 +1,94 @@
 'use client';
 
-import { AlertTriangle, Beaker, FlaskConical, LockKeyhole, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AppShell } from '@/components/AppShell';
-import { DataTrustIndicator } from '@/components/DataTrustIndicator';
-import { StatusBadge } from '@/components/StatusBadge';
-import { Breadcrumbs, WorkspaceHeader } from '@/components/WorkspacePrimitives';
-import { useAssurance } from '@/hooks/useAssurance';
+import { apiFetch } from '@/lib/api';
+import type { AgriculturalIntelligence } from '@/lib/agriculturalIntelligence';
+import { modelNames } from '@/lib/agriculturalIntelligence';
+import { validateIntelligence } from '@/lib/intelligenceValidation';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
+const fmt = (v: number, digits = 0) => v.toLocaleString('en-JM', { maximumFractionDigits: digits });
+const scenarios = [
+  { value: 'drought', label: 'Drought / rainfall shortfall' },
+  { value: 'storm', label: 'Storm damage' },
+  { value: 'disease', label: 'Crop disease pressure' },
+  { value: 'improvement', label: 'Improved growing conditions' },
+];
 
 export function ScenarioLab() {
-  const assurance = useAssurance(requirementId); const [loss, setLoss] = useState(80); const [scenario, setScenario] = useState<'FARMER DROPOUT'|'SUPPLY REDUCTION'|'QUALITY REJECTION'>('FARMER DROPOUT');
-  if (!assurance.data) return <div role={assurance.isError ? 'alert' : undefined} className="grid min-h-screen place-items-center px-6 text-center text-sm text-muted-foreground"><div><p>{assurance.isLoading ? 'Loading simulation inputs…' : 'Scenario inputs unavailable.'}</p>{assurance.isError && <button type="button" onClick={() => void assurance.refetch()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-white/[0.12] px-4 font-medium text-foreground hover:bg-white/[0.05]"><RefreshCw className="h-4 w-4" />Retry</button>}</div></div>;
-  const data = assurance.data; const current = Number(data.committed_quantity_kg); const required = Number(data.requirement.required_quantity_kg); const standby = Number(data.standby_quantity_kg); const afterLoss = Math.max(0, current - loss); const shortfall = Math.max(0, required - afterLoss); const possible = Math.min(shortfall, standby); const afterRecovery = afterLoss + possible; const remaining = Math.max(0, required - afterRecovery); const candidates = data.allocations.filter(item => item.role === 'STANDBY' && ['STANDBY','ACTIVATED'].includes(item.status));
-  return <AppShell programme={`${data.requirement.buyer_name} · ${data.requirement.crop}`}><main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8"><Breadcrumbs items={[{label:'Command Center',href:'/'},{label:'Scenario Lab'}]} /><WorkspaceHeader eyebrow="Simulation" title="KoroFarm Scenario Lab" description="Explore bounded supply disruptions without writing to live domain state." trust={<span className="inline-flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-semibold text-warning"><FlaskConical className="h-4 w-4" />SIMULATION</span>} />
-    <div className="grid min-w-0 gap-6 lg:grid-cols-[320px_minmax(0,1fr)]"><aside className="operational-panel p-5"><p className="section-eyebrow">Scenario inputs</p><label className="mt-5 block text-sm font-medium" htmlFor="scenario">Disruption type</label><select id="scenario" value={scenario} onChange={event => setScenario(event.target.value as typeof scenario)} className="mt-2 h-10 w-full rounded-md border border-white/[0.1] bg-secondary px-3 text-sm"><option>FARMER DROPOUT</option><option>SUPPLY REDUCTION</option><option>QUALITY REJECTION</option></select><label className="mt-6 flex justify-between text-sm font-medium" htmlFor="loss"><span>Quantity impact</span><strong className="tabular text-warning">{loss} kg</strong></label><input id="loss" type="range" min="10" max={Math.min(200,current)} step="10" value={loss} onChange={event => setLoss(Number(event.target.value))} className="mt-3 w-full accent-primary" /><div className="mt-6 rounded-md border border-white/[0.07] bg-white/[0.025] p-3 text-xs text-muted-foreground"><p className="flex items-center gap-2 font-medium text-foreground"><LockKeyhole className="h-3.5 w-3.5 text-primary" />No live writes</p><p className="mt-2 leading-5">Results are computed in this browser and never enter the audit ledger.</p></div></aside>
-      <div className="space-y-6"><section className="operational-panel overflow-hidden"><div className="grid sm:grid-cols-3"><Stage label="Before" committed={current} shortfall={Math.max(0,required-current)} status={data.supply_health} /><Stage label="After disruption" committed={afterLoss} shortfall={shortfall} status={shortfall?'AT RISK':'COVERED'} active /><Stage label="Proposed recovery" committed={afterRecovery} shortfall={remaining} status={remaining?'ESCALATION REQUIRED':'COVERED'} /></div></section><section className="operational-panel p-5"><div className="flex items-start justify-between gap-4"><div><p className="section-eyebrow">Authorized standby candidates</p><h2 className="mt-2 text-lg font-semibold">Recovery possibilities</h2></div><DataTrustIndicator state="SYSTEM DERIVED" detail="Simple quantity view over current authorized standby; not a persisted recovery decision" /></div><div className="mt-5 divide-y divide-white/[0.07]">{candidates.map((candidate,index) => <div key={candidate.id} className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_100px_120px]"><div><p className="text-sm font-medium">{candidate.farmer_name}</p><p className="mt-1 text-xs text-muted-foreground">{candidate.parish} · {candidate.production_lot_id}</p></div><p className="tabular text-sm">{Math.min(Number(candidate.quantity_kg), Math.max(0, possible - candidates.slice(0,index).reduce((s,item)=>s+Number(item.quantity_kg),0)))} kg</p><span className="text-xs text-accent">Authorized standby</span></div>)}</div>{!candidates.length && <p className="mt-5 text-sm text-muted-foreground">No authorized standby is visible.</p>}</section><section className="grid gap-4 sm:grid-cols-3"><Fact label="Simulated loss" value={`−${loss} kg`} tone="warning" /><Fact label="Potential recovery" value={`+${possible} kg`} tone="success" /><Fact label="Economic impact" value="NOT CALCULATED" /></section><p className="flex gap-2 text-xs leading-5 text-muted-foreground"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />This lab does not reproduce backend eligibility, risk, or economics engines. Use the live requirement workspace to execute and audit an authorized recovery.</p></div></div>
-  </main></AppShell>;
+  const [kind, setKind] = useState('drought');
+  const [impact, setImpact] = useState(15);
+  const intel = useQuery({
+    queryKey: ['agricultural-intelligence', 'iceberg_lettuce'],
+    queryFn: async () => validateIntelligence(await apiFetch<unknown>('/agricultural-intelligence')),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const data: AgriculturalIntelligence | undefined = intel.data;
+  const forecast = data?.experiment.forecast;
+  const usable = forecast?.status === 'available' && typeof forecast.value_tonnes === 'number';
+  const baseline = usable ? forecast.value_tonnes! : null;
+  const multiplier = kind === 'improvement' ? 1 + impact / 100 : 1 - impact / 100;
+  const adjusted = baseline === null ? null : Math.max(0, baseline * multiplier);
+  const change = baseline === null || adjusted === null ? null : adjusted - baseline;
+  const latest = data?.series[data.series.length - 1];
+  const history = data?.series.slice(-16).map(p => ({ period: p.period, production_tonnes: p.production_tonnes })) ?? [];
+
+  return <AppShell programme="Jamaica · Agricultural forecasting scenarios">
+    <main className="mx-auto max-w-[1440px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <header>
+        <p className="section-eyebrow">KoroFarm · Forecasting / What-if analysis</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Scenario Lab</h1>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">Explore hypothetical production changes relative to the validated agricultural forecasting artifact. Scenarios are sensitivity calculations, not model-generated forecasts.</p>
+        <div className="mt-4 flex flex-wrap gap-3 text-sm"><span className="rounded border border-warning/30 bg-warning/10 px-3 py-2 text-warning">SIMULATION · No live writes</span><Link className="rounded border border-white/20 px-3 py-2 underline underline-offset-4" href="/intelligence-lab">Open Intelligence Lab →</Link></div>
+      </header>
+
+      {intel.isLoading && <section role="status" className="operational-panel p-6">Loading validated forecasting data…</section>}
+      {intel.isError && <section role="alert" className="operational-panel p-6"><h2 className="font-semibold">Forecast data unavailable</h2><p className="mt-2 text-sm text-muted-foreground">{intel.error.message}</p><p className="mt-2 text-xs text-muted-foreground">Confirm the backend exposes GET /agricultural-intelligence and its validated artifact is present.</p><button type="button" onClick={() => void intel.refetch()} className="mt-4 rounded border border-white/20 px-4 py-2 text-sm">Retry</button></section>}
+      {data && <>
+        <section className="operational-panel p-5">
+          <p className="section-eyebrow">Verified dataset scope</p>
+          <h2 className="mt-2 text-xl font-semibold">{data.country} · {data.crop_label}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">National estimates, not farm-level output. Latest historical period: {latest?.period ?? 'Unavailable'}. Historical data and experimental model results come from the same validated artifact used in Intelligence Lab.</p>
+          <p className="mt-2 text-xs text-muted-foreground">Dataset version: <span className="break-all font-mono">{data.dataset_version}</span></p>
+        </section>
+        <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="operational-panel p-5">
+            <h2 className="text-lg font-semibold">Scenario inputs</h2>
+            <label htmlFor="scenario-kind" className="mt-5 block text-sm font-medium">Hypothetical condition</label>
+            <select id="scenario-kind" className="mt-2 h-11 w-full rounded border border-white/20 bg-secondary px-3 text-sm" value={kind} onChange={e => setKind(e.target.value)}>{scenarios.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}</select>
+            <label htmlFor="impact" className="mt-6 flex justify-between text-sm font-medium"><span>Assumed production impact</span><strong>{impact}%</strong></label>
+            <input id="impact" className="mt-3 w-full accent-primary" type="range" min="0" max="50" step="5" value={impact} onChange={e => setImpact(Number(e.target.value))}/>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">The percentage is a user-selected assumption. It is not estimated from weather, disease, or farm sensor data.</p>
+            <div className="mt-6 rounded border border-white/10 p-3 text-xs text-muted-foreground">Read-only. No buyer requirements, farmer commitments or production lots are modified.</div>
+          </aside>
+          <div className="space-y-5">
+            <section className="grid gap-4 sm:grid-cols-3" aria-label="Scenario comparison">
+              <Metric label="Model baseline" value={baseline === null ? 'Unavailable' : `${fmt(baseline, 1)} tonnes`} />
+              <Metric label="Hypothetical output" value={adjusted === null ? 'Unavailable' : `${fmt(adjusted, 1)} tonnes`} />
+              <Metric label="Difference" value={change === null ? 'Unavailable' : `${change >= 0 ? '+' : ''}${fmt(change, 1)} tonnes`} />
+            </section>
+            <section className="operational-panel p-5">
+              <h2 className="text-lg font-semibold">Forecast basis</h2>
+              <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2"><div><dt className="text-muted-foreground">Reference model</dt><dd className="mt-1">{forecast ? (modelNames[forecast.model] ?? forecast.model) : 'Unavailable'}</dd></div><div><dt className="text-muted-foreground">Forecast target</dt><dd className="mt-1">{forecast?.period ?? 'Unavailable'}</dd></div><div><dt className="text-muted-foreground">Data cutoff</dt><dd className="mt-1">{forecast?.data_cutoff ?? 'Unavailable'}</dd></div><div><dt className="text-muted-foreground">Horizon</dt><dd className="mt-1">{forecast?.horizon_quarters ?? 'Unavailable'} quarter ahead</dd></div></dl>
+              {!usable && <p className="mt-4 text-sm text-warning">{forecast?.unavailable_reason || 'Forecast unavailable — insufficient validated data.'} Scenario results are intentionally withheld.</p>}
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">The selected model is not retrained or rerun when you move the slider. The hypothetical output equals model baseline × (1 ± assumed impact). This does not estimate probability, farm availability, demand shortfall or revenue loss.</p>
+            </section>
+            <section className="operational-panel p-5">
+              <h2 className="text-lg font-semibold">Recent observed production</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Tonnes · most recent 16 quarterly observations; gaps remain gaps</p>
+              <div className="mt-4 h-64 min-w-0"><ResponsiveContainer width="100%" height="100%"><AreaChart data={history}><CartesianGrid stroke="#ffffff15" vertical={false}/><XAxis dataKey="period" tick={{ fontSize: 10, fill: '#9ca3af' }} minTickGap={25}/><YAxis tick={{ fontSize: 10, fill: '#9ca3af' }}/><Tooltip contentStyle={{backgroundColor:'#15201d',color:'#fff'}}/><Area type="linear" dataKey="production_tonnes" connectNulls={false} stroke="#82ba77" fill="#82ba7720" name="Observed production (tonnes)" isAnimationActive={false}/></AreaChart></ResponsiveContainer></div>
+            </section>
+          </div>
+        </div>
+      </>}
+    </main>
+  </AppShell>;
 }
-function Stage({label,committed,shortfall,status,active}:{label:string;committed:number;shortfall:number;status:string;active?:boolean}) { return <div className={`border-b border-white/[0.07] p-5 last:border-0 sm:border-b-0 sm:border-r ${active?'bg-warning/[0.035]':''}`}><p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p><p className="tabular mt-3 text-3xl font-semibold">{committed}<span className="ml-1 text-sm text-muted-foreground">kg</span></p><p className={`tabular mt-2 text-xs ${shortfall?'text-destructive':'text-muted-foreground'}`}>{shortfall} kg shortfall</p><div className="mt-4"><StatusBadge status={status} /></div></div>; }
-function Fact({label,value,tone}:{label:string;value:string;tone?:'warning'|'success'}) { return <div className="operational-panel p-4"><p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p><p className={`tabular mt-2 text-lg font-semibold ${tone==='warning'?'text-warning':tone==='success'?'text-success':''}`}>{value}</p></div>; }
+
+function Metric({label,value}:{label:string;value:string}) {
+  return <section className="operational-panel p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-2 text-xl font-semibold tabular-nums">{value}</p></section>;
+}

@@ -7,13 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, BuyerOrderChange, Requirement, RequirementLifecycleStatus, SupplyHealth
-from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
-from src.backend.app.identity.domain.permissions import PermissionCode
-from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, BuyerOrderChange, Requirement, RequirementLifecycleStatus, SupplyHealth
+from app.domain.common import Crop, DateWindow, Grade, QuantityKg
+from app.main_dependencies import get_session
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from app.identity.domain.permissions import PermissionCode
+from app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/requirements", tags=["requirements"])
 
@@ -68,7 +68,7 @@ def post_requirement(payload: RequirementCreate, session: Session = Depends(get_
     if buyer is None:
         raise HTTPException(status_code=404, detail="buyer not found")
     if payload.programme_id:
-        from src.backend.app.programmes.domain.models import Programme
+        from app.programmes.domain.models import Programme
         programme = session.get(Programme, payload.programme_id)
         if programme is None or programme.buyer_id != payload.buyer_id:
             raise HTTPException(status_code=422, detail="programme does not belong to buyer")

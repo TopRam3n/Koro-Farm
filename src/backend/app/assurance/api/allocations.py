@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.application.recovery import accept, decline, dropout
-from src.backend.app.main_dependencies import get_session
+from app.assurance.application.recovery import accept, decline, dropout
+from app.main_dependencies import get_session
 
 router = APIRouter(prefix="/allocations", tags=["allocations"])
 

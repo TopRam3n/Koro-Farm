@@ -8,7 +8,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
+from app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
 
 revision: str = "0010_identity_access"
 down_revision: Union[str, None] = "0009_programmes"

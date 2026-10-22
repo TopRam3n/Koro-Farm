@@ -7,20 +7,20 @@ from uuid import uuid4
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from src.backend.app.assurance.application.recovery import dropout
-from src.backend.app.assurance.domain.models import DomainEvent
-from src.backend.app.risk.domain.models import RiskSnapshot
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import Crop, Grade
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.programmes.domain.models import Programme  # noqa: F401 — register FK target
-from src.backend.app.identity.domain.models import Organization  # noqa: F401 — register FK target
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.economics.domain.models import LotCostInput
-from src.backend.app.domain.common import AvailabilityConfidence
-from src.backend.app.supply.application.planner import finalize_plan
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.assurance.application.recovery import dropout
+from app.assurance.domain.models import DomainEvent
+from app.risk.domain.models import RiskSnapshot
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, Requirement
+from app.domain.common import Crop, Grade
+from app.infrastructure.database.base import Base
+from app.programmes.domain.models import Programme  # noqa: F401 — register FK target
+from app.identity.domain.models import Organization  # noqa: F401 — register FK target
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.economics.domain.models import LotCostInput
+from app.domain.common import AvailabilityConfidence
+from app.supply.application.planner import finalize_plan
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
 
 def main() -> None:
@@ -60,7 +60,7 @@ def main() -> None:
         result = dropout(session, allocation.id, "crop_failure", f"demo-{uuid4()}")
         print(f"\nDISRUPTION\nFarmer allocation lost: {result['lost_kg']}kg | committed coverage: 500kg -> 420kg | health: COVERED -> AT_RISK")
         print(f"\nRECOVERY COMPLETE\nActivated standby: {result['standby_activated_kg']}kg | committed coverage: 420kg -> {result['committed_kg']}kg | health: AT_RISK -> {result['supply_health']}")
-        from src.backend.app.economics.domain.models import CostSnapshot
+        from app.economics.domain.models import CostSnapshot
         snapshots = list(session.scalars(select(CostSnapshot).order_by(CostSnapshot.created_at)))
         premium = snapshots[-1].total_landed_cost_jmd - snapshots[0].total_landed_cost_jmd
         recovered_risk = session.scalar(select(RiskSnapshot).order_by(RiskSnapshot.plan_version.desc()))

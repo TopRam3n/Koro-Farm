@@ -6,9 +6,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade, QuantityKg
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
+from app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade, QuantityKg
+from app.infrastructure.database.base import Base
+from app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
 
 class ProductionLotStatus(StrEnum):

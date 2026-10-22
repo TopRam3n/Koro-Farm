@@ -4,8 +4,8 @@ import os
 from sqlalchemy import inspect
 from sqlalchemy.engine import make_url
 
-from src.backend.app.infrastructure.database.seed import seed_competition_demo
-from src.backend.app.infrastructure.database.session import create_engine_from_url, create_session_factory
+from app.infrastructure.database.seed import seed_competition_demo
+from app.infrastructure.database.session import create_engine_from_url, create_session_factory
 
 
 def assert_safe(url: str) -> None:

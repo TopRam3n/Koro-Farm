@@ -5,15 +5,15 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage, RecoveryRun, RecoveryStatus
-from src.backend.app.demand.domain.models import Requirement, SupplyHealth
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
-from src.backend.app.supply.domain.planning_models import SupplyPlan, SupplyPlanStatus
-from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
-from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
-from src.backend.app.supply.domain.models import ProductionLot, ProductionLotStatus
-from src.backend.app.fulfilment.domain.models import ReceivedSublot
-from src.backend.app.risk.application.calculator import create_risk_snapshot
+from app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage, RecoveryRun, RecoveryStatus
+from app.demand.domain.models import Requirement, SupplyHealth
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.supply.domain.planning_models import SupplyPlan, SupplyPlanStatus
+from app.economics.domain.calculator import CostBreakdown, allocation_cost, money
+from app.economics.domain.models import CostSnapshot, LotCostInput
+from app.supply.domain.models import ProductionLot, ProductionLotStatus
+from app.fulfilment.domain.models import ReceivedSublot
+from app.risk.application.calculator import create_risk_snapshot
 
 
 def _event(session: Session, name: str, requirement_id: UUID, correlation_id: UUID, payload: dict) -> None:

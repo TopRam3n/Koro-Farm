@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 from sqlalchemy.orm import Session
 
-from src.backend.app.infrastructure.database.session import create_session_factory
+from app.infrastructure.database.session import create_session_factory
 
 SessionLocal = create_session_factory()
 

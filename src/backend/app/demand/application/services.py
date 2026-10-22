@@ -2,8 +2,8 @@ from sqlalchemy.orm import Session
 from uuid import uuid4
 from datetime import datetime, timezone
 
-from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
-from src.backend.app.demand.domain.models import Requirement
+from app.assurance.domain.models import DomainEvent, OutboxMessage
+from app.demand.domain.models import Requirement
 
 
 def create_requirement(session: Session, requirement: Requirement) -> Requirement:

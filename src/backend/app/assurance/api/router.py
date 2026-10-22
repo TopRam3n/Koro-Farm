@@ -9,18 +9,18 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.application import PlanAlreadyExistsError, PlannerConfig, RequirementNotFoundError, finalize_plan
-from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
-from src.backend.app.economics.domain.models import CostSnapshot
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
-from src.backend.app.assurance.domain.models import CommandDeduplication, RecoveryRun
-from src.backend.app.risk.domain.models import RiskSnapshot
-from src.backend.app.fulfilment.domain.models import ReceivedSublot
-from src.backend.app.assurance.application.recovery import _coverage, committed_quantity
-from src.backend.app.assurance.application.recovery import continue_recovery
-from src.backend.app.assurance.domain.models import DomainEvent
+from app.assurance.application import PlanAlreadyExistsError, PlannerConfig, RequirementNotFoundError, finalize_plan
+from app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
+from app.economics.domain.models import CostSnapshot
+from app.main_dependencies import get_session
+from app.supply.domain.models import Farmer, ProductionLot
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
+from app.assurance.domain.models import CommandDeduplication, RecoveryRun
+from app.risk.domain.models import RiskSnapshot
+from app.fulfilment.domain.models import ReceivedSublot
+from app.assurance.application.recovery import _coverage, committed_quantity
+from app.assurance.application.recovery import continue_recovery
+from app.assurance.domain.models import DomainEvent
 
 router = APIRouter(prefix="/requirements", tags=["assurance"])
 

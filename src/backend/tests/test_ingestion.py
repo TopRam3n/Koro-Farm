@@ -3,15 +3,15 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
-from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
-from src.backend.app.ingestion.domain.models import (
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.assurance.domain.models import DomainEvent, OutboxMessage
+from app.identity.domain.models import DEFAULT_ORGANIZATION_ID
+from app.ingestion.domain.models import (
     FreshnessStatus, IngestionRecord, OperationalObservation, SecureActionLink,
     SourceChannel, VerificationStatus,
 )
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.demand.domain.models import Buyer, Requirement
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.demand.domain.models import Buyer, Requirement
 
 
 def _lot(session) -> tuple[Farmer, ProductionLot]:

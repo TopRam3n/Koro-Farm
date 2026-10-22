@@ -7,11 +7,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
-from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.main_dependencies import get_session
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from app.identity.domain.permissions import PermissionCode, RoleCode
 
 router = APIRouter(prefix="/production-lots", tags=["production-lots"])
 

@@ -8,14 +8,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
-from src.backend.app.domain.common import AvailabilityConfidence, Grade
-from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
-from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
-from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
-from src.backend.app.risk.application.calculator import create_risk_snapshot
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
+from app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
+from app.domain.common import AvailabilityConfidence, Grade
+from app.economics.domain.calculator import CostBreakdown, allocation_cost, money
+from app.economics.domain.models import CostSnapshot, LotCostInput
+from app.assurance.domain.models import DomainEvent, OutboxMessage
+from app.risk.application.calculator import create_risk_snapshot
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
 
 PLANNER_VERSION = "deterministic-greedy-v1"
 CALCULATION_VERSION = "landed-cost-v1"

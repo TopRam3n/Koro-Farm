@@ -1,0 +1,302 @@
+"""KOROFARM_MARKETPLACE_REQUESTS_PHASE2.
+Buyer-owned procurement requests, farmer-owned offers, transactionally accepted reservations.
+"""
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from enum import StrEnum
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import DateTime, Enum, ForeignKey, Numeric, String, func, select
+from sqlalchemy.orm import Mapped, Session, mapped_column
+
+from app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus
+from app.domain.common import Crop, Grade
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from app.identity.domain.permissions import RoleCode
+from app.infrastructure.database.base import Base
+from app.main_dependencies import get_session
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+
+router = APIRouter(prefix="/marketplace/requests", tags=["buyer farmer requests"])
+
+
+class OfferStatus(StrEnum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
+    WITHDRAWN = "WITHDRAWN"
+
+
+class FarmerOffer(Base):
+    __tablename__ = "farmer_offers"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    requirement_id: Mapped[UUID] = mapped_column(ForeignKey("requirements.id"), nullable=False, index=True)
+    farmer_id: Mapped[UUID] = mapped_column(ForeignKey("farmers.id"), nullable=False, index=True)
+    production_lot_id: Mapped[UUID] = mapped_column(ForeignKey("production_lots.id"), nullable=False, index=True)
+    quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    status: Mapped[OfferStatus] = mapped_column(Enum(OfferStatus, native_enum=False), nullable=False, default=OfferStatus.PENDING)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class CreateBuyerRequest(BaseModel):
+    crop: Crop
+    grade: Grade
+    required_quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    delivery_window_start: date
+    delivery_window_end: date
+
+    @model_validator(mode="after")
+    def check_dates(self):
+        if self.delivery_window_end < self.delivery_window_start:
+            raise ValueError("delivery end cannot precede start")
+        if self.delivery_window_start < date.today():
+            raise ValueError("delivery start cannot be in the past")
+        return self
+
+
+class CreateFarmerOffer(BaseModel):
+    production_lot_id: UUID
+    quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+
+
+def _buyer(context: AuthorizationContext, session: Session) -> Buyer:
+    if context.role != RoleCode.BUYER or context.buyer_id is None:
+        raise HTTPException(403, "linked buyer account required")
+    buyer = session.scalar(select(Buyer).where(Buyer.id == context.buyer_id, Buyer.organization_id == context.organization_id))
+    if buyer is None:
+        raise HTTPException(404, "buyer not found")
+    return buyer
+
+
+def _farmer(context: AuthorizationContext, session: Session) -> Farmer:
+    if context.role != RoleCode.FARMER or context.farmer_id is None:
+        raise HTTPException(403, "linked farmer account required")
+    farmer = session.scalar(select(Farmer).where(Farmer.id == context.farmer_id, Farmer.organization_id == context.organization_id, Farmer.active.is_(True)))
+    if farmer is None:
+        raise HTTPException(404, "active farmer not found")
+    return farmer
+
+
+def _offer_row(offer: FarmerOffer, farmer_name: str | None = None) -> dict:
+    return {
+        "id": str(offer.id), "requirement_id": str(offer.requirement_id),
+        "farmer_id": str(offer.farmer_id), "farmer_name": farmer_name,
+        "production_lot_id": str(offer.production_lot_id),
+        "quantity_kg": str(offer.quantity_kg), "status": offer.status.value,
+        "created_at": offer.created_at,
+    }
+
+
+def _request_row(session: Session, requirement: Requirement, buyer: Buyer, context: AuthorizationContext) -> dict:
+    accepted = session.scalars(select(FarmerOffer).where(
+        FarmerOffer.requirement_id == requirement.id,
+        FarmerOffer.organization_id == context.organization_id,
+        FarmerOffer.status == OfferStatus.ACCEPTED,
+    )).all()
+    committed = sum((o.quantity_kg for o in accepted), Decimal("0"))
+    stmt = select(FarmerOffer, Farmer.name).join(Farmer, Farmer.id == FarmerOffer.farmer_id).where(
+        FarmerOffer.requirement_id == requirement.id, FarmerOffer.organization_id == context.organization_id,
+    )
+    if context.role == RoleCode.FARMER:
+        stmt = stmt.where(FarmerOffer.farmer_id == context.farmer_id)
+    visible_offers = session.execute(stmt.order_by(FarmerOffer.created_at.desc())).all()
+    return {
+        "id": str(requirement.id), "buyer_name": buyer.name, "buyer_id": str(buyer.id),
+        "crop": requirement.crop.value, "grade": requirement.grade.value,
+        "required_quantity_kg": str(requirement.required_quantity_kg),
+        "committed_quantity_kg": str(committed),
+        "remaining_quantity_kg": str(max(Decimal("0"), requirement.required_quantity_kg - committed)),
+        "delivery_window_start": requirement.delivery_window_start,
+        "delivery_window_end": requirement.delivery_window_end,
+        "lifecycle_status": requirement.lifecycle_status.value,
+        "supply_health": requirement.supply_health.value,
+        "offers": [_offer_row(o, name) for o, name in visible_offers],
+    }
+
+
+def _locked_request(session: Session, context: AuthorizationContext, request_id: UUID):
+    return session.execute(select(Requirement, Buyer).join(Buyer, Buyer.id == Requirement.buyer_id).where(
+        Requirement.id == request_id, Buyer.organization_id == context.organization_id,
+    ).with_for_update(of=Requirement)).one_or_none()
+
+
+@router.get("")
+def list_buyer_farmer_requests(session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    if context.role not in {RoleCode.BUYER, RoleCode.FARMER, RoleCode.PLATFORM_ADMIN}:
+        raise HTTPException(403, "buyer or farmer membership required")
+    statement = select(Requirement, Buyer).join(Buyer, Buyer.id == Requirement.buyer_id).where(Buyer.organization_id == context.organization_id)
+    if context.role == RoleCode.BUYER:
+        buyer = _buyer(context, session)
+        statement = statement.where(Requirement.buyer_id == buyer.id)
+    elif context.role == RoleCode.FARMER:
+        _farmer(context, session)
+        statement = statement.where(Requirement.lifecycle_status == RequirementLifecycleStatus.ACTIVE)
+    rows = session.execute(statement.order_by(Requirement.created_at.desc(), Requirement.id).limit(100)).all()
+    return {"items": [_request_row(session, requirement, buyer, context) for requirement, buyer in rows]}
+
+
+@router.get("/my-lots")
+def my_eligible_lots(session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    farmer = _farmer(context, session)
+    lots = session.scalars(select(ProductionLot).where(
+        ProductionLot.farmer_id == farmer.id, ProductionLot.status == ProductionLotStatus.AVAILABLE,
+    ).order_by(ProductionLot.harvest_start, ProductionLot.id)).all()
+    return {"items": [{
+        "id": str(lot.id), "crop": lot.crop.value, "grade": lot.quality_grade_estimate.value,
+        "harvest_start": lot.harvest_start, "harvest_end": lot.harvest_end,
+        "available_quantity_kg": str(max(Decimal("0"), lot.available_quantity_kg - lot.reserved_quantity_kg)),
+    } for lot in lots]}
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+def create_buyer_request(payload: CreateBuyerRequest, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    buyer = _buyer(context, session)
+    requirement = Requirement(buyer_id=buyer.id, crop=payload.crop, grade=payload.grade,
+        required_quantity_kg=payload.required_quantity_kg, delivery_window_start=payload.delivery_window_start,
+        delivery_window_end=payload.delivery_window_end, lifecycle_status=RequirementLifecycleStatus.DRAFT)
+    session.add(requirement)
+    session.commit()
+    session.refresh(requirement)
+    return _request_row(session, requirement, buyer, context)
+
+
+@router.post("/{request_id}/publish")
+def publish_buyer_request(request_id: UUID, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    buyer = _buyer(context, session)
+    row = _locked_request(session, context, request_id)
+    if row is None or row[1].id != buyer.id:
+        raise HTTPException(404, "request not found")
+    requirement, buyer = row
+    if requirement.lifecycle_status != RequirementLifecycleStatus.DRAFT:
+        raise HTTPException(409, "only draft requests can be published")
+    if requirement.delivery_window_start < date.today():
+        raise HTTPException(422, "delivery window has already started")
+    requirement.lifecycle_status = RequirementLifecycleStatus.ACTIVE
+    requirement.version += 1
+    session.commit()
+    session.refresh(requirement)
+    return _request_row(session, requirement, buyer, context)
+
+
+@router.post("/{request_id}/offers", status_code=status.HTTP_201_CREATED)
+def submit_farmer_offer(request_id: UUID, payload: CreateFarmerOffer, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    farmer = _farmer(context, session)
+    row = _locked_request(session, context, request_id)
+    if row is None:
+        raise HTTPException(404, "published request not found")
+    requirement, _buyer_record = row
+    if requirement.lifecycle_status != RequirementLifecycleStatus.ACTIVE or requirement.delivery_window_end < date.today():
+        raise HTTPException(409, "request is not open for offers")
+    lot = session.scalar(select(ProductionLot).where(
+        ProductionLot.id == payload.production_lot_id, ProductionLot.farmer_id == farmer.id,
+    ).with_for_update())
+    if lot is None or lot.status != ProductionLotStatus.AVAILABLE:
+        raise HTTPException(404, "available production lot not found")
+    if lot.crop != requirement.crop or lot.quality_grade_estimate != requirement.grade:
+        raise HTTPException(422, "production lot crop or grade does not match request")
+    if lot.harvest_end < requirement.delivery_window_start or lot.harvest_start > requirement.delivery_window_end:
+        raise HTTPException(422, "production lot harvest dates do not overlap the delivery window")
+    # Pending offers are proposals, not reserved quantities. Enforce availability again at acceptance.
+    if payload.quantity_kg > lot.available_quantity_kg - lot.reserved_quantity_kg:
+        raise HTTPException(409, "offer exceeds currently unreserved lot quantity")
+    committed = sum(session.scalars(select(FarmerOffer.quantity_kg).where(
+        FarmerOffer.requirement_id == requirement.id, FarmerOffer.status == OfferStatus.ACCEPTED,
+    )).all(), Decimal("0"))
+    if payload.quantity_kg > requirement.required_quantity_kg - committed:
+        raise HTTPException(409, "offer exceeds remaining buyer requirement")
+    existing = session.scalar(select(FarmerOffer.id).where(
+        FarmerOffer.requirement_id == requirement.id, FarmerOffer.farmer_id == farmer.id,
+        FarmerOffer.production_lot_id == lot.id, FarmerOffer.status == OfferStatus.PENDING,
+    ))
+    if existing:
+        raise HTTPException(409, "a pending offer for this production lot already exists")
+    offer = FarmerOffer(organization_id=context.organization_id, requirement_id=requirement.id,
+        farmer_id=farmer.id, production_lot_id=lot.id, quantity_kg=payload.quantity_kg)
+    session.add(offer)
+    session.commit()
+    session.refresh(offer)
+    return _offer_row(offer, farmer.name)
+
+
+def _locked_offer(session: Session, context: AuthorizationContext, offer_id: UUID):
+    return session.scalar(select(FarmerOffer).where(FarmerOffer.id == offer_id,
+        FarmerOffer.organization_id == context.organization_id).with_for_update())
+
+
+@router.post("/offers/{offer_id}/withdraw")
+def withdraw_offer(offer_id: UUID, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    farmer = _farmer(context, session)
+    offer = _locked_offer(session, context, offer_id)
+    if offer is None or offer.farmer_id != farmer.id:
+        raise HTTPException(404, "offer not found")
+    if offer.status != OfferStatus.PENDING:
+        raise HTTPException(409, "only pending offers can be withdrawn")
+    offer.status = OfferStatus.WITHDRAWN
+    session.commit()
+    return {"id": str(offer.id), "status": "WITHDRAWN"}
+
+
+@router.post("/offers/{offer_id}/decline")
+def decline_offer(offer_id: UUID, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    buyer = _buyer(context, session)
+    offer = _locked_offer(session, context, offer_id)
+    if offer is None:
+        raise HTTPException(404, "offer not found")
+    req = session.scalar(select(Requirement).where(Requirement.id == offer.requirement_id, Requirement.buyer_id == buyer.id))
+    if req is None:
+        raise HTTPException(404, "offer not found")
+    if offer.status != OfferStatus.PENDING:
+        raise HTTPException(409, "only pending offers can be declined")
+    offer.status = OfferStatus.DECLINED
+    session.commit()
+    return {"id": str(offer.id), "status": "DECLINED"}
+
+
+@router.post("/offers/{offer_id}/accept")
+def accept_offer(offer_id: UUID, session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    buyer = _buyer(context, session)
+    # Lock requirement first, then offer and lot to serialize coverage and inventory updates.
+    # Read the offer's immutable relationship to identify its request.
+    offer_ref = session.scalar(select(FarmerOffer).where(FarmerOffer.id == offer_id, FarmerOffer.organization_id == context.organization_id))
+    if offer_ref is None:
+        raise HTTPException(404, "offer not found")
+    req = session.scalar(select(Requirement).where(Requirement.id == offer_ref.requirement_id, Requirement.buyer_id == buyer.id).with_for_update())
+    if req is None:
+        raise HTTPException(404, "offer not found")
+    offer = _locked_offer(session, context, offer_id)
+    if offer is None or offer.requirement_id != req.id:
+        raise HTTPException(404, "offer not found")
+    if offer.status != OfferStatus.PENDING:
+        raise HTTPException(409, "only pending offers can be accepted")
+    if req.lifecycle_status != RequirementLifecycleStatus.ACTIVE or req.delivery_window_end < date.today():
+        raise HTTPException(409, "request is no longer active")
+    lot = session.scalar(select(ProductionLot).where(ProductionLot.id == offer.production_lot_id,
+        ProductionLot.farmer_id == offer.farmer_id).with_for_update())
+    if lot is None or lot.status != ProductionLotStatus.AVAILABLE:
+        raise HTTPException(409, "farmer production lot is unavailable")
+    farmer = session.scalar(select(Farmer).where(Farmer.id == offer.farmer_id,
+        Farmer.organization_id == context.organization_id, Farmer.active.is_(True)))
+    if farmer is None:
+        raise HTTPException(409, "farmer no longer available")
+    if lot.crop != req.crop or lot.quality_grade_estimate != req.grade:
+        raise HTTPException(409, "production lot no longer meets crop and grade")
+    if lot.harvest_end < req.delivery_window_start or lot.harvest_start > req.delivery_window_end:
+        raise HTTPException(409, "harvest and delivery windows no longer overlap")
+    remaining_lot = lot.available_quantity_kg - lot.reserved_quantity_kg
+    committed = sum(session.scalars(select(FarmerOffer.quantity_kg).where(
+        FarmerOffer.requirement_id == req.id, FarmerOffer.status == OfferStatus.ACCEPTED,
+    )).all(), Decimal("0"))
+    if offer.quantity_kg > remaining_lot:
+        raise HTTPException(409, f"only {remaining_lot} kg is unreserved")
+    if offer.quantity_kg > req.required_quantity_kg - committed:
+        raise HTTPException(409, "offer exceeds remaining buyer requirement")
+    lot.reserved_quantity_kg += offer.quantity_kg
+    lot.version += 1
+    offer.status = OfferStatus.ACCEPTED
+    req.version += 1
+    session.commit()
+    return {"id": str(offer.id), "status": "ACCEPTED", "reserved_quantity_kg": str(offer.quantity_kg)}

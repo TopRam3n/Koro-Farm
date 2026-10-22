@@ -5,18 +5,18 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.backend.app.assurance.application.recovery import _coverage, committed_quantity
-from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.economics.domain.models import LotCostInput
-from src.backend.app.fulfilment.application.services import grade, receive
-from src.backend.app.fulfilment.application import services as fulfilment_services
-from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
-from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.assurance.application.recovery import _coverage, committed_quantity
+from app.assurance.domain.models import RecoveryRun, RecoveryStatus
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, Requirement, SupplyHealth
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.economics.domain.models import LotCostInput
+from app.fulfilment.application.services import grade, receive
+from app.fulfilment.application import services as fulfilment_services
+from app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
+from app.supply.application.planner import PlannerConfig, finalize_plan
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
 
 def test_receive_grade_idempotency_and_traceable_physical_separation(session):

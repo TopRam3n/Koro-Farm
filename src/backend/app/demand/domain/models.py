@@ -6,10 +6,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
-from src.backend.app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
+from app.domain.common import Crop, DateWindow, Grade, QuantityKg
+from app.infrastructure.database.base import Base
+from app.identity.domain.models import DEFAULT_ORGANIZATION_ID
+from app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
 
 
 class RequirementLifecycleStatus(StrEnum):

@@ -3,9 +3,9 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
-from src.backend.app.core.auth import get_current_user
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
-from src.backend.app.identity.domain.models import (
+from app.core.auth import get_current_user
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from app.identity.domain.models import (
     AccessRequest,
     AccessRequestStatus,
     DEFAULT_ORGANIZATION_ID,
@@ -14,10 +14,10 @@ from src.backend.app.identity.domain.models import (
     OrganizationMembership,
     UserAccount,
 )
-from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
-from src.backend.app.main import app
-from src.backend.app.demand.domain.models import Buyer
-from src.backend.app.supply.domain.models import Farmer
+from app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
+from app.main import app
+from app.demand.domain.models import Buyer
+from app.supply.domain.models import Farmer
 
 
 def _organization(session) -> None:

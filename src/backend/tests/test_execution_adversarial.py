@@ -3,15 +3,15 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from src.backend.app.compliance.domain.models import ComplianceRule
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.economics.domain.models import LotCostInput
-from src.backend.app.fulfilment.domain.models import FulfilmentNode
-from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import SupplyAllocation
+from app.compliance.domain.models import ComplianceRule
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, Requirement
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.economics.domain.models import LotCostInput
+from app.fulfilment.domain.models import FulfilmentNode
+from app.supply.application.planner import PlannerConfig, finalize_plan
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import SupplyAllocation
 
 
 def execution_state(session):

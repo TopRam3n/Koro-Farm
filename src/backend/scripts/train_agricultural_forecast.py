@@ -4,9 +4,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.backend.app.agriculture.forecasting import backtest
-from src.backend.app.agriculture.api import annual_context
-from src.backend.app.agriculture.validation import validate_training_data
+from app.agriculture.forecasting import backtest
+from app.agriculture.api import annual_context
+from app.agriculture.validation import validate_training_data
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data/agriculture"

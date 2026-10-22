@@ -1,11 +1,11 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.demand.domain.models import Buyer
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.infrastructure.database.seed import seed
-from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.demand.domain.models import Buyer
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.infrastructure.database.seed import seed
+from app.trade_evidence.domain.corridors import TradeCorridor
 
 
 def test_requirement_creation_endpoint(client, session) -> None:

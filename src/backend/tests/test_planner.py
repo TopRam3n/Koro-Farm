@@ -10,14 +10,14 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.economics.domain.calculator import allocation_cost
-from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
-from src.backend.app.supply.application.planner import PlanAlreadyExistsError, PlannerConfig, finalize_plan
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, SupplyAllocation, SupplyPlan
-from src.backend.app.infrastructure.database.base import Base
+from app.demand.domain.models import Buyer, Requirement, SupplyHealth
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.economics.domain.calculator import allocation_cost
+from app.economics.domain.models import CostSnapshot, LotCostInput
+from app.supply.application.planner import PlanAlreadyExistsError, PlannerConfig, finalize_plan
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, SupplyAllocation, SupplyPlan
+from app.infrastructure.database.base import Base
 
 
 def make_requirement(session, quantity: str = "500") -> Requirement:

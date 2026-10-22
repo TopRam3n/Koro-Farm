@@ -5,11 +5,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage
-from src.backend.app.domain.common import Grade
-from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
-from src.backend.app.supply.domain.planning_models import SupplyAllocation
-from src.backend.app.assurance.application.recovery import recover_quality_shortfall
+from app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage
+from app.domain.common import Grade
+from app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
+from app.supply.domain.planning_models import SupplyAllocation
+from app.assurance.application.recovery import recover_quality_shortfall
 
 
 def _event(session: Session, name: str, allocation: SupplyAllocation, payload: dict) -> None:

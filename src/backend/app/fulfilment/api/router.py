@@ -6,13 +6,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.demand.domain.models import Requirement
-from src.backend.app.domain.common import Grade
-from src.backend.app.fulfilment.application.services import grade, receive
-from src.backend.app.fulfilment.domain.models import ReceivedSublot
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
+from app.demand.domain.models import Requirement
+from app.domain.common import Grade
+from app.fulfilment.application.services import grade, receive
+from app.fulfilment.domain.models import ReceivedSublot
+from app.main_dependencies import get_session
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.supply.domain.models import Farmer, ProductionLot
 
 router = APIRouter(tags=["fulfilment"])
 

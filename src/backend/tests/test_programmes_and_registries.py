@@ -1,13 +1,13 @@
 from datetime import date, timedelta
 from uuid import UUID
 
-from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
-from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
-from src.backend.app.fulfilment.domain.models import ReceivedSublot
-from src.backend.app.infrastructure.database.seed import seed, seed_competition_demo
-from src.backend.app.programmes.domain.models import Programme
-from src.backend.app.reconciliation.domain.models import RequirementReconciliation, Shipment, ShipmentStatus
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
+from app.assurance.domain.models import RecoveryRun, RecoveryStatus
+from app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
+from app.fulfilment.domain.models import ReceivedSublot
+from app.infrastructure.database.seed import seed, seed_competition_demo
+from app.programmes.domain.models import Programme
+from app.reconciliation.domain.models import RequirementReconciliation, Shipment, ShipmentStatus
+from app.supply.domain.models import Farmer, ProductionLot
 
 
 def test_programme_owns_requirements_and_reports_assurance(client, session) -> None:

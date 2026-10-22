@@ -1,6 +1,6 @@
 """Import an official FAOSTAT normalized CSV, preserving annual granularity."""
 import argparse
-from src.backend.app.agriculture.faostat import write_import
+from app.agriculture.faostat import write_import
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(__doc__)

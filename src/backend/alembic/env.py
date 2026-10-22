@@ -13,20 +13,20 @@ if str(repository_root) not in sys.path:
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from src.backend.app.demand.domain.models import Buyer, Requirement  # noqa: F401
-from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput  # noqa: F401
-from src.backend.app.fulfilment.domain.models import FulfilmentNode  # noqa: F401
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.supply.domain.models import Farmer, ProductionLot  # noqa: F401
-from src.backend.app.supply.domain.planning_models import SupplyAllocation, SupplyPlan  # noqa: F401
-from src.backend.app.programmes.domain.models import Programme  # noqa: F401
-from src.backend.app.identity.domain.models import (  # noqa: F401
+from app.demand.domain.models import Buyer, Requirement  # noqa: F401
+from app.economics.domain.models import CostSnapshot, LotCostInput  # noqa: F401
+from app.fulfilment.domain.models import FulfilmentNode  # noqa: F401
+from app.infrastructure.database.base import Base
+from app.supply.domain.models import Farmer, ProductionLot  # noqa: F401
+from app.supply.domain.planning_models import SupplyAllocation, SupplyPlan  # noqa: F401
+from app.programmes.domain.models import Programme  # noqa: F401
+from app.identity.domain.models import (  # noqa: F401
     AccessRequest, Organization, OrganizationMembership, Permission, Role, RolePermission, UserAccount,
 )
-from src.backend.app.ingestion.domain.models import (  # noqa: F401
+from app.ingestion.domain.models import (  # noqa: F401
     BulkImport, BulkImportRow, IngestionRecord, OperationalObservation, OutboundMessage, SecureActionLink,
 )
-from src.backend.app.marketplace.domain.models import AvailabilityAlert, AvailabilityWatch, MarketplaceOrder  # noqa: F401
+from app.marketplace.domain.models import AvailabilityAlert, AvailabilityWatch, MarketplaceOrder  # noqa: F401
 
 # Load .env if present
 env_file = Path(__file__).resolve().parents[1] / ".env"

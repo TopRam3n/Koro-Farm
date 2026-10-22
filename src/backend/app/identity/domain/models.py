@@ -5,8 +5,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.identity.domain.permissions import RoleCode
-from src.backend.app.infrastructure.database.base import Base
+from app.identity.domain.permissions import RoleCode
+from app.infrastructure.database.base import Base
 
 DEFAULT_ORGANIZATION_ID = UUID("00000000-0000-0000-0000-000000000900")
 

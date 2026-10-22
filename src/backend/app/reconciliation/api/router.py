@@ -7,14 +7,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.application.recovery import _coverage
-from src.backend.app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage
-from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus
-from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.reconciliation.domain.models import Delivery, RequirementReconciliation, Shipment, ShipmentStatus, ShipmentSublot
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
-from src.backend.app.supply.domain.planning_models import SupplyAllocation
+from app.assurance.application.recovery import _coverage
+from app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage
+from app.demand.domain.models import Requirement, RequirementLifecycleStatus
+from app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
+from app.main_dependencies import get_session
+from app.reconciliation.domain.models import Delivery, RequirementReconciliation, Shipment, ShipmentStatus, ShipmentSublot
+from app.supply.domain.models import Farmer, ProductionLot
+from app.supply.domain.planning_models import SupplyAllocation
 
 router = APIRouter(tags=["shipments", "reconciliation", "trade-evidence"])
 

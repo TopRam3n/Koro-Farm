@@ -5,15 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun
-from src.backend.app.compliance.domain.models import ComplianceRule
-from src.backend.app.demand.domain.models import Requirement, SupplyHealth
-from src.backend.app.economics.domain.models import CostSnapshot
-from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.reconciliation.domain.models import Shipment
-from src.backend.app.supply.domain.models import Farmer, ProductionLot
-from src.backend.app.supply.domain.planning_models import (
+from app.assurance.domain.models import DomainEvent, RecoveryRun
+from app.compliance.domain.models import ComplianceRule
+from app.demand.domain.models import Requirement, SupplyHealth
+from app.economics.domain.models import CostSnapshot
+from app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
+from app.main_dependencies import get_session
+from app.reconciliation.domain.models import Shipment
+from app.supply.domain.models import Farmer, ProductionLot
+from app.supply.domain.planning_models import (
     AllocationRole,
     AllocationStatus,
     SupplyAllocation,

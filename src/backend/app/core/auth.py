@@ -5,7 +5,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastapi import Header, HTTPException, status
-from src.backend.app.core.config import demo_auth_bypass_enabled
+from app.core.config import demo_auth_bypass_enabled
 
 
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:

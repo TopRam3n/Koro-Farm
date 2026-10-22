@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from src.backend.app.agriculture.faostat import normalize_rows
+from app.agriculture.faostat import normalize_rows
 
 ROOT = Path(__file__).resolve().parents[4]
 DATA = ROOT / "data/agriculture/faostat"

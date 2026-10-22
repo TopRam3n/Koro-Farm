@@ -1,6 +1,6 @@
 """Normalize cached original Ministry tables and quarantine disagreements."""
 import json
-from src.backend.app.agriculture.ingestion import build_dataset
+from app.agriculture.ingestion import build_dataset
 
 if __name__ == "__main__":
     report = build_dataset()

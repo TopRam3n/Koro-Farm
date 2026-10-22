@@ -1,7 +1,7 @@
 """Acquire and validate an official annual Jamaica QCL dataset (cached by default)."""
 import argparse
 import json
-from src.backend.app.agriculture.faostat_client import acquire_jamaica
+from app.agriculture.faostat_client import acquire_jamaica
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(__doc__)

@@ -3,8 +3,8 @@ import hashlib
 import json
 from pathlib import Path
 
-from src.backend.app.agriculture.schema import IntelligenceArtifact
-from src.backend.app.agriculture.validation import validate_training_data
+from app.agriculture.schema import IntelligenceArtifact
+from app.agriculture.validation import validate_training_data
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / 'data/agriculture'

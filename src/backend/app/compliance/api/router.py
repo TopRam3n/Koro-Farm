@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from src.backend.app.compliance.domain.models import ComplianceRule
-from src.backend.app.demand.domain.models import Requirement
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
+from app.compliance.domain.models import ComplianceRule
+from app.demand.domain.models import Requirement
+from app.main_dependencies import get_session
+from app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/requirements", tags=["compliance"])
 

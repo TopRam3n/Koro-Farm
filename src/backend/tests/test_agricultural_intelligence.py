@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from src.backend.app.agriculture import api
-from src.backend.app.agriculture.forecasting import MODELS, backtest, predict
-from src.backend.app.agriculture.ingestion import DATA, build_dataset, parse_row
+from app.agriculture import api
+from app.agriculture.forecasting import MODELS, backtest, predict
+from app.agriculture.ingestion import DATA, build_dataset, parse_row
 
 
 def test_ingestion_reconciles_sources_without_duplicates_or_imputation():
@@ -94,7 +94,7 @@ def test_read_only_endpoint_and_unavailable_states(client, tmp_path, monkeypatch
 
 def test_endpoint_requires_existing_authentication(monkeypatch):
     from fastapi.testclient import TestClient
-    from src.backend.app.main import app
+    from app.main import app
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.delenv("ALLOW_INSECURE_DEMO_AUTH", raising=False)
     with TestClient(app) as unauthenticated:
@@ -103,7 +103,7 @@ def test_endpoint_requires_existing_authentication(monkeypatch):
 
 
 def test_faostat_import_is_annual_unmapped_idempotent_and_missing_is_not_zero(tmp_path):
-    from src.backend.app.agriculture.faostat import import_annual_csv
+    from app.agriculture.faostat import import_annual_csv
     path = tmp_path / "test-only-faostat.csv"
     path.write_text('Area,Item Code,Item,Element,Year,Unit,Value,Flag\n'
                     'Jamaica,999,Test aggregate,Production,2020,t,123,E\n'

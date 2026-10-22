@@ -6,8 +6,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Numeric, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.domain.common import Crop
-from src.backend.app.infrastructure.database.base import Base
+from app.domain.common import Crop
+from app.infrastructure.database.base import Base
 
 
 class MarketplaceOrderStatus(StrEnum):

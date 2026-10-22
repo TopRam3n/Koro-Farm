@@ -6,16 +6,16 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.assurance.application.recovery import dropout
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.economics.domain.models import LotCostInput
-from src.backend.app.fulfilment.application.services import grade, receive
-from src.backend.app.fulfilment.domain.models import FulfilmentNode
-from src.backend.app.infrastructure.database.session import create_session_factory
-from src.backend.app.programmes.domain.models import Programme
-from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
-from src.backend.app.reconciliation.api.router import (
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.assurance.application.recovery import dropout
+from app.demand.domain.models import Buyer, Requirement
+from app.economics.domain.models import LotCostInput
+from app.fulfilment.application.services import grade, receive
+from app.fulfilment.domain.models import FulfilmentNode
+from app.infrastructure.database.session import create_session_factory
+from app.programmes.domain.models import Programme
+from app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
+from app.reconciliation.api.router import (
     AddSublot,
     DeliveryCommand,
     DispatchCommand,
@@ -27,9 +27,9 @@ from src.backend.app.reconciliation.api.router import (
     dispatch,
     reconcile,
 )
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.application.planner import finalize_plan
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.application.planner import finalize_plan
 
 DEMO_REQUIREMENT_ID = UUID("00000000-0000-0000-0000-000000000500")
 DEMO_BUYER_ID = UUID("00000000-0000-0000-0000-000000000001")

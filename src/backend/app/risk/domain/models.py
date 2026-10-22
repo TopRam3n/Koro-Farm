@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime, Enum, ForeignKey, Integer, JSON, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.backend.app.infrastructure.database.base import Base
+from app.infrastructure.database.base import Base
 
 
 class RiskLabel(StrEnum):

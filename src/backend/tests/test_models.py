@@ -4,9 +4,9 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 
 
 def test_production_lot_rejects_reserved_above_available() -> None:

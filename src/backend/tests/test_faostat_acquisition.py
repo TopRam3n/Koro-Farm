@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from src.backend.app.agriculture import api
-from src.backend.app.agriculture.faostat import normalize_rows
-from src.backend.app.agriculture.faostat_client import DATA, FaostatClient, acquire_jamaica
+from app.agriculture import api
+from app.agriculture.faostat import normalize_rows
+from app.agriculture.faostat_client import DATA, FaostatClient, acquire_jamaica
 
 
 def test_genuine_source_normalizes_idempotently_without_mixing_frequencies():

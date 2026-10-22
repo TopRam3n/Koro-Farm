@@ -3,7 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from src.backend.app.agriculture.faostat_client import acquire_jamaica, atomic_json
+from app.agriculture.faostat_client import acquire_jamaica, atomic_json
 
 ROOT = Path(__file__).resolve().parents[3]
 DATA = ROOT / "data/agriculture"

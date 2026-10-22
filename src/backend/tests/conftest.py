@@ -6,12 +6,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.main import app
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.core.auth import get_current_user
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
-from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
+from app.infrastructure.database.base import Base
+from app.main import app
+from app.main_dependencies import get_session
+from app.core.auth import get_current_user
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from app.identity.domain.permissions import PermissionCode, RoleCode
 from uuid import UUID
 
 

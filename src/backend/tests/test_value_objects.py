@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from src.backend.app.domain.common import DateWindow, MoneyJmd, QuantityKg
+from app.domain.common import DateWindow, MoneyJmd, QuantityKg
 
 
 def test_negative_quantity_rejected() -> None:

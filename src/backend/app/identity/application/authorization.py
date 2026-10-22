@@ -7,10 +7,10 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.core.auth import get_current_user
-from src.backend.app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
-from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
-from src.backend.app.main_dependencies import get_session
+from app.core.auth import get_current_user
+from app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
+from app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
+from app.main_dependencies import get_session
 
 
 @dataclass(frozen=True)

@@ -5,11 +5,11 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.backend.app.demand.domain.models import Requirement
-from src.backend.app.domain.common import AvailabilityConfidence
-from src.backend.app.risk.domain.models import RiskLabel, RiskSnapshot
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
+from app.demand.domain.models import Requirement
+from app.domain.common import AvailabilityConfidence
+from app.risk.domain.models import RiskLabel, RiskSnapshot
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
 
 RISK_CALCULATION_VERSION = "risk-v1"
 CONFIDENCE_VALUE = {AvailabilityConfidence.LOW: Decimal("0.33"), AvailabilityConfidence.MEDIUM: Decimal("0.67"), AvailabilityConfidence.HIGH: Decimal("1.00")}

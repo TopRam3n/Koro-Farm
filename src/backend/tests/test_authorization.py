@@ -2,14 +2,14 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from src.backend.app.core.auth import get_current_user
-from src.backend.app.identity.application.authorization import get_authorization_context
-from src.backend.app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
-from src.backend.app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
-from src.backend.app.main import app
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.core.auth import get_current_user
+from app.identity.application.authorization import get_authorization_context
+from app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
+from app.identity.domain.permissions import PermissionCode, ROLE_PERMISSIONS, RoleCode
+from app.main import app
+from app.demand.domain.models import Buyer, Requirement
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 
 
 ORG_A = UUID("00000000-0000-0000-0000-000000001001")

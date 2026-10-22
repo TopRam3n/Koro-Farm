@@ -7,17 +7,17 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from src.backend.app.assurance.application import recovery
-from src.backend.app.assurance.application.recovery import accept, decline, dropout
-from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun, RecoveryStatus
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
-from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
-from src.backend.app.risk.domain.models import RiskLabel, RiskSnapshot
+from app.assurance.application import recovery
+from app.assurance.application.recovery import accept, decline, dropout
+from app.assurance.domain.models import DomainEvent, RecoveryRun, RecoveryStatus
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, Requirement, SupplyHealth
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.economics.domain.models import CostSnapshot, LotCostInput
+from app.supply.application.planner import PlannerConfig, finalize_plan
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.risk.domain.models import RiskLabel, RiskSnapshot
 
 
 def requirement(session, quantity="500"):

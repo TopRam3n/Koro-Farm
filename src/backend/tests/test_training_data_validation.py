@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.backend.scripts import train_agricultural_forecast as trainer
-from src.backend.app.agriculture.validation import validate_training_data
+from app.agriculture.validation import validate_training_data
 
 
 @pytest.fixture

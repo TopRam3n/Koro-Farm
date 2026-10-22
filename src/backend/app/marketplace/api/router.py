@@ -8,18 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from src.backend.app.demand.domain.models import Buyer
-from src.backend.app.domain.common import Crop
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
-from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
-from src.backend.app.main_dependencies import get_session
-from src.backend.app.marketplace.domain.models import (
+from app.demand.domain.models import Buyer
+from app.domain.common import Crop
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from app.identity.domain.permissions import PermissionCode, RoleCode
+from app.main_dependencies import get_session
+from app.marketplace.domain.models import (
     AvailabilityAlert,
     AvailabilityWatch,
     MarketplaceOrder,
     MarketplaceOrderStatus,
 )
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 
 router = APIRouter(prefix="/marketplace", tags=["customer marketplace"])
 

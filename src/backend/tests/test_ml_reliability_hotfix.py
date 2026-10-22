@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from src.backend.app.agriculture import api
-from src.backend.app.agriculture.forecasting import backtest
-from src.backend.app.agriculture.validation import training_content_hash, validate_training_data
+from app.agriculture import api
+from app.agriculture.forecasting import backtest
+from app.agriculture.validation import training_content_hash, validate_training_data
 from src.backend.scripts.train_agricultural_forecast import DATA
 
 

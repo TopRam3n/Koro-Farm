@@ -12,21 +12,21 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.backend.app.assurance.application.recovery import accept, continue_recovery, dropout
-from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun
-from src.backend.app.demand.application.services import create_requirement
-from src.backend.app.demand.domain.models import Buyer, Requirement
-from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
-from src.backend.app.economics.domain.models import LotCostInput
-from src.backend.app.fulfilment.application.services import grade, receive
-from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
-from src.backend.app.infrastructure.database.base import Base
-from src.backend.app.reconciliation.api.router import AddSublot, add_sublot
-from src.backend.app.reconciliation.domain.models import Shipment, ShipmentSublot
-from src.backend.app.supply.application import planner as planner_module
-from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
-from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from app.assurance.application.recovery import accept, continue_recovery, dropout
+from app.assurance.domain.models import DomainEvent, RecoveryRun
+from app.demand.application.services import create_requirement
+from app.demand.domain.models import Buyer, Requirement
+from app.domain.common import AvailabilityConfidence, Crop, Grade
+from app.economics.domain.models import LotCostInput
+from app.fulfilment.application.services import grade, receive
+from app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
+from app.infrastructure.database.base import Base
+from app.reconciliation.api.router import AddSublot, add_sublot
+from app.reconciliation.domain.models import Shipment, ShipmentSublot
+from app.supply.application import planner as planner_module
+from app.supply.application.planner import PlannerConfig, finalize_plan
+from app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
 POSTGRES_URL = os.getenv("POSTGRES_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="dedicated PostgreSQL test database not configured")
