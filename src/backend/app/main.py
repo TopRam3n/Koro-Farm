@@ -1,3 +1,4 @@
+from app.marketplace.api.operations import router as marketplace_operations_router
 from app.marketplace.api.requests import router as marketplace_requests_router
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +44,7 @@ app.include_router(corridors_router, dependencies=staff_dependencies)
 app.include_router(programmes_router, dependencies=staff_dependencies)
 app.include_router(registry_router, dependencies=staff_dependencies)
 app.include_router(marketplace_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_operations_router, dependencies=[Depends(get_current_user)])
 app.include_router(marketplace_requests_router, dependencies=[Depends(get_current_user)])
 app.include_router(identity_router)
 app.include_router(ingestion_router)
