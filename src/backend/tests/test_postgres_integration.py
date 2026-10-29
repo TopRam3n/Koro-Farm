@@ -21,6 +21,7 @@ from src.backend.app.economics.domain.models import LotCostInput
 from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
 from src.backend.app.reconciliation.api.router import AddSublot, add_sublot
 from src.backend.app.reconciliation.domain.models import Shipment, ShipmentSublot
 from src.backend.app.supply.application import planner as planner_module
@@ -38,6 +39,10 @@ def pg_factory():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    # Rows created without an explicit organization default to DEFAULT_ORGANIZATION_ID (migration 0011).
+    with factory() as setup:
+        setup.add(Organization(id=DEFAULT_ORGANIZATION_ID, name="Default test organization", slug="default-test"))
+        setup.commit()
     yield factory
     engine.dispose()
 
