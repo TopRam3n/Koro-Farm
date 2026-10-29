@@ -5,6 +5,7 @@ from src.backend.app.core.auth import get_current_user
 from src.backend.app.core.config import cors_origins
 from src.backend.app.assurance.api.router import router as assurance_router
 from src.backend.app.assurance.api.allocations import router as allocations_router
+from src.backend.app.assurance.api.allocations import response_router as supplier_responses_router
 from src.backend.app.demand.api.router import router as requirements_router
 from src.backend.app.demand.api.buyers import router as buyers_router
 from src.backend.app.supply.api.farmers import router as farmers_router
@@ -37,6 +38,10 @@ app.include_router(buyers_router, dependencies=staff_dependencies)
 app.include_router(farmers_router, dependencies=staff_dependencies)
 app.include_router(assurance_router, dependencies=staff_dependencies)
 app.include_router(allocations_router, dependencies=staff_dependencies)
+# Farmers answer their own solicitations; staff record decisions on a farmer's behalf (commitments.respond enforces which).
+app.include_router(supplier_responses_router, dependencies=[
+    Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)), Depends(enforce_path_scope),
+])
 app.include_router(production_lots_router, dependencies=[
     Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)), Depends(enforce_path_scope),
 ])

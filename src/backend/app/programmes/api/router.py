@@ -13,7 +13,7 @@ from src.backend.app.main_dependencies import get_session
 from src.backend.app.identity.application.tenancy import require_owned
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.programmes.domain.models import Programme, ProgrammeStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
 
 router = APIRouter(prefix="/programmes", tags=["programmes"])
 
@@ -55,6 +55,7 @@ def _summary(session: Session, programme: Programme) -> dict:
         Requirement.programme_id == programme.id,
         SupplyAllocation.role == AllocationRole.STANDBY,
         SupplyAllocation.status == AllocationStatus.STANDBY,
+        SupplyAllocation.consent_status == ConsentStatus.RECORDED,
     )) or Decimal("0")
     counts = {health.value: 0 for health in SupplyHealth}
     for requirement in requirements:

@@ -9,7 +9,7 @@ from src.backend.app.demand.domain.models import Requirement
 from src.backend.app.domain.common import AvailabilityConfidence
 from src.backend.app.risk.domain.models import RiskLabel, RiskSnapshot
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
+from src.backend.app.supply.domain.planning_models import ConsentStatus, AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
 
 RISK_CALCULATION_VERSION = "risk-v1"
 CONFIDENCE_VALUE = {AvailabilityConfidence.LOW: Decimal("0.33"), AvailabilityConfidence.MEDIUM: Decimal("0.67"), AvailabilityConfidence.HIGH: Decimal("1.00")}
@@ -37,8 +37,9 @@ def _rule(indicator: str, actual: Decimal, threshold: Decimal, message: str) -> 
 def create_risk_snapshot(session: Session, requirement: Requirement, plan: SupplyPlan, policy: RiskPolicy = RiskPolicy()) -> RiskSnapshot:
     """Freeze active supply-plan structure and currently eligible unreserved recovery depth."""
     rows = session.execute(select(SupplyAllocation, ProductionLot, Farmer).join(ProductionLot, ProductionLot.id == SupplyAllocation.production_lot_id).join(Farmer, Farmer.id == ProductionLot.farmer_id).where(SupplyAllocation.requirement_id == requirement.id)).all()
-    committed = [(a, lot, farmer) for a, lot, farmer in rows if a.role == AllocationRole.COMMITTED and a.status == AllocationStatus.COMMITTED]
-    standby = [(a, lot, farmer) for a, lot, farmer in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY and a.consent_evidence_id is not None]
+    committed = [(a, lot, farmer) for a, lot, farmer in rows if a.role == AllocationRole.COMMITTED and a.status == AllocationStatus.COMMITTED and a.consent_status == ConsentStatus.RECORDED]
+    # Only standby whose supplier authorization is recorded counts; legacy planner-generated consent ids do not.
+    standby = [(a, lot, farmer) for a, lot, farmer in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY and a.consent_status == ConsentStatus.RECORDED]
     required = requirement.required_quantity_kg
     committed_qty = sum((a.quantity_kg for a, _, _ in committed), Decimal("0"))
     standby_qty = sum((a.quantity_kg for a, _, _ in standby), Decimal("0"))

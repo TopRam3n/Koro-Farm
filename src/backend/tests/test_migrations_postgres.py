@@ -69,3 +69,40 @@ def test_migrations_apply_to_an_empty_database_and_store_long_crop_codes(fresh_d
             "select quantity_unit from requirements limit 1")).scalar()
         assert unit_default == "kg"
     engine.dispose()
+
+
+def test_existing_consent_ids_are_classified_unsupported_not_deleted(fresh_database_url, monkeypatch) -> None:
+    """An allocation written by the old planner keeps its (random) consent id but is marked UNSUPPORTED_LEGACY."""
+    monkeypatch.setenv("DATABASE_URL", fresh_database_url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, "0017_order_supply_records")
+
+    engine = create_engine(fresh_database_url)
+    legacy_consent, allocation = uuid4(), uuid4()
+    with engine.begin() as c:
+        organization = c.execute(text("select id from organizations limit 1")).scalar()
+        buyer, farmer, lot, requirement, plan = uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+        c.execute(text("insert into buyers (id, organization_id, name, buyer_type, destination) values (:i, :o, 'B', 'HOTEL', 'X')"), {"i": buyer, "o": organization})
+        c.execute(text("insert into farmers (id, organization_id, name, parish, active) values (:i, :o, 'F', 'Manchester', true)"), {"i": farmer, "o": organization})
+        c.execute(text("insert into production_lots (id, farmer_id, crop, harvest_start, harvest_end, expected_quantity_kg, available_quantity_kg, "
+                       "reserved_quantity_kg, quality_grade_estimate, availability_confidence, parish, status, last_verified_at, version) values "
+                       "(:i, :f, 'GINGER', '2026-09-01', '2026-09-10', 100, 100, 80, 'A', 'HIGH', 'Manchester', 'AVAILABLE', now(), 1)"), {"i": lot, "f": farmer})
+        c.execute(text("insert into requirements (id, buyer_id, crop, grade, required_quantity_kg, delivery_window_start, delivery_window_end, "
+                       "lifecycle_status, supply_health, plan_version, version) values (:i, :b, 'GINGER', 'A', 80, '2026-09-01', '2026-09-10', "
+                       "'ACTIVE', 'COVERED', 1, 2)"), {"i": requirement, "b": buyer})
+        c.execute(text("insert into supply_plans (id, requirement_id, plan_version, planner_version, status, required_quantity_kg, "
+                       "committed_quantity_kg, standby_quantity_kg, unfilled_quantity_kg) values (:i, :r, 1, 'legacy', 'FINALIZED', 80, 80, 0, 0)"),
+                  {"i": plan, "r": requirement})
+        c.execute(text("insert into supply_allocations (id, requirement_id, supply_plan_id, production_lot_id, role, status, quantity_kg, "
+                       "consent_evidence_id, plan_version) values (:i, :r, :p, :l, 'COMMITTED', 'COMMITTED', 80, :c, 1)"),
+                  {"i": allocation, "r": requirement, "p": plan, "l": lot, "c": legacy_consent})
+    command.upgrade(config, "head")
+    with engine.begin() as c:
+        row = c.execute(text("select consent_status, consent_evidence_id, holds_reservation, status from supply_allocations where id = :i"),
+                        {"i": allocation}).one()
+        assert row.consent_status == "UNSUPPORTED_LEGACY"
+        assert row.consent_evidence_id == legacy_consent  # preserved for history, not trusted
+        assert row.holds_reservation is True and row.status == "COMMITTED"
+        assert c.execute(text("select count(*) from supplier_consents")).scalar() == 0  # no consent was invented
+    engine.dispose()

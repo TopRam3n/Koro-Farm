@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from src.backend.app.assurance.application import recovery
-from src.backend.app.assurance.application.recovery import accept, decline, dropout
+from src.backend.app.assurance.application.recovery import dropout
+from consent_support import plan_and_confirm, accept, decline
 from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun, RecoveryStatus
 from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
@@ -44,7 +45,7 @@ def lot(session, quantity, price="300", confidence=AvailabilityConfidence.HIGH):
 def test_dropout_is_idempotent_restores_exact_coverage_and_audits(session):
     req = requirement(session)
     for _ in range(8): lot(session, "80")
-    plan = finalize_plan(session, req.id)
+    plan = plan_and_confirm(session, req.id)
     assert (plan.committed_quantity_kg, plan.standby_quantity_kg) == (Decimal("500"), Decimal("100"))
     lost = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.quantity_kg == Decimal("80")))
@@ -56,7 +57,7 @@ def test_dropout_is_idempotent_restores_exact_coverage_and_audits(session):
     events = list(session.scalars(select(DomainEvent).where(DomainEvent.aggregate_id == req.id).order_by(DomainEvent.occurred_at)))
     names = [event.event_type for event in events]
     assert [event.occurred_at for event in events] == sorted(event.occurred_at for event in events)
-    for expected in ("plan.created", "allocation.lost", "requirement.at_risk", "recovery.started", "allocation.standby_activated", "recovery.completed"):
+    for expected in ("plan.proposed", "supplier.accepted", "standby.authorized", "allocation.lost", "requirement.at_risk", "recovery.started", "allocation.standby_activated", "recovery.completed"):
         assert expected in names
     snapshots = list(session.scalars(select(RiskSnapshot).where(RiskSnapshot.requirement_id == req.id).order_by(RiskSnapshot.plan_version)))
     assert len(snapshots) == 2
@@ -68,7 +69,7 @@ def test_partial_standby_solicitation_and_explicit_acceptance(session):
     # 100 committed, 8 standby, then 92 unallocated capacity available for solicitation.
     for quantity, price in (("100", "100"), ("8", "350"), ("92", "350")):
         lot(session, quantity, price)
-    finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.08")))
+    plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.08")))
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED))
     outcome = dropout(session, committed.id, "crop_failure", "partial")
@@ -85,16 +86,16 @@ def test_partial_standby_solicitation_and_explicit_acceptance(session):
         DomainEvent.occurred_at, DomainEvent.id)))
     names = [event.event_type for event in events]
     assert [event.occurred_at for event in events] == sorted(event.occurred_at for event in events)
-    for expected in ("allocation.solicited", "allocation.accepted", "recovery.awaiting_acceptance", "recovery.completed"):
+    for expected in ("allocation.solicited", "supplier.accepted", "recovery.awaiting_acceptance", "recovery.completed"):
         assert expected in names
 
 
 def test_second_requirement_cannot_consume_reserved_standby(session):
     first, second = requirement(session, "100"), requirement(session, "100")
     for _ in range(2): lot(session, "60")
-    first_plan = finalize_plan(session, first.id)
+    first_plan = plan_and_confirm(session, first.id)
     assert first_plan.committed_quantity_kg == Decimal("100")
-    second_plan = finalize_plan(session, second.id)
+    second_plan = plan_and_confirm(session, second.id)
     assert second_plan.committed_quantity_kg == Decimal("0")
     assert second_plan.standby_quantity_kg == Decimal("0")
 
@@ -111,7 +112,7 @@ def test_decline_releases_solicited_stock_without_calling_it_coverage(session):
     req = requirement(session, "100")
     for quantity, price in (("100", "100"), ("20", "350"), ("80", "350")):
         lot(session, quantity, price)
-    finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.20")))
+    plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.20")))
     committed = session.scalar(select(SupplyAllocation).where(
         SupplyAllocation.requirement_id == req.id, SupplyAllocation.role == AllocationRole.COMMITTED,
         SupplyAllocation.status == AllocationStatus.COMMITTED))
@@ -134,7 +135,7 @@ def test_recovery_snapshot_is_new_immutable_decimal_cost_record(session, standby
     # ever counted as committed in this economic test.
     lot(session, "100", "300", AvailabilityConfidence.HIGH)
     lot(session, "100", standby_price, AvailabilityConfidence.MEDIUM)
-    plan = finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=Decimal("0")))
+    plan = plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=Decimal("0")))
     original = session.scalar(select(CostSnapshot).where(CostSnapshot.supply_plan_id == plan.plan_id))
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED))
@@ -150,7 +151,7 @@ def test_recovery_snapshot_is_new_immutable_decimal_cost_record(session, standby
 def test_intentional_recovery_failure_rolls_back_all_writes(session, monkeypatch):
     req = requirement(session, "100")
     lot(session, "100")
-    plan = finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+    plan = plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
     original_event = recovery._event
 
@@ -172,7 +173,7 @@ def test_intentional_recovery_failure_rolls_back_all_writes(session, monkeypatch
 def test_database_rejects_non_positive_allocation_quantity(session):
     req = requirement(session, "10")
     lot(session, "10")
-    plan = finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+    plan = plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
     allocation = session.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
     allocation.quantity_kg = Decimal("0")
     with pytest.raises(IntegrityError):
@@ -193,7 +194,7 @@ def test_risk_snapshot_aggregates_farmer_lots_and_is_immutable(session):
             last_verified_at=datetime.now(timezone.utc))
         session.add(item); session.flush(); session.add(LotCostInput(production_lot_id=item.id, farmgate_price_per_kg_jmd=Decimal("100"), pickup_cost_jmd=Decimal("0"), handling_grading_cost_per_kg_jmd=Decimal("0"), packaging_cost_per_kg_jmd=Decimal("0"), transport_cost_jmd=Decimal("0"), expected_rejection_pct=Decimal("0")))
     session.commit()
-    plan = finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+    plan = plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
     snapshot = session.scalar(select(RiskSnapshot).where(RiskSnapshot.supply_plan_id == plan.plan_id))
     assert snapshot.risk_label == RiskLabel.HIGH
     assert snapshot.committed_farmer_count == snapshot.committed_parish_count == 1
@@ -211,7 +212,7 @@ def test_failed_recovery_escalates_with_truthful_40kg_shortfall(session):
     for quantity in ("140", "120", "120", "120"):
         lot(session, quantity, "10", AvailabilityConfidence.HIGH)
     lot(session, "70", "100", AvailabilityConfidence.MEDIUM)
-    finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.20")))
+    plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0.20")))
     replacement = lot(session, "30", "100", AvailabilityConfidence.MEDIUM)
     lost = session.scalar(select(SupplyAllocation).where(
         SupplyAllocation.requirement_id == req.id,

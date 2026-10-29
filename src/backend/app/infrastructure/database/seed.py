@@ -36,9 +36,10 @@ from src.backend.app.reconciliation.api.router import (
     dispatch,
     reconcile,
 )
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentChannel, ConsentDecision, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.application.planner import finalize_plan
+from src.backend.app.supply.application.commitments import SupplierResponse, respond, solicit
 from src.backend.app.supply.domain.crops import ensure_shared_crops
 
 DEMO_REQUIREMENT_ID = UUID("00000000-0000-0000-0000-000000000500")
@@ -52,6 +53,27 @@ FARMERS = [
     ("Peter Nelson", "St. Elizabeth"), ("Renee Palmer", "Clarendon"), ("Sean Reid", "St. Ann"),
 ]
 LOT_QUANTITIES = [65, 50, 80, 45, 70, 55, 60, 40, 75, 50, 65, 45, 55, 60, 50, 70, 45, 55]
+
+
+def confirm_synthetic_plan(session: Session, requirement_id: UUID) -> None:
+    """Record synthetic supplier decisions for a synthetic demo order's proposals.
+
+    Demo data only: each decision is written with channel SYNTHETIC_FIXTURE and attestation
+    "synthetic demo fixture", so it is never mistaken for a real supplier's agreement.
+    """
+    proposals = session.scalars(select(SupplyAllocation).where(
+        SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.status == AllocationStatus.PROPOSED,
+    ).order_by(SupplyAllocation.created_at, SupplyAllocation.id)).all()
+    for proposal in proposals:
+        key = f"demo-fixture-{proposal.id}"
+        solicit(session, SEED_CONTEXT, proposal.id, "Synthetic demo solicitation", f"{key}-solicit")
+        standby = proposal.role == AllocationRole.STANDBY
+        respond(session, SEED_CONTEXT, proposal.id, SupplierResponse(
+            decision=ConsentDecision.ACCEPTED, attestation_method="synthetic demo fixture",
+            channel=ConsentChannel.SYNTHETIC_FIXTURE,
+            activation_conditions="Synthetic demo: activate only to replace lost committed supply" if standby else None,
+        ), f"{key}-respond")
+    session.flush()
 
 
 def seed(session: Session) -> None:
@@ -144,6 +166,7 @@ def seed_competition_demo(session: Session) -> UUID:
     session.add(requirement)
     session.commit()
     finalize_plan(session, DEMO_REQUIREMENT_ID)
+    confirm_synthetic_plan(session, DEMO_REQUIREMENT_ID)
     session.commit()
 
     buyers = [
@@ -226,6 +249,7 @@ def seed_competition_demo(session: Session) -> UUID:
         session.commit()
         if should_plan:
             finalize_plan(session, requirement.id)
+            confirm_synthetic_plan(session, requirement.id)
             session.commit()
 
     # A completed recovery proves loss handling and cost/risk re-snapshotting.

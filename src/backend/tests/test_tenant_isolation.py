@@ -37,6 +37,7 @@ from src.backend.app.supply.domain.models import Farmer, ProductionLot, Producti
 from src.backend.app.supply.domain.planning_models import AllocationRole, SupplyAllocation
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 from two_orgs import factory, http, _org, _h  # noqa: F401  (pytest fixtures)
+from consent_support import confirm_plan_via_api
 
 @pytest.fixture()
 def worlds(factory, http):
@@ -49,6 +50,7 @@ def worlds(factory, http):
         b = _org(session, "Beta", crop_lot=Crop.YAM)
     # Organization A builds real downstream records through its own, authorized API calls.
     assert http.post(f"/requirements/{a['requirement']}/plan", headers=_h(a, "plan-a")).status_code == 201
+    confirm_plan_via_api(http, a["requirement"], _h(a))
     with factory() as session:
         allocation = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == a["requirement"],
                                                                    SupplyAllocation.role == AllocationRole.COMMITTED))

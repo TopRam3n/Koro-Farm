@@ -14,7 +14,7 @@ from src.backend.app.main_dependencies import get_session
 from src.backend.app.identity.application.tenancy import require_owned
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.identity.application.tenancy import tenant_idempotency_key
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 
 router = APIRouter(tags=["fulfilment"])
@@ -50,7 +50,7 @@ def fulfilment_summary(requirement_id: UUID, session: Session = Depends(get_sess
     requirement = session.get(Requirement, requirement_id)
     if requirement is None: raise HTTPException(404, "requirement not found")
     rows = session.execute(select(ReceivedSublot).join(SupplyAllocation).where(SupplyAllocation.requirement_id == requirement_id)).scalars().all()
-    committed = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED)) or Decimal("0")
+    committed = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED, SupplyAllocation.consent_status == ConsentStatus.RECORDED)) or Decimal("0")
     received = sum((x.received_quantity_kg for x in rows), Decimal("0")); accepted = sum((x.accepted_quantity_kg for x in rows), Decimal("0")); rejected = sum((x.rejected_quantity_kg for x in rows), Decimal("0"))
     return {"required_kg": str(requirement.required_quantity_kg), "committed_kg": str(committed), "received_kg": str(received), "accepted_kg": str(accepted), "rejected_kg": str(rejected), "accepted_shortfall_kg": str(max(requirement.required_quantity_kg - accepted, Decimal("0")))}
 

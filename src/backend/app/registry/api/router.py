@@ -17,6 +17,7 @@ from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.supply.domain.planning_models import (
     AllocationRole,
     AllocationStatus,
+    ConsentStatus,
     SupplyAllocation,
     SupplyPlan,
 )
@@ -56,7 +57,7 @@ def list_farmers(
             .where(
                 ProductionLot.farmer_id == farmer.id,
                 SupplyAllocation.role == AllocationRole.COMMITTED,
-                SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+                SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
             )
         ) or Decimal("0")
         items.append(
@@ -334,7 +335,7 @@ def command_center_summary(session: Session = Depends(get_session),
         select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
             SupplyAllocation.requirement_id.in_(owned_requirements),
             SupplyAllocation.role == AllocationRole.COMMITTED,
-            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
         )
     ) or Decimal("0")
     received_kg, accepted_kg, rejected_kg = session.execute(
@@ -351,7 +352,7 @@ def command_center_summary(session: Session = Depends(get_session),
         .where(
             SupplyAllocation.requirement_id.in_(owned_requirements),
             SupplyAllocation.role == AllocationRole.COMMITTED,
-            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
         )
         .group_by(ProductionLot.parish)
         .order_by(func.sum(SupplyAllocation.quantity_kg).desc())
