@@ -15,6 +15,7 @@ from src.backend.app.programmes.api.router import router as programmes_router
 from src.backend.app.registry.api.router import router as registry_router
 from src.backend.app.identity.api.router import router as identity_router
 from src.backend.app.identity.application.authorization import require_roles
+from src.backend.app.identity.application.tenancy import enforce_path_scope
 from src.backend.app.identity.domain.permissions import RoleCode
 from src.backend.app.ingestion.api.router import public_router as secure_actions_router
 from src.backend.app.ingestion.api.router import router as ingestion_router
@@ -25,12 +26,14 @@ staff_roles = (
     RoleCode.PLATFORM_ADMIN, RoleCode.ORGANIZATION_ADMIN, RoleCode.PROCUREMENT_MANAGER,
     RoleCode.SUPPLY_COORDINATOR, RoleCode.WAREHOUSE_OPERATOR, RoleCode.AUDITOR,
 )
-staff_dependencies = [Depends(get_current_user), Depends(require_roles(*staff_roles))]
+# Every staff router is organization-scoped: enforce_path_scope resolves each *_id path parameter to its
+# owning organization and refuses anything it cannot attribute (identity/application/tenancy.py).
+staff_dependencies = [Depends(get_current_user), Depends(require_roles(*staff_roles)), Depends(enforce_path_scope)]
 app.include_router(requirements_router, dependencies=staff_dependencies)
 app.include_router(assurance_router, dependencies=staff_dependencies)
 app.include_router(allocations_router, dependencies=staff_dependencies)
 app.include_router(production_lots_router, dependencies=[
-    Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)),
+    Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)), Depends(enforce_path_scope),
 ])
 app.include_router(fulfilment_router, dependencies=staff_dependencies)
 app.include_router(reconciliation_router, dependencies=staff_dependencies)

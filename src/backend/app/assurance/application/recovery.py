@@ -14,6 +14,7 @@ from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
 from src.backend.app.supply.domain.models import ProductionLot, ProductionLotStatus
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.risk.application.calculator import create_risk_snapshot
+from src.backend.app.identity.application.tenancy import farmers_in_requirement_organization
 
 
 def _event(session: Session, name: str, requirement_id: UUID, correlation_id: UUID, payload: dict) -> None:
@@ -141,6 +142,7 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str, auto_r
             # A farmer must explicitly accept it through `accept` before it becomes committed.
             solicitation_needed = shortfall
             for lot in session.scalars(select(ProductionLot).where(
+                ProductionLot.farmer_id.in_(farmers_in_requirement_organization(requirement.buyer_id)),
                 ProductionLot.crop == requirement.crop,
                 ProductionLot.quality_grade_estimate == requirement.grade,
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,
@@ -239,6 +241,7 @@ def continue_recovery(session: Session, requirement_id: UUID, key: str) -> dict:
             ).order_by(SupplyPlan.plan_version.desc()))
             remaining_to_solicit = shortfall
             for lot in session.scalars(select(ProductionLot).where(
+                ProductionLot.farmer_id.in_(farmers_in_requirement_organization(requirement.buyer_id)),
                 ProductionLot.crop == requirement.crop,
                 ProductionLot.quality_grade_estimate == requirement.grade,
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,
@@ -423,6 +426,7 @@ def recover_quality_shortfall(session: Session, requirement_id: UUID, shortfall:
             if source_plan is None:
                 raise ValueError("requirement has no supply plan")
             for lot in session.scalars(select(ProductionLot).where(
+                ProductionLot.farmer_id.in_(farmers_in_requirement_organization(requirement.buyer_id)),
                 ProductionLot.crop == requirement.crop,
                 ProductionLot.quality_grade_estimate == requirement.grade,
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,

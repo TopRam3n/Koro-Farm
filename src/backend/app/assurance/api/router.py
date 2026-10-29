@@ -13,6 +13,7 @@ from src.backend.app.assurance.application import PlanAlreadyExistsError, Planne
 from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.economics.domain.models import CostSnapshot
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
 from src.backend.app.assurance.domain.models import CommandDeduplication, RecoveryRun
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/requirements", tags=["assurance"])
 
 
 @router.post("/{requirement_id}/recovery")
-def run_recovery(requirement_id: UUID, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+def run_recovery(requirement_id: UUID, idempotency_key: str | None = Depends(tenant_idempotency_key),
                  session: Session = Depends(get_session)) -> dict:
     """Advance the single persisted recovery run."""
     if not idempotency_key:
@@ -123,7 +124,7 @@ def _plan_response(result) -> PlanRead:
 
 @router.post("/{requirement_id}/plan", response_model=PlanRead, status_code=status.HTTP_201_CREATED)
 def create_plan(requirement_id: UUID,
-                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                idempotency_key: str | None = Depends(tenant_idempotency_key),
                 session: Session = Depends(get_session)) -> PlanRead:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")

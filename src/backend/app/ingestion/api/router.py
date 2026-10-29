@@ -22,6 +22,7 @@ from src.backend.app.ingestion.domain.models import (
     SecureActionLink, SecureActionPurpose, SourceChannel, VerificationStatus,
 )
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade
@@ -348,7 +349,7 @@ def inspect_secure_action(token: str, session: Session = Depends(get_session)) -
 
 @public_router.post("/{token}")
 def execute_secure_action(token: str, payload: SecureActionResponse,
-                          idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                          idempotency_key: str | None = Depends(tenant_idempotency_key),
                           session: Session = Depends(get_session)) -> dict:
     if not idempotency_key:
         raise HTTPException(400, "Idempotency-Key header is required")
@@ -555,7 +556,7 @@ def preview_import(payload: ImportPreviewCommand,
 
 
 @router.post("/imports/{import_id}/confirm", dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
-def confirm_import(import_id: UUID, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+def confirm_import(import_id: UUID, idempotency_key: str | None = Depends(tenant_idempotency_key),
                    context: AuthorizationContext = Depends(get_authorization_context),
                    session: Session = Depends(get_session)) -> dict:
     if not idempotency_key:

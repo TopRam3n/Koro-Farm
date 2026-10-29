@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
+from src.backend.app.identity.application.tenancy import farmers_in_requirement_organization
 from src.backend.app.domain.common import AvailabilityConfidence, Grade
 from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
 from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
@@ -170,6 +171,7 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
             select(ProductionLot, Farmer, LotCostInput)
             .join(Farmer, Farmer.id == ProductionLot.farmer_id)
             .join(LotCostInput, LotCostInput.production_lot_id == ProductionLot.id)
+            .where(Farmer.id.in_(farmers_in_requirement_organization(requirement.buyer_id)))
             .order_by(ProductionLot.id)
             .with_for_update()
         ).all()

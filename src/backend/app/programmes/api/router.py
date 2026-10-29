@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from src.backend.app.assurance.application.recovery import committed_quantity
 from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import require_owned
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.programmes.domain.models import Programme, ProgrammeStatus
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
@@ -69,9 +71,9 @@ def _summary(session: Session, programme: Programme) -> dict:
 
 
 @router.post("", response_model=ProgrammeRead, status_code=status.HTTP_201_CREATED)
-def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_session)) -> Programme:
-    if session.get(Buyer, payload.buyer_id) is None:
-        raise HTTPException(404, "buyer not found")
+def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_session),
+                     context: AuthorizationContext = Depends(get_authorization_context)) -> Programme:
+    require_owned(session, context, "buyer", payload.buyer_id)
     programme = Programme(**payload.model_dump())
     session.add(programme)
     session.commit()
@@ -81,10 +83,11 @@ def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_se
 
 @router.get("")
 def list_programmes(status_filter: ProgrammeStatus | None = None, offset: int = 0, limit: int = 50,
-                    session: Session = Depends(get_session)) -> list[dict]:
+                    session: Session = Depends(get_session),
+                    context: AuthorizationContext = Depends(get_authorization_context)) -> list[dict]:
     if offset < 0 or limit < 1 or limit > 200:
         raise HTTPException(422, "offset must be non-negative and limit must be between 1 and 200")
-    statement = select(Programme)
+    statement = select(Programme).join(Buyer, Buyer.id == Programme.buyer_id).where(Buyer.organization_id == context.organization_id)
     if status_filter is not None:
         statement = statement.where(Programme.status == status_filter)
     programmes = session.scalars(statement.order_by(Programme.created_at.desc(), Programme.id).offset(offset).limit(limit))

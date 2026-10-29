@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.application.recovery import accept, decline, dropout
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 
 router = APIRouter(prefix="/allocations", tags=["allocations"])
 
@@ -17,7 +18,7 @@ class DropoutCommand(BaseModel):
 
 @router.post("/{allocation_id}/dropout")
 def post_dropout(allocation_id: UUID, payload: DropoutCommand,
-                 idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                 idempotency_key: str | None = Depends(tenant_idempotency_key),
                  session: Session = Depends(get_session)) -> dict:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
@@ -31,7 +32,7 @@ def post_dropout(allocation_id: UUID, payload: DropoutCommand,
 
 @router.post("/{allocation_id}/accept")
 def post_accept(allocation_id: UUID,
-                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                idempotency_key: str | None = Depends(tenant_idempotency_key),
                 session: Session = Depends(get_session)) -> dict:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
@@ -45,7 +46,7 @@ def post_accept(allocation_id: UUID,
 
 @router.post("/{allocation_id}/decline")
 def post_decline(allocation_id: UUID,
-                 idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                 idempotency_key: str | None = Depends(tenant_idempotency_key),
                  session: Session = Depends(get_session)) -> dict:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")

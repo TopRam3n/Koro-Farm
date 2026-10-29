@@ -22,6 +22,7 @@ from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
+from src.backend.app.infrastructure.database.seed import SEED_CONTEXT
 from src.backend.app.reconciliation.api.router import AddSublot, add_sublot
 from src.backend.app.reconciliation.domain.models import Shipment, ShipmentSublot
 from src.backend.app.supply.application import planner as planner_module
@@ -166,7 +167,7 @@ def test_two_shipments_cannot_consume_one_accepted_sublot(pg_factory):
         receipt = receive(s, allocation.id, node.id, Decimal("100"), datetime.now(timezone.utc), "r", "r"); grade(s, receipt["received_sublot_id"], Decimal("100"), Decimal("0"), Grade.A, None, "g", "g")
         first = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S1"); second = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S2"); s.add_all([first, second]); s.commit()
     payload = AddSublot(received_sublot_id=receipt["received_sublot_id"])
-    results = concurrent(pg_factory, [lambda s: add_sublot(first.id, payload, "ship-a", s), lambda s: add_sublot(second.id, payload, "ship-b", s)])
+    results = concurrent(pg_factory, [lambda s: add_sublot(first.id, payload, "ship-a", s, SEED_CONTEXT), lambda s: add_sublot(second.id, payload, "ship-b", s, SEED_CONTEXT)])
     assert sum(result[0] == "ok" for result in results) == 1
     with pg_factory() as s: assert s.scalar(select(func.count()).select_from(ShipmentSublot)) == 1
     assert_inventory(pg_factory)

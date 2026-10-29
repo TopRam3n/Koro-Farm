@@ -15,6 +15,15 @@ from src.backend.app.fulfilment.domain.models import FulfilmentNode
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.programmes.domain.models import Programme
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
+from src.backend.app.identity.application.authorization import AuthorizationContext
+from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
+
+# The seed writes the synthetic demo organization's records through the same handlers the API uses.
+SEED_CONTEXT = AuthorizationContext(
+    user_id=UUID("00000000-0000-0000-0000-00000000f001"), organization_id=DEFAULT_ORGANIZATION_ID,
+    membership_id=UUID("00000000-0000-0000-0000-00000000f002"), role=RoleCode.PLATFORM_ADMIN,
+    permissions=frozenset(PermissionCode),
+)
 from src.backend.app.reconciliation.api.router import (
     AddSublot,
     DeliveryCommand,
@@ -251,13 +260,13 @@ def seed_competition_demo(session: Session) -> UUID:
         completed_requirement_id,
         ShipmentCreate(fulfilment_node_id=DEMO_NODE_ID, reference="SYN-DEMO-503"),
         idempotency_key="demo-completed-shipment",
-        session=session,
+        session=session, context=SEED_CONTEXT,
     )
     shipment_id = UUID(shipment_result["shipment_id"])
     for index, sublot_id in enumerate(accepted_sublot_ids, start=1):
         add_sublot(
             shipment_id, AddSublot(received_sublot_id=sublot_id),
-            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session,
+            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session, context=SEED_CONTEXT,
         )
     dispatch(
         shipment_id, DispatchCommand(evidence_reference="synthetic://dispatch/demo-completed-503"),
