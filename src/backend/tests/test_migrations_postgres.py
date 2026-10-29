@@ -61,4 +61,11 @@ def test_migrations_apply_to_an_empty_database_and_store_long_crop_codes(fresh_d
         events = {row[0] for row in connection.execute(text(
             "select column_name from information_schema.columns where table_name = 'domain_events'"))}
         assert {"organization_id", "actor_id", "causation_id", "schema_version", "idempotency_key"} <= events
+        lot_default = connection.execute(text(
+            "select column_default from information_schema.columns "
+            "where table_name = 'production_lots' and column_name = 'capacity_verification'")).scalar()
+        assert "UNSPECIFIED" in lot_default
+        unit_default = connection.execute(text(
+            "select quantity_unit from requirements limit 1")).scalar()
+        assert unit_default == "kg"
     engine.dispose()

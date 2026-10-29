@@ -6,6 +6,8 @@ from src.backend.app.core.config import cors_origins
 from src.backend.app.assurance.api.router import router as assurance_router
 from src.backend.app.assurance.api.allocations import router as allocations_router
 from src.backend.app.demand.api.router import router as requirements_router
+from src.backend.app.demand.api.buyers import router as buyers_router
+from src.backend.app.supply.api.farmers import router as farmers_router
 from src.backend.app.supply.api.router import router as production_lots_router
 from src.backend.app.supply.api.crops import router as crops_router
 from src.backend.app.fulfilment.api.router import router as fulfilment_router
@@ -31,6 +33,8 @@ staff_roles = (
 # owning organization and refuses anything it cannot attribute (identity/application/tenancy.py).
 staff_dependencies = [Depends(get_current_user), Depends(require_roles(*staff_roles)), Depends(enforce_path_scope)]
 app.include_router(requirements_router, dependencies=staff_dependencies)
+app.include_router(buyers_router, dependencies=staff_dependencies)
+app.include_router(farmers_router, dependencies=staff_dependencies)
 app.include_router(assurance_router, dependencies=staff_dependencies)
 app.include_router(allocations_router, dependencies=staff_dependencies)
 app.include_router(production_lots_router, dependencies=[

@@ -29,7 +29,19 @@ class Farmer(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     parish: Mapped[str] = mapped_column(String(100), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    contact_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class CapacityVerification(StrEnum):
+    """How the lot's capacity is known. UNSPECIFIED marks records created before this was captured."""
+    DECLARED = "DECLARED"
+    VERIFIED = "VERIFIED"
+    UNSPECIFIED = "UNSPECIFIED"
 
 
 class ProductionLot(Base):
@@ -59,6 +71,14 @@ class ProductionLot(Base):
         Enum(ProductionLotStatus, native_enum=False), default=ProductionLotStatus.AVAILABLE, nullable=False
     )
     last_verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    capacity_verification: Mapped[CapacityVerification] = mapped_column(
+        Enum(CapacityVerification, native_enum=False, length=20), nullable=False,
+        default=CapacityVerification.UNSPECIFIED, server_default=CapacityVerification.UNSPECIFIED.value)
+    provenance_source: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    attestation_method: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recorded_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    declared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

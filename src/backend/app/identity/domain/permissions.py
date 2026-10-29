@@ -61,8 +61,10 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[PermissionCode]] = {
         PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
         PermissionCode.APPROVAL_POLICY_VIEW,
     }),
+    # Spec R1 §2: the coordinator/exporter manages orders as well as supply.
     RoleCode.SUPPLY_COORDINATOR: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.SUPPLY_VIEW, PermissionCode.SUPPLY_MANAGE,
+        PermissionCode.REQUIREMENT_VIEW, PermissionCode.REQUIREMENT_CREATE, PermissionCode.REQUIREMENT_UPDATE,
+        PermissionCode.SUPPLY_VIEW, PermissionCode.SUPPLY_MANAGE,
         PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE, PermissionCode.RECOVERY_EXECUTE,
         PermissionCode.RECEIVING_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
     }),

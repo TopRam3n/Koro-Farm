@@ -215,7 +215,7 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
     a, b = worlds
     ids = {"requirement_id": a["requirement"], "allocation_id": a["allocation"], "sublot_id": a["sublot"],
            "shipment_id": a["shipment"], "lot_id": a["lot"], "farmer_id": a["farmer"], "programme_id": a["programme"],
-           "recovery_id": a["recovery"], "corridor_id": a["corridor"]}
+           "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"]}
     checked, problems = 0, []
     for path, operations in app.openapi()["paths"].items():
         params = [part[1:-1] for part in path.split("/") if part.startswith("{") and part.endswith("}")]
