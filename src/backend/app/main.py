@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.app.core.auth import get_current_user
-from src.backend.app.core.config import cors_origins
+from src.backend.app.core.config import cors_origins, validate_runtime_configuration
 from src.backend.app.assurance.api.router import router as assurance_router
 from src.backend.app.assurance.api.allocations import router as allocations_router
 from src.backend.app.assurance.api.allocations import response_router as supplier_responses_router
@@ -24,6 +24,9 @@ from src.backend.app.identity.domain.permissions import RoleCode
 from src.backend.app.ingestion.api.router import public_router as secure_actions_router
 from src.backend.app.ingestion.api.router import router as ingestion_router
 from src.backend.app.marketplace.api.router import router as marketplace_router
+
+# Fail closed: refuse to start with configuration that could bypass or fake authentication.
+validate_runtime_configuration()
 
 app = FastAPI(title="KoroFarm Supply Assurance API", version="0.1.0")
 staff_roles = (

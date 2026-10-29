@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.application import PlanAlreadyExistsError, PlannerConfig, RequirementNotFoundError, finalize_plan
+from src.backend.app.supply.application.planner import RequirementNotPlannableError
 from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.economics.domain.models import CostSnapshot
 from src.backend.app.main_dependencies import get_session
@@ -158,7 +159,7 @@ def create_plan(requirement_id: UUID,
         return response
     except RequirementNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except PlanAlreadyExistsError as exc:
+    except (PlanAlreadyExistsError, RequirementNotPlannableError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
         # PostgreSQL row locking normally turns this into PlanAlreadyExistsError;

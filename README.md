@@ -106,11 +106,13 @@ Set-Location src/frontend
 npm run dev
 ```
 
-Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. To obtain a requirement UUID, create one through `POST /requirements` or inspect the database, then place it in `NEXT_PUBLIC_REQUIREMENT_ID` and restart Next.js.
+Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. Create buyers, suppliers, lots and orders from **Orders**, **Buyers** and **Suppliers & lots**; the overview screens show the order you last opened.
 
-For an isolated competition test/demo environment only, set backend
-`APP_ENV=demo` and `ALLOW_INSECURE_DEMO_AUTH=true`, with frontend
-`NEXT_PUBLIC_AUTH_MODE=demo`. This bypass cannot be enabled in production mode.
+The backend's insecure auth bypass (`ALLOW_INSECURE_DEMO_AUTH=true`) works only
+with `APP_ENV=test`, for automated tests. With any other `APP_ENV` the API refuses
+to start if it is set, and in production (any `APP_ENV` other than `test` or
+`development`) it also refuses to start unless `SUPABASE_URL` is https on a public
+host. Production deployments must set `APP_ENV=production`.
 Use `NEXT_PUBLIC_APP_MODE=demo` for a deliberate zero-backend presentation; the
 UI clearly labels the mode and never switches automatically after an API error.
 

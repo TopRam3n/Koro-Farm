@@ -94,6 +94,8 @@ def solicit(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
         allocation, requirement, lot = _lock(session, allocation_id)
         if allocation.status != AllocationStatus.PROPOSED:
             raise CommitmentError(f"only a proposed allocation can be solicited (it is {allocation.status.value})")
+        if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
+            raise CommitmentError("the order has been cancelled")
         allocation.status = AllocationStatus.SOLICITED
         allocation.solicited_at = datetime.now(timezone.utc)
         record_event(session, actor, "solicitation.sent", "requirement", requirement.id, {

@@ -24,7 +24,7 @@ export DATABASE_URL=postgresql+psycopg://kf_r1_test:<password>@127.0.0.1:55499/k
 .venv/Scripts/python.exe -m src.backend.scripts.seed_e2e /path/outside/repo/users.json
 
 # 2. Auth stand-in and API
-node src/frontend/e2e/r1/support/auth-stub.mjs /path/outside/repo/users.json 54999 &
+KOROFARM_E2E_AUTH_STANDIN=1 node src/frontend/e2e/r1/support/auth-stub.mjs /path/outside/repo/users.json 54999 &
 SUPABASE_URL=http://127.0.0.1:54999 SUPABASE_PUBLISHABLE_KEY=e2e-test-key APP_ENV=test \
   ALLOW_INSECURE_DEMO_AUTH=false CORS_ORIGINS=http://127.0.0.1:3100 \
   .venv/Scripts/python.exe -m uvicorn src.backend.app.main:app --host 127.0.0.1 --port 8100 &
@@ -38,6 +38,15 @@ npx next start -p 3100 -H 127.0.0.1 &
 # 4. Tests
 R1_E2E_USERS=/path/outside/repo/users.json npx playwright test -c playwright.r1.config.ts
 ```
+
+## Safety boundaries
+
+- The stand-in refuses to start unless `KOROFARM_E2E_AUTH_STANDIN=1` is set, and it also refuses when
+  `NODE_ENV=production` or `APP_ENV` is set to anything other than `test`. It listens on 127.0.0.1 only.
+- The backend refuses to start in production (any `APP_ENV` other than `test` or `development`) unless
+  `SUPABASE_URL` is an https URL on a public host, so a local stand-in cannot back a production API
+  (`src/backend/app/core/config.py`, tests in `src/backend/tests/test_runtime_security.py`).
+- No application code imports the stand-in. `npm run check:bundle` fails if a production build contains it.
 
 The users file holds generated test passwords; keep it outside the repository. Screenshots are written to
 `artifacts/r1-e2e-screens/` (copies of one run are in `docs/product/evidence/wp1/`).

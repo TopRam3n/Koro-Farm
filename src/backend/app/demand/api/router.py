@@ -17,6 +17,7 @@ from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.identity.domain.permissions import PermissionCode
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.supply.application.crops import require_active_crop
+from src.backend.app.supply.domain.models import ProductionLot
 from src.backend.app.supply.domain.planning_models import AllocationStatus, SupplyAllocation
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
@@ -280,11 +281,23 @@ def cancel_requirement(requirement_id: UUID, payload: CancelCommand, session: Se
         SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.status.in_(BINDING_ALLOCATION_STATES)).limit(1))
     if binding is not None:
         raise HTTPException(status_code=409, detail="suppliers have accepted or reserved supply for this order; release them before cancelling")
+    # Nothing binding exists; withdraw open proposals and solicitations so no supplier is asked for a cancelled order.
+    withdrawn = []
+    for allocation in session.scalars(select(SupplyAllocation).where(
+            SupplyAllocation.requirement_id == requirement.id,
+            SupplyAllocation.status.in_([AllocationStatus.PROPOSED, AllocationStatus.SOLICITED])).with_for_update()):
+        if allocation.holds_reservation:
+            lot = session.scalar(select(ProductionLot).where(ProductionLot.id == allocation.production_lot_id).with_for_update())
+            lot.reserved_quantity_kg -= allocation.quantity_kg
+            allocation.holds_reservation = False
+        allocation.status = AllocationStatus.WITHDRAWN
+        withdrawn.append(str(allocation.id))
     requirement.lifecycle_status = RequirementLifecycleStatus.CANCELLED
     requirement.cancelled_at = datetime.now(timezone.utc)
     requirement.cancellation_reason = payload.reason
     requirement.version += 1
-    record_event(session, context, "requirement.cancelled", "requirement", requirement.id, {"reason": payload.reason})
+    record_event(session, context, "requirement.cancelled", "requirement", requirement.id,
+                 {"reason": payload.reason, "withdrawn_allocation_ids": withdrawn})
     session.commit()
     session.refresh(requirement)
     return _read(requirement, buyer)

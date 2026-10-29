@@ -10,6 +10,19 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 
+// Fail closed: run only when explicitly opted in for tests, never under a production-like environment.
+const refusal = process.env.KOROFARM_E2E_AUTH_STANDIN !== '1'
+  ? 'KOROFARM_E2E_AUTH_STANDIN=1 is required (test-only auth stand-in)'
+  : process.env.NODE_ENV === 'production'
+    ? 'NODE_ENV=production: the test-only auth stand-in will not run'
+    : process.env.APP_ENV && process.env.APP_ENV.trim().toLowerCase() !== 'test'
+      ? `APP_ENV=${process.env.APP_ENV}: the test-only auth stand-in runs only with APP_ENV unset or test`
+      : null;
+if (refusal) {
+  console.error(`Refusing to start: ${refusal}`);
+  process.exit(78);
+}
+
 const [usersFile, portArg] = process.argv.slice(2);
 if (!usersFile) throw new Error('usage: node auth-stub.mjs <users.json> [port]');
 const port = Number(portArg ?? 54999);

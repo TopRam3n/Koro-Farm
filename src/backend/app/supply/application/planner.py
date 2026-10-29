@@ -28,6 +28,10 @@ class PlanAlreadyExistsError(ValueError):
     pass
 
 
+class RequirementNotPlannableError(ValueError):
+    pass
+
+
 class RequirementNotFoundError(ValueError):
     pass
 
@@ -167,6 +171,8 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
         requirement = session.scalar(select(Requirement).where(Requirement.id == requirement_id).with_for_update())
         if requirement is None:
             raise RequirementNotFoundError("requirement not found")
+        if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
+            raise RequirementNotPlannableError("a cancelled order cannot be planned")
         if requirement.plan_version != 0:
             raise PlanAlreadyExistsError("an initial plan already exists; replanning is not implemented")
 

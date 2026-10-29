@@ -209,3 +209,27 @@ def test_recovery_and_new_requirement_compete_without_creating_supply(pg_factory
         used = s.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.production_lot_id == discovery.id, SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.SOLICITED, AllocationStatus.STANDBY])))
         assert used <= row.available_quantity_kg
     assert_inventory(pg_factory)
+
+
+def test_two_orders_accepting_against_the_same_lot_cannot_over_reserve(pg_factory):
+    """Planning reserves nothing, so two orders may both be proposed the same 100 kg lot.
+
+    When both suppliers' acceptances race, exactly one reserves the stock; the other is refused as stale.
+    """
+    with pg_factory() as s:
+        first, second = requirement(s), requirement(s); item = lot(s, "100")
+        proposals = []
+        for order in (first, second):
+            finalize_plan(s, order.id, PlannerConfig(standby_target_pct=Decimal("0")))
+            proposal = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == order.id))
+            solicit(s, TEST_ACTOR, proposal.id, None, f"solicit-{proposal.id}")
+            proposals.append(proposal.id)
+        s.commit()
+    results = concurrent(pg_factory, [lambda s: accept(s, proposals[0], "race-1"), lambda s: accept(s, proposals[1], "race-2")])
+    assert sum(result[0] == "ok" for result in results) == 1, results
+    assert all(isinstance(result[1], CommitmentError) for result in results if result[0] == "error")
+    with pg_factory() as s:
+        assert s.get(ProductionLot, item.id).reserved_quantity_kg == Decimal("100")
+        committed = s.scalars(select(SupplyAllocation).where(SupplyAllocation.status == AllocationStatus.COMMITTED)).all()
+        assert len(committed) == 1 and committed[0].consent_status.value == "RECORDED"
+    assert_inventory(pg_factory)
