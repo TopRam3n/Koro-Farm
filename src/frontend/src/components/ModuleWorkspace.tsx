@@ -9,17 +9,18 @@ import { DataTrustIndicator } from '@/components/DataTrustIndicator';
 import { FulfilmentPanel } from '@/components/FulfilmentPanel';
 import { HonestEmpty, WorkspaceHeader, Breadcrumbs } from '@/components/WorkspacePrimitives';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
 import type { Allocation } from '@/lib/mockdata';
 
 export type WorkspaceKind = 'programmes' | 'demand' | 'supply' | 'assurance' | 'fulfilment' | 'network' | 'compliance' | 'traceability' | 'trade-evidence' | 'analytics' | 'agent-operations' | 'activity' | 'integrations' | 'settings' | 'programme' | 'farmer';
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 
 const copy: Record<WorkspaceKind, [string, string, string]> = {
   programmes: ['Operations', 'Programmes', 'Institutional supply relationships and their active demand.'], demand: ['Operations', 'Demand', 'Buyer requirements, quantities, delivery windows, and assurance state.'], supply: ['Operations', 'Supply Network', 'Farmer allocations and production lots contributing to current commitments.'], assurance: ['Exception management', 'Assurance Center', 'Find shortfalls, available recovery capacity, and unresolved escalation.'], fulfilment: ['Physical operations', 'Fulfilment Center', 'Track expected, received, accepted, and rejected quantities without collapsing physical states.'], network: ['Intelligence', 'Network Intelligence', 'Understand parish distribution, concentration, and authorized standby depth.'], compliance: ['Trust', 'Compliance Registry', 'Only authoritative, verified trade-route rules belong here.'], traceability: ['Trust', 'Traceability Explorer', 'Follow available provenance links without inventing missing physical evidence.'], 'trade-evidence': ['Trust', 'Trade Evidence', 'Auditable fulfilment records issued only after verified reconciliation.'], analytics: ['Intelligence', 'Analytics', 'Current-state metrics derived from authoritative quantities.'], 'agent-operations': ['System', 'Agent Operations', 'Structured triggers, actions, outcomes, and audit links—never hidden chain-of-thought.'], activity: ['System ledger', 'Activity & Audit', 'Chronological state-changing events for the configured requirement.'], integrations: ['System', 'Integrations', 'Configuration posture for actual platform dependencies.'], settings: ['Administration', 'Settings', 'Environment, access, and data-authority posture.'], programme: ['Programme workspace', 'Ginger Supply Programme', 'A concise operating view of the configured institutional supply programme.'], farmer: ['Supply partner', 'Farmer workspace', 'Allocation-derived operating context. Trade history and financing remain explicitly separate.'],
 };
 
 export function ModuleWorkspace({ kind, entityId }: { kind: WorkspaceKind; entityId?: string }) {
+  const { requirementId } = useActiveRequirementId();
   const assurance = useAssurance(requirementId); const fulfilment = useFulfilment(requirementId); const events = useEvents(requirementId);
   const [eyebrow, title, description] = copy[kind];
   if (assurance.isLoading) return <div className="grid min-h-screen place-items-center"><div className="h-56 w-[min(90vw,900px)] animate-pulse rounded-xl bg-card"><span className="sr-only">Loading workspace</span></div></div>;

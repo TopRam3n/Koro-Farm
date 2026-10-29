@@ -3,12 +3,13 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 const role = process.env.NEXT_PUBLIC_DEMO_ROLE ?? 'SUPPLY_COORDINATOR';
 
 export function MyWork() {
+  const { requirementId } = useActiveRequirementId();
   const assurance = useAssurance(requirementId);
   const fulfilment = useFulfilment(requirementId);
   const events = useEvents(requirementId);
@@ -18,7 +19,7 @@ export function MyWork() {
   const shortfall = Number(data.unfilled_quantity_kg);
   const accepted = Number(fulfilment.data?.accepted_kg ?? 0);
   const required = Number(data.requirement.required_quantity_kg);
-  const tasks = deriveTasks(role, data.supply_health, shortfall, accepted, required, events.data?.length ?? 0);
+  const tasks = deriveTasks(role, data.supply_health, shortfall, accepted, required, events.data?.length ?? 0, requirementId);
   return <AppShell programme={`${data.requirement.buyer_name} · ${data.requirement.crop}`}><main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
     <header className="mb-7"><p className="section-eyebrow">Role-aware operating queue</p><h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">My Work</h1><p className="mt-2 text-sm text-muted-foreground">Tasks derived from current domain state for <span className="font-medium text-foreground">{role.replace(/_/g, ' ')}</span>.</p></header>
     <section className="grid gap-4 sm:grid-cols-3"><Summary label="Open work" value={String(tasks.length)} /><Summary label="Requirement health" value={data.supply_health.replace(/_/g, ' ')} /><Summary label="Physical acceptance" value={`${accepted} / ${required} kg`} /></section>
@@ -28,7 +29,7 @@ export function MyWork() {
   </main></AppShell>;
 }
 
-function deriveTasks(activeRole: string, health: string, shortfall: number, accepted: number, required: number, eventCount: number) {
+function deriveTasks(activeRole: string, health: string, shortfall: number, accepted: number, required: number, eventCount: number, requirementId: string) {
   const tasks: { title: string; detail: string; href: string; urgent?: boolean }[] = [];
   if (activeRole === 'SUPPLY_COORDINATOR' && health !== 'COVERED') tasks.push({ title: 'Recover at-risk requirement', detail: `${shortfall} kg remains uncovered. Review authorized standby and escalation state.`, href: `/requirements/${requirementId}`, urgent: true });
   if (activeRole === 'WAREHOUSE_OPERATOR' && accepted < required) tasks.push({ title: 'Prepare for expected receipts', detail: `${required - accepted} kg has not reached accepted physical state.`, href: '/fulfilment' });

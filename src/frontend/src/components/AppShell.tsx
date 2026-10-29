@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, ListTodo, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, ShoppingBasket, SlidersHorizontal, Tractor, Unplug, UserRoundCog, Workflow, X } from 'lucide-react';
+import { Activity, BarChart3, Bell, Building2, CheckCircle2, ClipboardCheck, Command, FileCheck2, FlaskConical, GitBranch, LayoutDashboard, ListTodo, Menu, Network, PackageCheck, Search, Settings, ShieldCheck, ShoppingBasket, SlidersHorizontal, Tractor, Unplug, UserRoundCog, Workflow, X, ClipboardList, Store, Sprout } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -12,7 +12,7 @@ type NavGroup = { label: string; items: readonly NavItem[] };
 
 const groups: readonly NavGroup[] = [
   { label: 'My Work', items: [['My Work', '/', ListTodo], ['Command Center', '/command-center', LayoutDashboard]] },
-  { label: 'Operations', items: [['Programmes', '/programmes', Building2], ['Demand', '/demand', ClipboardCheck], ['Supply Network', '/supply', Tractor], ['Assurance', '/assurance', ShieldCheck], ['Fulfilment', '/fulfilment', PackageCheck]] },
+  { label: 'Operations', items: [['Orders', '/orders', ClipboardList], ['Buyers', '/buyers', Store], ['Suppliers & lots', '/suppliers', Sprout], ['Programmes', '/programmes', Building2], ['Demand', '/demand', ClipboardCheck], ['Supply Network', '/supply', Tractor], ['Assurance', '/assurance', ShieldCheck], ['Fulfilment', '/fulfilment', PackageCheck]] },
   { label: 'Intelligence', items: [['Scenario Lab', '/scenario-lab', FlaskConical], ['Network', '/network', Network], ['Analytics', '/analytics', BarChart3]] },
   { label: 'Trust', items: [['Compliance', '/compliance', FileCheck2], ['Traceability', '/traceability', GitBranch], ['Trade Evidence', '/trade-evidence', CheckCircle2]] },
   { label: 'System', items: [['Agent Operations', '/agent-operations', Workflow], ['Activity & Audit', '/activity', Activity], ['Integrations', '/integrations', Unplug]] },

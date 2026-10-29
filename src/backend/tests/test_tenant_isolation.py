@@ -237,3 +237,22 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
                 problems.append(f"{method.upper()} {path} -> {response.status_code}")
     assert checked >= 27, f"sweep only exercised {checked} operations"
     assert not problems, problems
+
+
+def test_users_in_several_organizations_must_choose_one(http, factory) -> None:
+    with factory() as session:
+        from two_orgs import add_member, ensure_roles
+        ensure_roles(session)
+        first = Organization(id=uuid4(), name="Alpha Exports", slug=f"alpha-{uuid4().hex[:6]}")
+        second = Organization(id=uuid4(), name="Beta Exports", slug=f"beta-{uuid4().hex[:6]}")
+        session.add_all([first, second]); session.flush()
+        user = add_member(session, first.id, RoleCode.SUPPLY_COORDINATOR, "dual")
+        session.add(OrganizationMembership(user_id=user.id, organization_id=second.id, role_code=RoleCode.AUDITOR,
+                                           status=MembershipStatus.ACTIVE, accepted_at=datetime.now(timezone.utc)))
+        session.commit()
+    listed = http.get("/me/organizations", headers={"X-Test-User-ID": str(user.id)})
+    assert listed.status_code == 200
+    assert {(row["name"], row["role"]) for row in listed.json()} == {("Alpha Exports", "SUPPLY_COORDINATOR"), ("Beta Exports", "AUDITOR")}
+    # Without a chosen organization the request is ambiguous and refused, not guessed.
+    assert http.get("/requirements", headers={"X-Test-User-ID": str(user.id)}).status_code == 403
+    assert http.get("/requirements", headers={"X-Test-User-ID": str(user.id), "X-Organization-ID": str(first.id)}).status_code == 200
