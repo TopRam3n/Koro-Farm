@@ -106,7 +106,7 @@ function Supply({ order }: { order: Order }) {
   return <section aria-labelledby="supply" className="operational-panel p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 id="supply" className="text-base font-semibold">Supply</h2>
-      {s && <Pill tone={s.supply_health === 'COVERED' ? 'good' : s.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{humanize(s.supply_health)}</Pill>}
+      {s && <Pill tone={s.supply_health === 'COVERED' ? 'good' : s.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{healthLabel(s.supply_health, order.plan_version)}</Pill>}
     </div>
     <LoadState query={supply}>
       {s && <>
@@ -134,6 +134,11 @@ function Supply({ order }: { order: Order }) {
       </>}
     </LoadState>
   </section>;
+}
+
+/** UNPLANNED after a proposal means suppliers are still being asked; say so rather than "Unplanned". */
+export function healthLabel(health: string, planVersion: number) {
+  return health === 'UNPLANNED' && planVersion > 0 ? 'Assembling supply' : humanize(health);
 }
 
 function AllocationRow({ orderId, allocation, locked }: { orderId: string; allocation: Allocation; locked: boolean }) {

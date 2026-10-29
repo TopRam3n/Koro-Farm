@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useBuyers, useCreateOrder, useCrops, useOrders } from '@/hooks/useTrade';
 import { ErrorNote, Field, LoadState, Pill, Select, SubmitButton, TextArea, TradePage, formValues, humanize, kg } from '@/components/trade/TradeUi';
 import { HonestEmpty } from '@/components/WorkspacePrimitives';
+import { healthLabel } from '@/components/trade/OrderDetail';
 
 export function OrdersWorkspace() {
   const orders = useOrders();
@@ -27,7 +28,7 @@ export function OrdersWorkspace() {
                 <td>{order.buyer_name}</td>
                 <td className="text-right">{kg(order.required_quantity_kg)}</td>
                 <td className="pl-3 text-xs">{order.delivery_window_start} → {order.delivery_window_end}</td>
-                <td className="pl-3"><Pill tone={order.lifecycle_status === 'CANCELLED' ? 'neutral' : order.supply_health === 'COVERED' ? 'good' : order.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{order.lifecycle_status === 'CANCELLED' ? 'Cancelled' : humanize(order.supply_health)}</Pill></td>
+                <td className="pl-3"><Pill tone={order.lifecycle_status === 'CANCELLED' ? 'neutral' : order.supply_health === 'COVERED' ? 'good' : order.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{order.lifecycle_status === 'CANCELLED' ? 'Cancelled' : healthLabel(order.supply_health, order.plan_version)}</Pill></td>
               </tr>)}
             </tbody>
           </table>
