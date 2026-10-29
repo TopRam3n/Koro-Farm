@@ -11,6 +11,8 @@ from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, BuyerOrderChange, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.supply.application.crops import require_active_crop
+from src.backend.app.domain.common.fields import CropCodeField
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
 from src.backend.app.identity.domain.permissions import PermissionCode
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
@@ -22,7 +24,7 @@ class RequirementCreate(BaseModel):
     buyer_id: UUID
     programme_id: UUID | None = None
     trade_corridor_id: UUID | None = None
-    crop: Crop
+    crop: CropCodeField
     grade: Grade
     required_quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
     delivery_window_start: date
@@ -43,7 +45,7 @@ class RequirementRead(BaseModel):
     buyer_id: UUID
     programme_id: UUID | None
     trade_corridor_id: UUID | None
-    crop: Crop
+    crop: CropCodeField
     grade: Grade
     required_quantity_kg: Decimal
     delivery_window_start: date
@@ -67,6 +69,7 @@ def post_requirement(payload: RequirementCreate, session: Session = Depends(get_
                                                 Buyer.organization_id == context.organization_id))
     if buyer is None:
         raise HTTPException(status_code=404, detail="buyer not found")
+    payload.crop = require_active_crop(session, context.organization_id, payload.crop)
     if payload.programme_id:
         from src.backend.app.programmes.domain.models import Programme
         programme = session.get(Programme, payload.programme_id)

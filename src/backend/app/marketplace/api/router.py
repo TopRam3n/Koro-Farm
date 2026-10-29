@@ -13,6 +13,8 @@ from src.backend.app.domain.common import Crop
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
 from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.supply.application.crops import require_active_crop
+from src.backend.app.domain.common.fields import CropCodeField
 from src.backend.app.marketplace.domain.models import (
     AvailabilityAlert,
     AvailabilityWatch,
@@ -31,7 +33,7 @@ class OrderCreate(BaseModel):
 
 
 class WatchCreate(BaseModel):
-    crop: Crop
+    crop: CropCodeField
     minimum_quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
     buyer_id: UUID | None = None
 
@@ -91,7 +93,7 @@ def _order_row(order: MarketplaceOrder, lot: ProductionLot, farmer: Farmer) -> d
 
 @router.get("/availability", dependencies=[Depends(require_permission(PermissionCode.MARKETPLACE_VIEW))])
 def list_availability(
-    crop: Crop | None = None,
+    crop: CropCodeField | None = None,
     session: Session = Depends(get_session),
     context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
@@ -183,6 +185,7 @@ def create_watch(
     buyer = _buyer_scope(context, session, payload.buyer_id)
     if buyer is None:
         raise HTTPException(422, "buyer_id is required to attribute a platform administrator availability watch")
+    payload.crop = require_active_crop(session, context.organization_id, payload.crop)
     watch = AvailabilityWatch(
         organization_id=context.organization_id,
         buyer_id=buyer.id,

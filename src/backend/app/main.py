@@ -7,6 +7,7 @@ from src.backend.app.assurance.api.router import router as assurance_router
 from src.backend.app.assurance.api.allocations import router as allocations_router
 from src.backend.app.demand.api.router import router as requirements_router
 from src.backend.app.supply.api.router import router as production_lots_router
+from src.backend.app.supply.api.crops import router as crops_router
 from src.backend.app.fulfilment.api.router import router as fulfilment_router
 from src.backend.app.reconciliation.api.router import router as reconciliation_router
 from src.backend.app.compliance.api.router import router as compliance_router
@@ -36,6 +37,8 @@ app.include_router(production_lots_router, dependencies=[
     Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)), Depends(enforce_path_scope),
 ])
 app.include_router(fulfilment_router, dependencies=staff_dependencies)
+# Any active member (farmers and buyers included) may read the crop catalogue; creation checks permissions.
+app.include_router(crops_router, dependencies=[Depends(get_current_user), Depends(enforce_path_scope)])
 app.include_router(reconciliation_router, dependencies=staff_dependencies)
 app.include_router(compliance_router, dependencies=staff_dependencies)
 app.include_router(corridors_router, dependencies=staff_dependencies)

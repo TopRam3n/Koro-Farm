@@ -39,6 +39,7 @@ from src.backend.app.reconciliation.api.router import (
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.application.planner import finalize_plan
+from src.backend.app.supply.domain.crops import ensure_shared_crops
 
 DEMO_REQUIREMENT_ID = UUID("00000000-0000-0000-0000-000000000500")
 DEMO_BUYER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -54,6 +55,7 @@ LOT_QUANTITIES = [65, 50, 80, 45, 70, 55, 60, 40, 75, 50, 65, 45, 55, 60, 50, 70
 
 
 def seed(session: Session) -> None:
+    ensure_shared_crops(session)
     if session.scalar(select(Buyer.id).limit(1)) is not None:
         return
     if session.get(Organization, DEFAULT_ORGANIZATION_ID) is None:

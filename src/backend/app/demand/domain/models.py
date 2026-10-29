@@ -7,6 +7,8 @@ from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Intege
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.types import CropCodeType
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
@@ -51,7 +53,7 @@ class Requirement(Base):
     buyer_id: Mapped[UUID] = mapped_column(ForeignKey("buyers.id"), nullable=False, index=True)
     programme_id: Mapped[UUID | None] = mapped_column(ForeignKey("programmes.id"), nullable=True, index=True)
     trade_corridor_id: Mapped[UUID | None] = mapped_column(ForeignKey("trade_corridors.id"), nullable=True, index=True)
-    crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
+    crop: Mapped[CropCode] = mapped_column(CropCodeType(), nullable=False)
     grade: Mapped[Grade] = mapped_column(Enum(Grade, native_enum=False), nullable=False)
     required_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     delivery_window_start: Mapped[date] = mapped_column(Date, nullable=False)

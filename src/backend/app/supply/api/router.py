@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.domain.common.fields import CropCodeField
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
 from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
@@ -20,7 +21,7 @@ class ProductionLotRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     farmer_id: UUID
-    crop: Crop
+    crop: CropCodeField
     harvest_start: date
     harvest_end: date
     expected_quantity_kg: Decimal

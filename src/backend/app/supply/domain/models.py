@@ -7,6 +7,8 @@ from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKe
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade, QuantityKg
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.types import CropCodeType
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
@@ -42,7 +44,7 @@ class ProductionLot(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     farmer_id: Mapped[UUID] = mapped_column(ForeignKey("farmers.id"), nullable=False, index=True)
-    crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
+    crop: Mapped[CropCode] = mapped_column(CropCodeType(), nullable=False)
     harvest_start: Mapped[date] = mapped_column(Date, nullable=False)
     harvest_end: Mapped[date] = mapped_column(Date, nullable=False)
     expected_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)

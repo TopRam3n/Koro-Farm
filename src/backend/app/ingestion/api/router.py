@@ -22,6 +22,10 @@ from src.backend.app.ingestion.domain.models import (
     SecureActionLink, SecureActionPurpose, SourceChannel, VerificationStatus,
 )
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.supply.application.crops import require_active_crop, visible_crops
+from src.backend.app.supply.domain.crops import CropRecord
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.fields import CropCodeField
 from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.demand.domain.models import Buyer, Requirement
@@ -63,7 +67,7 @@ class CoordinatorObservation(BaseModel):
 
 
 class FarmerSupplyReport(BaseModel):
-    crop: Crop
+    crop: CropCodeField
     harvest_start: date
     harvest_end: date
     expected_quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
@@ -174,6 +178,7 @@ def report_farmer_supply(
     ))
     if farmer is None:
         raise HTTPException(404, "farmer account not found")
+    payload.crop = require_active_crop(session, context.organization_id, payload.crop)
 
     now = datetime.now(timezone.utc)
     lot = ProductionLot(
@@ -195,7 +200,7 @@ def report_farmer_supply(
         session.add(lot)
         session.flush()
         values = {
-            "crop": payload.crop.value,
+            "crop": str(payload.crop),
             "harvest_start": payload.harvest_start.isoformat(),
             "harvest_end": payload.harvest_end.isoformat(),
             "expected_quantity_kg": str(payload.expected_quantity_kg),
@@ -472,7 +477,10 @@ def _validate_import_row(entity_type: str, row: dict[str, str], session: Session
             if session.scalar(select(Farmer.id).where(Farmer.id == farmer_id,
                                                        Farmer.organization_id == organization_id)) is None:
                 errors.append("farmer_id was not found in the active organization")
-            Crop(normalized["crop"]); Grade(normalized["grade"])
+            if session.scalar(visible_crops(organization_id).where(CropRecord.code == normalized["crop"].strip().upper(),
+                                                                   CropRecord.active.is_(True))) is None:
+                errors.append(f"crop {normalized['crop']!r} is not in your crop catalogue")
+            Grade(normalized["grade"])
             AvailabilityConfidence(normalized["availability_confidence"])
             start, end = date.fromisoformat(normalized["harvest_start"]), date.fromisoformat(normalized["harvest_end"])
             expected, available = Decimal(normalized["expected_quantity_kg"]), Decimal(normalized["available_quantity_kg"])
@@ -483,7 +491,10 @@ def _validate_import_row(entity_type: str, row: dict[str, str], session: Session
             if session.scalar(select(Buyer.id).where(Buyer.id == buyer_id,
                                                       Buyer.organization_id == organization_id)) is None:
                 errors.append("buyer_id was not found in the active organization")
-            Crop(normalized["crop"]); Grade(normalized["grade"])
+            if session.scalar(visible_crops(organization_id).where(CropRecord.code == normalized["crop"].strip().upper(),
+                                                                   CropRecord.active.is_(True))) is None:
+                errors.append(f"crop {normalized['crop']!r} is not in your crop catalogue")
+            Grade(normalized["grade"])
             quantity = Decimal(normalized["required_quantity_kg"])
             start = date.fromisoformat(normalized["delivery_window_start"])
             end = date.fromisoformat(normalized["delivery_window_end"])
@@ -579,7 +590,7 @@ def confirm_import(import_id: UUID, idempotency_key: str | None = Depends(tenant
             entity = Farmer(organization_id=context.organization_id, name=data["name"], parish=data["parish"])
         elif item.entity_type == "production_lots":
             entity = ProductionLot(
-                farmer_id=UUID(data["farmer_id"]), crop=Crop(data["crop"]),
+                farmer_id=UUID(data["farmer_id"]), crop=CropCode(data["crop"].strip().upper()),
                 harvest_start=date.fromisoformat(data["harvest_start"]), harvest_end=date.fromisoformat(data["harvest_end"]),
                 expected_quantity_kg=Decimal(data["expected_quantity_kg"]),
                 available_quantity_kg=Decimal(data["available_quantity_kg"]), reserved_quantity_kg=Decimal("0"),
@@ -590,7 +601,7 @@ def confirm_import(import_id: UUID, idempotency_key: str | None = Depends(tenant
             entity.validate()
         else:
             entity = Requirement(
-                buyer_id=UUID(data["buyer_id"]), crop=Crop(data["crop"]), grade=Grade(data["grade"]),
+                buyer_id=UUID(data["buyer_id"]), crop=CropCode(data["crop"].strip().upper()), grade=Grade(data["grade"]),
                 required_quantity_kg=Decimal(data["required_quantity_kg"]),
                 delivery_window_start=date.fromisoformat(data["delivery_window_start"]),
                 delivery_window_end=date.fromisoformat(data["delivery_window_end"]),
