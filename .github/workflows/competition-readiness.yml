@@ -28,7 +28,6 @@ jobs:
       SUPABASE_PUBLISHABLE_KEY: e2e-test-key
       CORS_ORIGINS: http://127.0.0.1:3100
       NEXT_PUBLIC_APP_MODE: live
-      R1_E2E_USERS: ${{ runner.temp }}/r1-e2e-users.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,6 +49,9 @@ jobs:
         run: npm run build && npm run check:bundle
       - name: Fresh database for browser E2E
         run: |
+          # runner.temp is not available in job-level env; export the users file path for later steps.
+          R1_E2E_USERS="$RUNNER_TEMP/r1-e2e-users.json"
+          echo "R1_E2E_USERS=$R1_E2E_USERS" >> "$GITHUB_ENV"
           psql "postgresql://korofarm:korofarm@localhost:5432/korofarm_ci_test" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
           python -m alembic -c src/backend/alembic.ini upgrade head
           python -m src.backend.scripts.seed_e2e "$R1_E2E_USERS"
