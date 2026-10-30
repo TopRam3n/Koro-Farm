@@ -16,7 +16,7 @@ test.skip(!usersFile, 'R1_E2E_USERS is not set; see e2e/r1/README.md');
 
 const routes = [
   ['/', 'My Work'], ['/command-center', 'Supply Assurance Control Room'], ['/programmes', 'Programmes'],
-  ['/demand', 'Demand'], ['/supply', 'Supply Network'], ['/assurance', 'Assurance Center'],
+  ['/demand', 'Demand'], ['/supply', 'Supply Network'], ['/assurance', 'Supply Assurance Control Room'],
   ['/scenario-lab', 'KoroFarm Scenario Lab'], ['/fulfilment', 'Fulfilment Center'], ['/network', 'Network Intelligence'],
   ['/compliance', 'Compliance Registry'], ['/traceability', 'Traceability Explorer'], ['/trade-evidence', 'Trade Evidence'],
   ['/analytics', 'Analytics'], ['/agent-operations', 'Agent Operations'], ['/activity', 'Activity & Audit'],
@@ -38,6 +38,16 @@ test.beforeAll(async ({ request }) => {
   const buyer = await (await request.post(`${API}/buyers`, { headers, data: { name: `Workspace Check Hotel ${run}`, buyer_type: 'Hotel', destination: 'Negril' } })).json();
   const order = await request.post(`${API}/requirements`, { headers, data: { buyer_id: buyer.id, crop: 'SCOTCH_BONNET', grade: 'A', required_quantity_kg: '120', delivery_window_start: '2026-12-01', delivery_window_end: '2026-12-12' } });
   expect(order.status()).toBe(201);
+  // Committed supply for this order, obtained the legitimate way: declared lot, plan, solicitation, recorded acceptance.
+  const orderId = (await order.json()).id;
+  const farmer = await (await request.post(`${API}/farmers`, { headers, data: { name: `Workspace Farmer ${run}`, parish: 'Hanover' } })).json();
+  const lot = await request.post(`${API}/production-lots`, { headers, data: { farmer_id: farmer.id, crop: 'SCOTCH_BONNET', harvest_start: '2026-11-20', harvest_end: '2026-12-10', expected_quantity_kg: '200', available_quantity_kg: '200', quality_grade_estimate: 'A', provenance_source: 'phone call with farmer', attestation_method: 'verbal', farmgate_price_per_kg_jmd: '600' } });
+  expect(lot.status()).toBe(201);
+  expect((await request.post(`${API}/requirements/${orderId}/plan`, { headers: { ...headers, 'Idempotency-Key': `plan-${run}` } })).status()).toBe(201);
+  const supply = await (await request.get(`${API}/requirements/${orderId}/assurance`, { headers })).json();
+  const commitment = supply.allocations.find((a: { role: string; farmer_id: string }) => a.role === 'COMMITTED' && a.farmer_id === farmer.id);
+  expect((await request.post(`${API}/allocations/${commitment.id}/solicit`, { headers: { ...headers, 'Idempotency-Key': `sol-${run}` }, data: {} })).status()).toBe(200);
+  expect((await request.post(`${API}/allocations/${commitment.id}/responses`, { headers: { ...headers, 'Idempotency-Key': `acc-${run}` }, data: { decision: 'ACCEPTED', attestation_method: 'phone call with farmer' } })).status()).toBe(200);
 });
 
 test('workspace route map is navigable and honest for a signed-in user', async ({ page }) => {
@@ -68,8 +78,12 @@ test('scenario lab remains visibly non-persistent', async ({ page }) => {
   await page.goto('/scenario-lab');
   await expect(page.getByText('SIMULATION', { exact: true })).toBeVisible();
   await expect(page.getByText('No live writes')).toBeVisible();
-  await page.getByLabel('Quantity impact').fill('140');
-  await expect(page.getByText('140 kg', { exact: true })).toBeVisible();
+  const slider = page.getByLabel('Quantity impact');
+  const max = Number(await slider.getAttribute('max'));
+  expect(max).toBeGreaterThan(0);
+  const value = String(Math.max(1, Math.floor(max / 2)) === 80 ? 79 : Math.max(1, Math.floor(max / 2)));
+  await slider.fill(value);
+  await expect(page.getByText(`${value} kg`, { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText('140 kg', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(`${value} kg`, { exact: true })).toHaveCount(0);  // nothing was written
 });

@@ -43,6 +43,8 @@ export function assessActionState(input: {
   if (!input.supplyHealth) return { kind: 'incomplete', title: 'Planning status unavailable', reason: 'No authoritative supply-health state was returned.' };
   if (!Number.isFinite(input.shortfallKg)) return { kind: 'incomplete', title: 'Planning quantities unavailable', reason: 'A valid planning shortfall was not returned.' };
   if (input.supplyHealth === 'AT_RISK' || input.supplyHealth === 'ESCALATION_REQUIRED') planningReasons.push(`Planning health is ${input.supplyHealth.replace(/_/g, ' ')}.`);
+  else if (input.supplyHealth === 'UNPLANNED') planningReasons.push('Supply is not yet confirmed: propose supply and record each supplier response.');
+  else if (input.supplyHealth === 'RECOVERING') planningReasons.push('Recovery is in progress and awaits supplier acceptance.');
   else if (input.supplyHealth !== 'COVERED') return { kind: 'incomplete', title: 'Planning status unavailable', reason: `The returned supply-health state “${input.supplyHealth}” is not recognized.` };
   if (Number.isFinite(input.shortfallKg) && input.shortfallKg > 0) planningReasons.push(`${input.shortfallKg} kg planning shortfall remains.`);
   if (input.riskLabel === 'HIGH' || input.riskLabel === 'MEDIUM') planningReasons.push(`Structural risk is ${input.riskLabel}.`);
