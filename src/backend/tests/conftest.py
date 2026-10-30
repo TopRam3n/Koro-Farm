@@ -1,3 +1,8 @@
+import os
+
+# The application refuses to start without an explicit, recognized APP_ENV. The test suite runs as "test".
+os.environ.setdefault("APP_ENV", "test")
+
 from collections.abc import Generator
 
 import pytest

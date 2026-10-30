@@ -10,6 +10,7 @@ Python 3.11+ and PostgreSQL are required for the application database. Copy `.en
 
 ```powershell
 python -m pip install -e "src/backend[dev]"
+$env:APP_ENV = "development"   # required: development | test | staging | production
 $env:DATABASE_URL = "postgresql+psycopg://user:password@host:5432/korofarm"
 Set-Location src/backend
 alembic upgrade head
@@ -54,7 +55,7 @@ The demo-day database can be reset only when both the application mode
 and database name are safe. The command refuses production-like targets:
 
 ```powershell
-$env:APP_ENV = "demo"
+$env:APP_ENV = "development"   # the reset accepts only test or development
 $env:DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/korofarm_demo"
 python -m src.backend.scripts.reset_demo
 ```
@@ -108,13 +109,15 @@ npm run dev
 
 Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. Create buyers, suppliers, lots and orders from **Orders**, **Buyers** and **Suppliers & lots**; the overview screens show the order you last opened.
 
-The backend's insecure auth bypass (`ALLOW_INSECURE_DEMO_AUTH=true`) works only
-with `APP_ENV=test`, for automated tests. With any other `APP_ENV` the API refuses
-to start if it is set, and in production (any `APP_ENV` other than `test` or
-`development`) it also refuses to start unless `SUPABASE_URL` is https on a public
-host. Production deployments must set `APP_ENV=production`.
-Use `NEXT_PUBLIC_APP_MODE=demo` for a deliberate zero-backend presentation; the
-UI clearly labels the mode and never switches automatically after an API error.
+`APP_ENV` is required and must be one of `development`, `test`, `staging` or
+`production`; the API refuses to start if it is missing or unrecognized. In
+`staging` and `production` it also refuses to start unless `SUPABASE_URL` is https
+on a public host with a publishable key. The insecure auth bypass
+(`ALLOW_INSECURE_DEMO_AUTH=true`) works only with `APP_ENV=test`, for automated
+tests; with any other value the API refuses to start if it is set.
+
+The offline demo replay has been retired. A frontend built with
+`NEXT_PUBLIC_APP_MODE=demo` shows only a notice that the replay is disabled.
 
 ## Frontend verification
 

@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parents[3]
 PUBLIC = {"SUPABASE_URL": "https://abcdefgh.supabase.co", "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_example"}
 
 
-@pytest.mark.parametrize("app_env", [None, "development", "demo", "production", "prod", "staging", "TEST "])
+@pytest.mark.parametrize("app_env", [None, "", "development", "demo", "production", "prod", "staging", "TEST "])
 def test_bypass_request_outside_test_stops_startup(app_env) -> None:
     env = {"ALLOW_INSECURE_DEMO_AUTH": "true", **PUBLIC}
     if app_env is not None:
@@ -26,9 +26,23 @@ def test_bypass_request_outside_test_stops_startup(app_env) -> None:
     if (app_env or "").strip().lower() == "test":
         validate_runtime_configuration(env)  # "TEST " normalises to test and is allowed
         return
-    with pytest.raises(UnsafeConfigurationError, match="only permitted when APP_ENV=test"):
+    with pytest.raises(UnsafeConfigurationError):
         validate_runtime_configuration(env)
     assert demo_auth_bypass_enabled(env) is False
+
+
+@pytest.mark.parametrize("app_env", [None, "", "   ", "demo", "prod", "dev", "local", "qa", "productoin"])
+def test_missing_or_unrecognized_app_env_stops_startup(app_env) -> None:
+    env = dict(PUBLIC)
+    if app_env is not None:
+        env["APP_ENV"] = app_env
+    with pytest.raises(UnsafeConfigurationError, match="APP_ENV"):
+        validate_runtime_configuration(env)
+
+
+@pytest.mark.parametrize("app_env", ["development", "test", "staging", "production", "Production"])
+def test_each_recognized_environment_starts_with_safe_settings(app_env) -> None:
+    validate_runtime_configuration({"APP_ENV": app_env, **PUBLIC})
 
 
 def test_bypass_is_honoured_only_in_test() -> None:
@@ -76,6 +90,11 @@ def _start_app(extra_env: dict) -> subprocess.CompletedProcess:
 
 
 @pytest.mark.parametrize("extra", [
+    {},
+    {"APP_ENV": ""},
+    {"APP_ENV": "demo"},
+    {"APP_ENV": "prod", **PUBLIC},
+    {"APP_ENV": "staging", "SUPABASE_URL": "http://127.0.0.1:54999", "SUPABASE_PUBLISHABLE_KEY": "e2e-test-key"},
     {"APP_ENV": "production", "SUPABASE_URL": "http://127.0.0.1:54999", "SUPABASE_PUBLISHABLE_KEY": "e2e-test-key"},
     {"APP_ENV": "production", "SUPABASE_URL": "https://127.0.0.1:54999", "SUPABASE_PUBLISHABLE_KEY": "e2e-test-key"},
     {"APP_ENV": "demo", "ALLOW_INSECURE_DEMO_AUTH": "true", **PUBLIC},
@@ -87,8 +106,14 @@ def test_the_real_application_refuses_to_start_with_unsafe_configuration(extra) 
     assert "UnsafeConfigurationError" in result.stderr
 
 
-def test_the_real_application_starts_with_safe_production_configuration() -> None:
-    result = _start_app({"APP_ENV": "production", **PUBLIC})
+@pytest.mark.parametrize("extra", [
+    {"APP_ENV": "production", **PUBLIC},
+    {"APP_ENV": "staging", **PUBLIC},
+    {"APP_ENV": "development"},
+    {"APP_ENV": "test"},
+])
+def test_the_real_application_starts_with_safe_configuration(extra) -> None:
+    result = _start_app(extra)
     assert result.returncode == 0, result.stderr
 
 
@@ -117,3 +142,19 @@ def test_even_in_test_the_bypass_identity_reaches_no_organization_data(monkeypat
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(saved)
+
+
+@pytest.mark.parametrize("app_env, database, allowed", [
+    ("test", "korofarm_ci_test", True), ("development", "korofarm_demo", True),
+    ("demo", "korofarm_demo", False), ("production", "korofarm_test", False), ("", "korofarm_test", False),
+    ("test", "korofarm", False),
+])
+def test_destructive_demo_reset_requires_a_safe_environment_and_database(monkeypatch, app_env, database, allowed) -> None:
+    from src.backend.scripts.reset_demo import assert_safe
+    monkeypatch.setenv("APP_ENV", app_env)
+    url = f"postgresql+psycopg://u:p@localhost:5432/{database}"
+    if allowed:
+        assert_safe(url)
+    else:
+        with pytest.raises(SystemExit):
+            assert_safe(url)

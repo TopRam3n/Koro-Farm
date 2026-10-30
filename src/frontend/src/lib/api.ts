@@ -1,5 +1,4 @@
 import { supabase } from '@/integrations/supabase/client';
-import { demoApiFetch } from '@/lib/demoApi';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 const ORGANIZATION_KEY = 'korofarm.organizationId';
@@ -37,7 +36,6 @@ function describe(detail: unknown, status: number): string {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  if (process.env.NEXT_PUBLIC_APP_MODE === 'demo') return demoApiFetch<T>(path, options);
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   const organizationId = selectedOrganizationId() ?? process.env.NEXT_PUBLIC_ORGANIZATION_ID ?? null;

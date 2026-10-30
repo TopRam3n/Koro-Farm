@@ -8,10 +8,9 @@ import { RecoveryPanel } from '@/components/RecoveryPanel';
 import { AllocationTable } from '@/components/AllocationTable';
 import { EconomicsPanel } from '@/components/EconomicsPanel';
 import { FulfilmentPanel } from '@/components/FulfilmentPanel';
-import { DemoControls } from '@/components/DemoControls';
 import { PanelBoundary } from '@/components/PanelBoundary';
 import { StatusBadge } from '@/components/StatusBadge';
-import { isDemoMode, useActiveRequirementId } from '@/hooks/useActiveRequirement';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
 import type { Allocation, RecoveryStep, SupplyMetrics } from '@/lib/mockdata';
 
@@ -51,7 +50,7 @@ export default function Index({ requirementId: requirementIdProp }: { requiremen
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(310px,0.65fr)]">
         <PanelBoundary name="Recovery"><RecoveryPanel steps={recoverySteps} status={data.latest_recovery?.status} /></PanelBoundary>
-        <div className="space-y-6">{isDemoMode && <DemoControls requirementId={data.requirement.id} allocations={data.allocations} hasPlan={data.requirement.plan_version > 0} recoveryStatus={data.latest_recovery?.status} />}<PanelBoundary name="Economics"><EconomicsPanel economics={data.economics} /></PanelBoundary></div>
+        <div className="space-y-6"><PanelBoundary name="Economics"><EconomicsPanel economics={data.economics} /></PanelBoundary></div>
       </section>
 
       <section id="activity" className="mt-6 operational-panel overflow-hidden"><SectionHeading eyebrow="Decision ledger" title="Agent activity" detail="Chronological evidence from the authoritative domain event stream." /><ol className="divide-y divide-white/[0.06]">{events.data?.length ? events.data.map((event, index) => <li key={event.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[110px_24px_minmax(0,1fr)_100px] sm:items-center"><time className="tabular text-[11px] text-muted-foreground">{new Date(event.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><span className="grid h-6 w-6 place-items-center rounded-full border border-accent/25 bg-accent/10 text-accent"><Check className="h-3 w-3" /></span><div><p className="text-sm font-medium">{event.event_type.replace(/\./g, ' ')}</p><p className="mt-0.5 text-[11px] text-muted-foreground">Event {index + 1} · immutable audit record</p></div><span className="text-right text-[10px] uppercase tracking-wider text-muted-foreground">{event.actor_type}</span></li>) : <li className="px-5 py-8 text-center text-sm text-muted-foreground">Event history is unavailable; core quantities remain visible.</li>}</ol></section>

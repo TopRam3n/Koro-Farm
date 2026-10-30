@@ -12,13 +12,14 @@ Runs the R1 order workflow through the real UI against a live stack:
 The specs create every buyer, supplier, lot and order through the UI with run-unique names. The seed
 creates only two organizations and three users.
 
-## Procedure used (28 Oct 2026)
+## Procedure (CI runs the same steps: `.github/workflows/competition-readiness.yml`)
 
 From the repository root, with a disposable PostgreSQL server (see `src/backend/.env.test.local`, not committed):
 
 ```bash
 # 1. Fresh database, migrations, two test organizations and users
 createdb -h 127.0.0.1 -p 55499 -U kf_r1_test korofarm_r1_disposable_e2e
+export APP_ENV=test
 export DATABASE_URL=postgresql+psycopg://kf_r1_test:<password>@127.0.0.1:55499/korofarm_r1_disposable_e2e
 (cd src/backend && ../../.venv/Scripts/python.exe -m alembic upgrade head)
 .venv/Scripts/python.exe -m src.backend.scripts.seed_e2e /path/outside/repo/users.json
@@ -32,18 +33,19 @@ SUPABASE_URL=http://127.0.0.1:54999 SUPABASE_PUBLISHABLE_KEY=e2e-test-key APP_EN
 # 3. Frontend (production build, live mode)
 cd src/frontend
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8100 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54999 \
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-test-key NEXT_PUBLIC_APP_MODE=live NEXT_PUBLIC_AUTH_MODE=live npx next build
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=e2e-test-key NEXT_PUBLIC_APP_MODE=live npx next build
 npx next start -p 3100 -H 127.0.0.1 &
 
 # 4. Tests
-R1_E2E_USERS=/path/outside/repo/users.json npx playwright test -c playwright.r1.config.ts
+R1_E2E_USERS=/path/outside/repo/users.json npm run test:e2e
 ```
 
 ## Safety boundaries
 
 - The stand-in refuses to start unless `KOROFARM_E2E_AUTH_STANDIN=1` is set, and it also refuses when
   `NODE_ENV=production` or `APP_ENV` is set to anything other than `test`. It listens on 127.0.0.1 only.
-- The backend refuses to start in production (any `APP_ENV` other than `test` or `development`) unless
+- The backend requires `APP_ENV` to be `development`, `test`, `staging` or `production` (missing or other values
+  stop startup), and in `staging`/`production` refuses to start unless
   `SUPABASE_URL` is an https URL on a public host, so a local stand-in cannot back a production API
   (`src/backend/app/core/config.py`, tests in `src/backend/tests/test_runtime_security.py`).
 - No application code imports the stand-in. `npm run check:bundle` fails if a production build contains it.
