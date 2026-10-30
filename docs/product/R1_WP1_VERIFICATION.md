@@ -1,5 +1,30 @@
 # R1 — WP1 verification record
 
+## Current verification: `377b9372b7d6c9e3682296cfc1aeb4c044973b31` (30 October 2026)
+
+This verification follows your decisions of 30 October. Changes since `7e88ece`:
+- **Strict `APP_ENV`.** It must be `development`, `test`, `staging` or `production`, and a missing or unrecognized value stops startup. `staging` and `production` get every production safeguard.
+- **The offline demo replay is removed.** A build configured for demo mode shows only a "replay disabled" notice.
+- **CI no longer uses the insecure bypass.** It runs the R1 browser suite against the guarded auth stand-in instead.
+- **One defect found by the relocated workspace spec and fixed:** the Control Room showed "UNPLANNED is not recognized" for every new order.
+
+The method is the same clean checkout: a new worktree with 0 dirty files, a fresh venv and `npm ci`, and a fresh migrated E2E database.
+
+| Gate | Result |
+|---|---|
+| Backend on PostgreSQL, 0 skipped | **249 passed** |
+| `tsc` / `eslint` | exit 0 / exit 0 |
+| Vitest | **30 passed** |
+| Production-configured build plus `check:bundle` | exit 0; 945 files scanned, no test-auth material |
+| `alembic upgrade head` (fresh) plus `seed_e2e` | exit 0 / exit 0 |
+| Browser E2E (`npm run test:e2e`: order workflow, consent and boundaries, workspaces) | **12 passed** |
+
+GitHub CI status for the pushed branch is reported in the WP1 handoff.
+
+---
+
+## Previous verification: `7e88ece`
+
 **Verified commit:** `7e88eceddf50fb85936b49b2b6f0f81f2a94865a` on `feat/r1-trade-core` (not pushed). The commit that adds this document changes documentation and evidence images only.
 **Date:** 29 October 2026.
 **Method:** a clean checkout. A new `git worktree` at the commit (0 dirty files), a new Python venv installed from `src/backend/pyproject.toml`, `npm ci`, and a disposable PostgreSQL 17.11 instance. No files from the development working directory were used. Untracked local files such as `.env.local` and existing `.venv`/`node_modules` were absent.
