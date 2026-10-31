@@ -1,6 +1,11 @@
 # R1 — WP3 proposed architecture: event-driven agent orchestration with human approval
 
-**Status:** proposal for your review. Nothing here is implemented. No autonomous supplier activation will be built without your explicit authorization.
+**Status:** implemented in WP3 under your product-owner decisions of 31 October 2026. Where this proposal and the build differ, the build is described in [R1_WP3_REPORT.md](R1_WP3_REPORT.md). For example:
+- the build has one task per order rather than per exception;
+- it releases exposed commitment through the proposal;
+- it uses a two-person elevated approval tier.
+
+No autonomous supplier activation was built.
 **Builds on:** WP1 (tenancy, consent, reservations) and WP2 (capacity reports, exposure, deterministic exceptions, outbox worker, monitoring).
 **Spec references:** R1-F06 (recovery and escalation), R1-F09 (agent task lifecycle), section 4 (architectural boundaries), section 5 (agentic proof), section 6 (adversarial story).
 

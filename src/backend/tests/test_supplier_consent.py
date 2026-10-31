@@ -11,6 +11,8 @@ import pytest
 from sqlalchemy import select
 
 from two_orgs import add_member, as_user, ensure_roles, factory, http  # noqa: F401  (pytest fixtures)
+from src.backend.app import worker
+from src.backend.app.agents.domain.models import RecoveryProposal
 from src.backend.app.assurance.application.recovery import dropout
 from src.backend.app.assurance.domain.models import DomainEvent
 from src.backend.app.identity.domain.models import Organization
@@ -199,8 +201,12 @@ def test_legacy_consent_ids_are_not_evidence(http, org, factory) -> None:
     assert assurance["committed_quantity_kg"] == "0" and assurance["standby_quantity_kg"] == "0"
     assert Decimal(assurance["unsupported_legacy_kg"]) > 0
     with factory() as session:
-        dropout(session, UUID(committed[0]["id"]), "legacy loss", "legacy-drop", auto_recover=True)
+        dropout(session, UUID(committed[0]["id"]), "legacy loss", "legacy-drop")
         session.commit()
+    worker.run_once(factory)  # the recovery agent plans; it must not offer the legacy standby
+    with factory() as session:
+        offered = [a.get("allocation_id") for content in session.scalars(select(RecoveryProposal.content)) for a in content["actions"]]
+        assert standby["id"] not in offered
         activated = session.scalars(select(SupplyAllocation).where(
             SupplyAllocation.requirement_id == UUID(org["order"]["id"]), SupplyAllocation.status == AllocationStatus.ACTIVATED)).all()
         assert activated == []  # the legacy standby was not treated as authorized

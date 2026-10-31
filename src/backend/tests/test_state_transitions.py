@@ -6,7 +6,9 @@ import pytest
 from sqlalchemy import select
 
 from two_orgs import add_member, as_user, ensure_roles, factory, http  # noqa: F401  (pytest fixtures)
-from src.backend.app.assurance.application.recovery import continue_recovery, dropout
+from src.backend.app import worker
+from src.backend.app.agents.domain.models import RecoveryProposal
+from src.backend.app.assurance.application.recovery import dropout
 from src.backend.app.identity.domain.models import Organization
 from src.backend.app.identity.domain.permissions import RoleCode
 from src.backend.app.risk.domain.models import RiskSnapshot
@@ -155,12 +157,14 @@ def test_legacy_consent_cannot_be_revived_or_counted(http, org, factory) -> None
     assert {a["consent_status"] for a in supply["allocations"]} == {"UNSUPPORTED_LEGACY"}
     with factory() as session:
         assert session.query(SupplierConsent).count() == 0
-        # Deferred recovery (continue_recovery) must not activate legacy standby either.
+        # The recovery agent must not offer legacy standby either.
         committed = next(a for a in allocations if a["role"] == "COMMITTED")
-        dropout(session, UUID(committed["id"]), "legacy loss", "legacy-drop", auto_recover=False)
+        dropout(session, UUID(committed["id"]), "legacy loss", "legacy-drop")
         session.commit()
-        continue_recovery(session, UUID(org["order"]["id"]), "legacy-recover")
-        session.commit()
+    worker.run_once(factory)
+    with factory() as session:
+        offered = [a.get("allocation_id") for content in session.scalars(select(RecoveryProposal.content)) for a in content["actions"]]
+        assert legacy_standby["id"] not in offered
         activated = session.scalars(select(SupplyAllocation).where(
             SupplyAllocation.requirement_id == UUID(org["order"]["id"]), SupplyAllocation.status == AllocationStatus.ACTIVATED)).all()
         assert activated == []

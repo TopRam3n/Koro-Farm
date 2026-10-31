@@ -21,26 +21,33 @@ from src.backend.app.assurance.domain.models import CommandDeduplication, Recove
 from src.backend.app.risk.domain.models import RiskSnapshot
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.assurance.application.recovery import _coverage, committed_quantity
-from src.backend.app.assurance.application.recovery import continue_recovery
 from src.backend.app.assurance.domain.models import DomainEvent
 from src.backend.app.assurance.domain.exceptions import ExceptionStatus, SupplyException
 from src.backend.app.supply.application.capacity import lot_exposure, requirement_exposure
+from src.backend.app.agents.application.orchestrator import RecoveryError, request_recovery
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from src.backend.app.identity.domain.permissions import PermissionCode
 
 router = APIRouter(prefix="/requirements", tags=["assurance"])
 
 
-@router.post("/{requirement_id}/recovery")
-def run_recovery(requirement_id: UUID, idempotency_key: str | None = Depends(tenant_idempotency_key),
-                 session: Session = Depends(get_session)) -> dict:
-    """Advance the single persisted recovery run."""
-    if not idempotency_key:
-        raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
+class RecoveryRequest(BaseModel):
+    note: str | None = None
+
+
+@router.post("/{requirement_id}/recovery", status_code=status.HTTP_202_ACCEPTED,
+             dependencies=[Depends(require_permission(PermissionCode.RECOVERY_PROPOSE))])
+def run_recovery(requirement_id: UUID, payload: RecoveryRequest | None = None, session: Session = Depends(get_session),
+                 context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Ask the recovery agent to plan. Since R1 WP3 this never activates standby or contacts suppliers: the agent
+    prepares a proposal that must be approved (see /recovery-tasks)."""
     try:
-        result = continue_recovery(session, requirement_id, idempotency_key)
-        session.commit()
-        return result
-    except ValueError as exc:
+        task = request_recovery(session, context, requirement_id, payload.note if payload else None)
+    except RecoveryError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return {"recovery_task_id": str(task.id), "status": task.status.value,
+            "next_step": "the recovery agent will prepare a proposal for approval; nothing is executed automatically"}
 
 
 class PlanRead(BaseModel):

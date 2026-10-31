@@ -102,6 +102,16 @@ def _org_of_exception(exception_id) -> Select:
     return select(SupplyException.organization_id).where(SupplyException.id == exception_id)
 
 
+def _org_of_recovery_task(task_id) -> Select:
+    from src.backend.app.agents.domain.models import RecoveryTask
+    return select(RecoveryTask.organization_id).where(RecoveryTask.id == task_id)
+
+
+def _org_of_recovery_proposal(proposal_id) -> Select:
+    from src.backend.app.agents.domain.models import RecoveryProposal
+    return select(RecoveryProposal.organization_id).where(RecoveryProposal.id == proposal_id)
+
+
 # Kind -> ownership query. Path parameters use the same names with an ``_id`` suffix.
 RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "buyer": _org_of_buyer,
@@ -119,6 +129,8 @@ RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "corridor": _org_of_corridor,
     "trade_corridor": _org_of_corridor,
     "exception": _org_of_exception,
+    "recovery_task": _org_of_recovery_task,
+    "recovery_proposal": _org_of_recovery_proposal,
 }
 
 

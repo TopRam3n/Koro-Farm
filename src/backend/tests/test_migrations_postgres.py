@@ -106,3 +106,23 @@ def test_existing_consent_ids_are_classified_unsupported_not_deleted(fresh_datab
         assert row.holds_reservation is True and row.status == "COMMITTED"
         assert c.execute(text("select count(*) from supplier_consents")).scalar() == 0  # no consent was invented
     engine.dispose()
+
+
+def test_recovery_role_policy_rows_and_round_trip(fresh_database_url, monkeypatch) -> None:
+    """0022 keeps the informational permission rows in step with the WP3 policy, and downgrades cleanly."""
+    monkeypatch.setenv("DATABASE_URL", fresh_database_url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, "head")
+    command.downgrade(config, "0021_worker_heartbeats")
+    command.upgrade(config, "head")
+    engine = create_engine(fresh_database_url)
+    with engine.begin() as connection:
+        rows = set(connection.execute(text("select role_code, permission_code from role_permissions where permission_code like 'recovery.%'")).all())
+        assert ("SUPPLY_COORDINATOR", "recovery.approve") in rows
+        assert ("PROCUREMENT_MANAGER", "recovery.approve_elevated") in rows and ("ORGANIZATION_ADMIN", "recovery.approve_elevated") in rows
+        assert not [row for row in rows if row[1] == "recovery.execute"]
+        tables = set(connection.execute(text("select table_name from information_schema.tables where table_name like 'recovery_%'")).scalars())
+        assert {"recovery_tasks", "recovery_incidents", "recovery_steps", "recovery_proposals", "recovery_approvals",
+                "recovery_executions", "recovery_approval_policies", "recovery_runs"} <= tables
+    engine.dispose()

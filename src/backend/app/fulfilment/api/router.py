@@ -12,7 +12,8 @@ from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.identity.application.tenancy import require_owned
-from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
+from src.backend.app.identity.domain.permissions import PermissionCode
 from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
@@ -24,7 +25,7 @@ class ReceiveCommand(BaseModel):
 class GradeCommand(BaseModel):
     accepted_quantity_kg: Decimal; rejected_quantity_kg: Decimal; assigned_grade: Grade | None = None; rejection_reason: str | None = None; inspection_evidence_reference: str | None = None
 
-@router.post("/sublots/receive")
+@router.post("/sublots/receive", dependencies=[Depends(require_permission(PermissionCode.RECEIVING_RECORD))])
 def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Depends(tenant_idempotency_key), session: Session = Depends(get_session),
                  context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
@@ -36,7 +37,7 @@ def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Depends(
         return result
     except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 
-@router.post("/sublots/{sublot_id}/grade")
+@router.post("/sublots/{sublot_id}/grade", dependencies=[Depends(require_permission(PermissionCode.GRADING_RECORD))])
 def post_grade(sublot_id: UUID, payload: GradeCommand, idempotency_key: str | None = Depends(tenant_idempotency_key), session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     try:

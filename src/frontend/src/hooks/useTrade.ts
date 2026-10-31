@@ -37,7 +37,7 @@ export interface OrderSupply {
   allocations: Allocation[];
 }
 export interface SupplyException {
-  id: string; requirement_id: string; requirement_label: string | null; kind: 'CAPACITY_SHORTFALL' | 'RESPONSE_OVERDUE' | 'STANDBY_EXPIRED';
+  id: string; requirement_id: string; requirement_label: string | null; kind: 'CAPACITY_SHORTFALL' | 'RESPONSE_OVERDUE' | 'STANDBY_EXPIRED' | 'SUPPLIER_DROPOUT' | 'QUALITY_REJECTION';
   status: 'OPEN' | 'RESOLVED'; shortfall_kg: string; summary: string; details: Record<string, unknown>; opened_at: string; updated_at: string;
   acknowledged_at: string | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null;
 }

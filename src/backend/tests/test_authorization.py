@@ -21,7 +21,8 @@ def test_farmer_and_buyer_roles_are_limited_to_their_workflows() -> None:
     assert PermissionCode.REQUIREMENT_CREATE not in ROLE_PERMISSIONS[RoleCode.FARMER]
     assert PermissionCode.ORDER_CREATE in ROLE_PERMISSIONS[RoleCode.BUYER]
     assert PermissionCode.USER_MANAGE_ROLE not in ROLE_PERMISSIONS[RoleCode.BUYER]
-    assert ROLE_PERMISSIONS[RoleCode.PLATFORM_ADMIN] == frozenset(PermissionCode)
+    # Execution of recovery is never a user privilege (R1 WP3); platform administrators hold everything else.
+    assert ROLE_PERMISSIONS[RoleCode.PLATFORM_ADMIN] == frozenset(PermissionCode) - {PermissionCode.RECOVERY_EXECUTE}
 
 
 def _identity(session, role: RoleCode, status: MembershipStatus = MembershipStatus.ACTIVE,

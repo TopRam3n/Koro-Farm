@@ -85,7 +85,33 @@ def _resolve(session: Session, row: SupplyException, requirement: Requirement, r
     row.updated_at = row.resolved_at
     record_system_event(session, row.organization_id, "exception.resolved", "requirement", requirement.id, {
         "exception_id": str(row.id), "kind": row.kind.value, "resolved_by": resolved_by, "resolution": resolution},
-        causation_id=source_event_id)
+        causation_id=source_event_id, actor_id=resolved_by)
+
+
+def open_incident_exception(session: Session, requirement: Requirement, kind: str, dedupe_key: str, shortfall: Decimal,
+                            summary: str, details: dict) -> SupplyException:
+    """A dropout or quality rejection, recorded in the caller's transaction as an actionable exception.
+
+    Its `exception.opened` outbox event starts (or joins) the order's recovery task, so the incident cannot be left
+    without a task even though recovery itself now needs approval.
+    """
+    row, _ = _open_exception(session, requirement, ExceptionKind(kind), dedupe_key, shortfall, summary, details, None)
+    return row
+
+
+# Incidents a recovery closes once the order's shortfall is covered. Capacity shortfalls close only when exposure does.
+RECOVERABLE_KINDS = (ExceptionKind.SUPPLIER_DROPOUT, ExceptionKind.QUALITY_REJECTION, ExceptionKind.RESPONSE_OVERDUE,
+                     ExceptionKind.STANDBY_EXPIRED)
+
+
+def resolve_recovered(session: Session, requirement: Requirement, resolved_by: str, resolution: str) -> int:
+    """Close the order's open incident exceptions after its shortfall has been covered."""
+    rows = session.scalars(select(SupplyException).where(
+        SupplyException.requirement_id == requirement.id, SupplyException.status == ExceptionStatus.OPEN,
+        SupplyException.kind.in_(RECOVERABLE_KINDS)).with_for_update()).all()
+    for row in rows:
+        _resolve(session, row, requirement, resolved_by, resolution)
+    return len(rows)
 
 
 def _open_count(session: Session, requirement_id: UUID) -> int:

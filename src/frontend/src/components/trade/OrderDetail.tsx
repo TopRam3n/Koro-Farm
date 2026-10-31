@@ -7,6 +7,8 @@ import {
   useSolicit, useUpdateOrder, useWithdraw,
 } from '@/hooks/useTrade';
 import { ExceptionList } from '@/components/trade/ExceptionList';
+import { RecoveryTasks } from '@/components/trade/RecoveryTasks';
+import { useRequestRecovery } from '@/hooks/useRecovery';
 import {
   ErrorNote, Field, LoadState, Pill, Select, SubmitButton, SupplyStatePill, TextArea, TradePage, formValues, humanize, kg,
 } from '@/components/trade/TradeUi';
@@ -25,10 +27,25 @@ export function OrderDetail({ id }: { id: string }) {
           <h2 id="order-exceptions" className="text-base font-semibold">Needs attention</h2>
           <ExceptionList requirementId={id} empty="No open supply exceptions for this order." />
         </section>
+        <Recovery orderId={id} cancelled={order.data.lifecycle_status === 'CANCELLED'} />
         <History id={id} />
       </div>}
     </LoadState>
   </TradePage>;
+}
+
+function Recovery({ orderId, cancelled }: { orderId: string; cancelled: boolean }) {
+  const request = useRequestRecovery();
+  return <section aria-labelledby="order-recovery" className="operational-panel p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 id="order-recovery" className="text-base font-semibold">Recovery</h2>
+      {!cancelled && <button type="button" disabled={request.isPending} onClick={() => request.mutate({ requirementId: orderId })}
+        className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs disabled:opacity-60">Ask the agent to plan again</button>}
+    </div>
+    <p className="mt-1 text-xs text-muted-foreground">The recovery agent proposes from authorized standby and eligible supply. A person approves the exact proposal before anything is applied.</p>
+    <ErrorNote error={request.error} />
+    <RecoveryTasks requirementId={orderId} empty="No recovery has been needed for this order." />
+  </section>;
 }
 
 function Terms({ order }: { order: Order }) {

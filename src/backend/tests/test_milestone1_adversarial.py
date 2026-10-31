@@ -1,4 +1,8 @@
-"""Milestone 1 adversarial checks: reservations, recovery, consent, and audit history."""
+"""Milestone 1 adversarial checks: reservations, recovery, consent, and audit history.
+
+Since R1 WP3 a dropout is recorded at once and recovery is proposed by the agent, approved by people and executed
+by the gateway. These tests drive that path (recovery_support) and keep the original invariants: exact coverage,
+no solicitation counted as coverage, immutable cost snapshots, rollback, and a truthful residual shortfall."""
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -10,6 +14,10 @@ from sqlalchemy.exc import IntegrityError
 from src.backend.app.assurance.application import recovery
 from src.backend.app.assurance.application.recovery import dropout
 from consent_support import plan_and_confirm, accept, decline
+from recovery_support import agent_round, approve, member, pending, task_for
+from src.backend.app.agents.domain.models import ApprovalTier, TaskStatus
+from src.backend.app.assurance.application.recovery import _coverage
+from src.backend.app.identity.domain.permissions import RoleCode
 from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun, RecoveryStatus
 from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
@@ -52,13 +60,24 @@ def test_dropout_is_idempotent_restores_exact_coverage_and_audits(session):
     result = dropout(session, lost.id, "crop_failure", "same-command")
     duplicate = dropout(session, lost.id, "crop_failure", "same-command")
     assert result == duplicate
-    assert result["committed_kg"] == "500.000"
+    assert result["committed_kg"] == "420.000" and result["standby_activated_kg"] == "0"  # nothing activated yet
+    agent_round(session)
+    proposal = pending(session, req.id)
+    assert proposal.tier == ApprovalTier.ORDINARY  # same landed cost per kg
+    assert {a["type"] for a in proposal.content["actions"]} == {"ACTIVATE_STANDBY"}  # authorized standby only
+    assert sum(Decimal(a["quantity_kg"]) for a in proposal.content["actions"]) == Decimal("80")
+    approve(session, req.id, member(session))
     session.refresh(req); assert req.supply_health == SupplyHealth.COVERED
+    assert _coverage(session, req.id) == Decimal("500")
+    assert task_for(session, req.id).status == TaskStatus.COMPLETED
     events = list(session.scalars(select(DomainEvent).where(DomainEvent.aggregate_id == req.id).order_by(DomainEvent.occurred_at)))
     names = [event.event_type for event in events]
     assert [event.occurred_at for event in events] == sorted(event.occurred_at for event in events)
-    for expected in ("plan.proposed", "supplier.accepted", "standby.authorized", "allocation.lost", "requirement.at_risk", "recovery.started", "allocation.standby_activated", "recovery.completed"):
+    for expected in ("plan.proposed", "supplier.accepted", "standby.authorized", "allocation.lost", "requirement.at_risk",
+                     "recovery.started", "recovery.proposed", "recovery.approved", "allocation.standby_activated",
+                     "recovery.applied", "recovery.task_completed"):
         assert expected in names
+    assert names.index("recovery.approved") < names.index("allocation.standby_activated")
     snapshots = list(session.scalars(select(RiskSnapshot).where(RiskSnapshot.requirement_id == req.id).order_by(RiskSnapshot.plan_version)))
     assert len(snapshots) == 2
     assert snapshots[0].supply_plan_id != snapshots[1].supply_plan_id
@@ -73,20 +92,30 @@ def test_partial_standby_solicitation_and_explicit_acceptance(session):
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED))
     outcome = dropout(session, committed.id, "crop_failure", "partial")
-    assert outcome["supply_health"] == SupplyHealth.RECOVERING
+    assert outcome["supply_health"] == SupplyHealth.AT_RISK
+    agent_round(session)
+    proposal = pending(session, req.id)
+    # Dearer replacement and no cost tolerance set: a coordinator and a procurement manager must both approve.
+    assert proposal.tier == ApprovalTier.ELEVATED
+    approve(session, req.id, member(session), member(session, RoleCode.PROCUREMENT_MANAGER))
+    session.refresh(req)
+    assert req.supply_health == SupplyHealth.RECOVERING
     solicited = list(session.scalars(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.SOLICITED)))
-    assert solicited
-    assert outcome["committed_kg"] == "8.000"  # solicitation never masquerades as coverage
+    assert sum(s.quantity_kg for s in solicited) == Decimal("92")  # from one or two lots, depending on the plan
+    assert _coverage(session, req.id) == Decimal("8")  # solicitation never masquerades as coverage
+    assert task_for(session, req.id).status == TaskStatus.AWAITING_SUPPLIER
     for number, allocation in enumerate(solicited):
         accepted = accept(session, allocation.id, f"accept-{number}")
     assert accepted["committed_kg"] == "100.000"
     assert accept(session, solicited[-1].id, f"accept-{len(solicited) - 1}") == accepted
+    agent_round(session)
     session.refresh(req); assert req.supply_health == SupplyHealth.COVERED
+    assert task_for(session, req.id).status == TaskStatus.COMPLETED
     events = list(session.scalars(select(DomainEvent).where(DomainEvent.aggregate_id == req.id).order_by(
         DomainEvent.occurred_at, DomainEvent.id)))
     names = [event.event_type for event in events]
     assert [event.occurred_at for event in events] == sorted(event.occurred_at for event in events)
-    for expected in ("allocation.solicited", "supplier.accepted", "recovery.awaiting_acceptance", "recovery.completed"):
+    for expected in ("allocation.standby_activated", "solicitation.sent", "supplier.accepted", "recovery.completed"):
         assert expected in names
 
 
@@ -108,7 +137,7 @@ def test_database_rejects_invalid_reservation(session):
     session.rollback()
 
 
-def test_decline_releases_solicited_stock_without_calling_it_coverage(session):
+def test_decline_leaves_no_reservation_and_is_never_coverage(session):
     req = requirement(session, "100")
     for quantity, price in (("100", "100"), ("20", "350"), ("80", "350")):
         lot(session, quantity, price)
@@ -117,15 +146,24 @@ def test_decline_releases_solicited_stock_without_calling_it_coverage(session):
         SupplyAllocation.requirement_id == req.id, SupplyAllocation.role == AllocationRole.COMMITTED,
         SupplyAllocation.status == AllocationStatus.COMMITTED))
     dropout(session, committed.id, "crop_failure", "decline-dropout")
-    solicited = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
-        SupplyAllocation.status == AllocationStatus.SOLICITED))
-    source = session.get(ProductionLot, solicited.production_lot_id)
-    reserved_before = source.reserved_quantity_kg
-    result = decline(session, solicited.id, "decline")
-    session.refresh(source)
-    assert result["committed_kg"] == "20.000"
-    assert source.reserved_quantity_kg == reserved_before - solicited.quantity_kg
-    assert decline(session, solicited.id, "decline") == result
+    agent_round(session)
+    approve(session, req.id, member(session), member(session, RoleCode.ORGANIZATION_ADMIN))
+    # Depending on where the planner placed standby, the 80 kg may be asked of one or two suppliers. All decline.
+    solicited = list(session.scalars(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
+        SupplyAllocation.status == AllocationStatus.SOLICITED)))
+    assert sum(a.quantity_kg for a in solicited) == Decimal("80")
+    for number, request in enumerate(solicited):
+        source = session.get(ProductionLot, request.production_lot_id)
+        assert request.holds_reservation is False  # a request reserves nothing
+        reserved_before = source.reserved_quantity_kg
+        result = decline(session, request.id, f"decline-{number}")
+        session.refresh(source)
+        assert result["committed_kg"] == "20.000"
+        assert source.reserved_quantity_kg == reserved_before
+        assert decline(session, request.id, f"decline-{number}") == result
+    agent_round(session)  # the declining supplier is not asked again; nothing else is eligible
+    task = task_for(session, req.id)
+    assert task.status == TaskStatus.ESCALATED and task.escalated_kg == Decimal("80")
 
 
 @pytest.mark.parametrize(("standby_price", "expect_positive"), [("500", True), ("50", False)])
@@ -140,6 +178,12 @@ def test_recovery_snapshot_is_new_immutable_decimal_cost_record(session, standby
     committed = session.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id,
         SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED))
     dropout(session, committed.id, "crop_failure", f"cost-{standby_price}")
+    agent_round(session)
+    proposal = pending(session, req.id)
+    # A cost increase with no tolerance set needs elevated approval; a cheaper replacement does not.
+    assert proposal.tier == (ApprovalTier.ELEVATED if expect_positive else ApprovalTier.ORDINARY)
+    approvers = [member(session)] + ([member(session, RoleCode.PROCUREMENT_MANAGER)] if expect_positive else [])
+    approve(session, req.id, *approvers)
     snapshots = list(session.scalars(select(CostSnapshot).order_by(CostSnapshot.created_at)))
     assert len(snapshots) == 2
     assert original.total_landed_cost_jmd == Decimal("33000.00")
@@ -220,15 +264,23 @@ def test_failed_recovery_escalates_with_truthful_40kg_shortfall(session):
         SupplyAllocation.quantity_kg == Decimal("140"),
     ))
     outcome = dropout(session, lost.id, "crop_failure", "failure-case")
-    assert outcome["committed_kg"] == "430.000"
+    assert outcome["committed_kg"] == "360.000"
+    agent_round(session)
+    proposal = pending(session, req.id)
+    assert proposal.content["escalation_kg"] == "40"  # the residual is stated before anything is approved
+    approve(session, req.id, member(session), member(session, RoleCode.PROCUREMENT_MANAGER))
+    assert _coverage(session, req.id) == Decimal("430")
     solicited = session.scalar(select(SupplyAllocation).where(
         SupplyAllocation.production_lot_id == replacement.id,
         SupplyAllocation.status == AllocationStatus.SOLICITED,
     ))
     accepted = accept(session, solicited.id, "accept-thirty")
+    agent_round(session)
     session.refresh(req)
     run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == req.id))
     assert accepted["committed_kg"] == "460.000"
     assert req.supply_health == SupplyHealth.ESCALATION_REQUIRED
     assert run.status == RecoveryStatus.ESCALATED
     assert run.remaining_shortfall_kg == Decimal("40")
+    task = task_for(session, req.id)
+    assert task.status == TaskStatus.ESCALATED and task.escalated_kg == Decimal("40")

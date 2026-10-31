@@ -10,7 +10,7 @@ from src.backend.app.domain.common import Grade
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
 from src.backend.app.supply.domain.models import ProductionLot
 from src.backend.app.supply.domain.planning_models import SupplyAllocation
-from src.backend.app.assurance.application.recovery import recover_quality_shortfall
+from src.backend.app.assurance.application.recovery import record_quality_shortfall
 
 
 def _event(session: Session, name: str, allocation: SupplyAllocation, payload: dict) -> None:
@@ -64,7 +64,7 @@ def grade(session: Session, sublot_id: UUID, accepted: Decimal, rejected: Decima
         _event(session, event_name, allocation, {"received_sublot_id": str(sublot.id), "previous_status": InspectionStatus.PENDING_INSPECTION.value, "new_status": sublot.inspection_status.value, "accepted_quantity_kg": str(accepted), "rejected_quantity_kg": str(rejected), "evidence_reference": evidence, "evidence_verified": False})
         recovery = None
         if rejected:
-            recovery = recover_quality_shortfall(session, allocation.requirement_id, rejected, "quality_rejection")
+            recovery = record_quality_shortfall(session, allocation.requirement_id, sublot.id, rejected, "quality_rejection")
         result = {"received_sublot_id": str(sublot.id), "inspection_status": sublot.inspection_status.value, "accepted_quantity_kg": str(accepted), "rejected_quantity_kg": str(rejected), "recovery": recovery}
         session.add(CommandDeduplication(command_type="sublot.grade", idempotency_key=key, result=result))
         return result

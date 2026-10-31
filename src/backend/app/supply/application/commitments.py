@@ -106,7 +106,7 @@ def default_response_hours(requirement: Requirement, now: datetime) -> int:
 
 
 def solicit(session: Session, actor: AuthorizationContext, allocation_id: UUID, message: str | None, key: str | None,
-            respond_within_hours: int | None = None, now: datetime | None = None) -> dict:
+            respond_within_hours: int | None = None, now: datetime | None = None, actor_type: str = "user") -> dict:
     """Record that a proposal was put to the supplier, with a response deadline.
 
     It does not reserve stock or count as coverage. An expired request may be put to the supplier again.
@@ -134,7 +134,7 @@ def solicit(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
             "response_due_at": allocation.response_due_at.isoformat(), "response_hours": hours,
             "deadline_basis": "coordinator" if respond_within_hours else ("urgent default" if hours == URGENT_RESPONSE_HOURS else "default"),
             "asked_again": asked_again,
-        }, idempotency_key=key)
+        }, idempotency_key=key, actor_type=actor_type)
         return _remember(session, "allocation.solicit", key, {**_state(allocation), "response_due_at": allocation.response_due_at.isoformat()})
 
 

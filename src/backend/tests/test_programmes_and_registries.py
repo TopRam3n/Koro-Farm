@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from uuid import UUID
+from src.backend.app.assurance.domain.exceptions import ExceptionKind, ExceptionStatus, SupplyException
 from consent_support import confirm_plan_via_api
 
 from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
@@ -141,10 +142,13 @@ def test_demo_day_seed_has_portfolio_and_operational_scenarios(session) -> None:
     assert session.query(Farmer).count() == 16
     assert session.query(ProductionLot).count() == 24
     assert session.query(Requirement).count() == 8
-    assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.COVERED).count() >= 5
+    assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.COVERED).count() >= 4
     assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.AT_RISK).count() >= 1
     assert session.query(Requirement).filter(Requirement.supply_health == SupplyHealth.UNPLANNED).count() == 1
-    assert session.query(RecoveryRun).filter(RecoveryRun.status == RecoveryStatus.COMPLETED).count() >= 2
+    # Since R1 WP3 a dropout or quality rejection is recorded and opens an exception; recovery awaits approval.
+    assert session.query(RecoveryRun).filter(RecoveryRun.status == RecoveryStatus.RUNNING).count() >= 2
+    open_kinds = {row.kind for row in session.query(SupplyException).filter(SupplyException.status == ExceptionStatus.OPEN)}
+    assert {ExceptionKind.SUPPLIER_DROPOUT, ExceptionKind.QUALITY_REJECTION} <= open_kinds
     assert session.query(ReceivedSublot).count() >= 2
     reconciled = session.get(Requirement, UUID("00000000-0000-0000-0000-000000000503"))
     assert reconciled.lifecycle_status == RequirementLifecycleStatus.RECONCILED

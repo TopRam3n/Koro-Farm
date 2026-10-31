@@ -1,4 +1,8 @@
-"""Deterministic supply-exception worker. No language model is involved.
+"""Supply-exception worker and recovery orchestrator.
+
+Exception detection, deadlines and the recovery gateway are deterministic. The recovery agent may consult an
+optional language model only to choose among deterministic options and draft messages (agents/infrastructure/
+model.py); it never executes anything, and every proposal needs human approval before the gateway acts.
 
 Run it next to the API:  APP_ENV=... DATABASE_URL=... python -m src.backend.app.worker
 
@@ -8,6 +12,8 @@ Run it next to the API:  APP_ENV=... DATABASE_URL=... python -m src.backend.app.
   (exceptions are de-duplicated by key), so a retried or replayed message cannot open duplicates.
 * Timers: response reminders (half-way), overdue responses (deadline) and standby expiry, one item per
   transaction, each re-checked under a row lock.
+* Recovery: exception events open or join the order's recovery task; due tasks are advanced one transaction each
+  (agents/application/orchestrator.py). Approved proposals are executed by the gateway inside that step.
 * Heartbeat: every tick records this process's liveness (worker_heartbeats). GET /health/worker and
   GET /system/status report monitoring as DEGRADED when no worker has beaten recently, processing is overdue or
   messages are dead-lettered (app/assurance/application/operations.py).
@@ -24,6 +30,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 import src.backend.app.main  # noqa: F401  (registers every mapped model and validates configuration)
+from src.backend.app.agents.application.decision import Decider
+from src.backend.app.agents.application.orchestrator import advance_due, on_event
+from src.backend.app.agents.infrastructure.model import build_decider
 from src.backend.app.assurance.application.exceptions import (
     expire_overdue_response, expire_standby, reevaluate_lot, send_reminder,
 )
@@ -45,7 +54,8 @@ def _handle(session: Session, message: OutboxMessage) -> None:
         allocation = session.get(SupplyAllocation, UUID(message.payload["allocation_id"]))
         if allocation is not None:
             reevaluate_lot(session, allocation.production_lot_id, message.event_id)
-    # Other topics need no exception handling yet; they are marked processed.
+    # Exceptions open or join the order's recovery task; other order events wake it.
+    on_event(session, message)
 
 
 def process_next_message(factory: sessionmaker[Session], now: datetime | None = None) -> bool:
@@ -118,11 +128,20 @@ def run_timers(factory: sessionmaker[Session], now: datetime | None = None) -> d
     }
 
 
-def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_messages: int = 500) -> dict:
+def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_messages: int = 500,
+             decider: Decider | None = None) -> dict:
     processed = 0
     while processed < max_messages and process_next_message(factory, now):
         processed += 1
-    return {"messages": processed, **run_timers(factory, now)}
+    timers = run_timers(factory, now)
+    # Timers can open exceptions (overdue responses): hand their events to the orchestrator in the same tick.
+    while processed < max_messages and process_next_message(factory, now):
+        processed += 1
+    advanced = advance_due(factory, now, decider)
+    # Drain what recovery just recorded, so a tick leaves nothing of its own pending.
+    while processed < max_messages and process_next_message(factory, now):
+        processed += 1
+    return {"messages": processed, **timers, "recovery_tasks": advanced}
 
 
 def beat(factory: sessionmaker[Session], worker_id: str, started_at: datetime, tick: dict,
@@ -140,6 +159,7 @@ def main() -> None:
     started_at = datetime.now(timezone.utc)
     stopping = False
     alerted: set[str] = set()
+    decider = build_decider()
 
     def stop(*_):
         nonlocal stopping
@@ -147,10 +167,10 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    log.info("supply-exception worker started (poll every %ss)", interval)
+    log.info("supply-exception worker started (poll every %ss; recovery decisions: %s)", interval, decider.mode)
     while not stopping:
         try:
-            result = run_once(factory)
+            result = run_once(factory, decider=decider)
             if any(result.values()):
                 log.info("tick %s", result)
             beat(factory, worker_id, started_at, result)

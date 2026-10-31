@@ -59,6 +59,8 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
     * In staging and production the identity provider must be an https URL on a public
       host, and its publishable key must be set. A loopback or private URL could only be a stand-in such
       as the E2E auth stub (src/frontend/e2e/r1/support/auth-stub.mjs), which must never back production.
+    * AGENT_MODEL_PROVIDER is refused when APP_ENV=production: production model access stays disabled until provider,
+      data-handling, security and evaluation requirements are approved (R1 WP3, decision 3).
     """
     env = os.environ if env is None else env
     app_env = environment(env)
@@ -70,6 +72,8 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
     if _bypass_requested(env) and app_env != "test":
         raise UnsafeConfigurationError(
             f"ALLOW_INSECURE_DEMO_AUTH=true is only permitted when APP_ENV=test (APP_ENV is {app_env!r}); refusing to start")
+    if app_env == "production" and env.get("AGENT_MODEL_PROVIDER", "").strip():
+        raise UnsafeConfigurationError("AGENT_MODEL_PROVIDER is not permitted in production until model use is approved; refusing to start")
     if not is_production(env):
         return
     url = env.get("SUPABASE_URL") or env.get("NEXT_PUBLIC_SUPABASE_URL")

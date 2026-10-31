@@ -18,6 +18,9 @@ from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionS
 from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.agents.domain.models import TaskStatus
+from src.backend.app.assurance.domain.exceptions import ExceptionKind, SupplyException
+from recovery_support import agent_round, task_for
 
 
 def test_receive_grade_idempotency_and_traceable_physical_separation(session):
@@ -33,13 +36,19 @@ def test_receive_grade_idempotency_and_traceable_physical_separation(session):
     assert receive(session, allocation.id, node.id, Decimal("100"), datetime.now(timezone.utc), "receipt-1", "r1") == receipt
     result = grade(session, receipt["received_sublot_id"], Decimal("93"), Decimal("7"), Grade.B, "GRADE_MISMATCH", "inspection-1", "g1")
     assert result["inspection_status"] == InspectionStatus.PARTIALLY_ACCEPTED
-    assert result["recovery"]["status"] == RecoveryStatus.ESCALATED
+    # Grading completes at once; the rejection is recorded as an incident and recovery is only proposed (R1 WP3).
+    assert result["recovery"]["status"] == RecoveryStatus.RUNNING and result["recovery"]["standby_activated_kg"] == "0"
+    exception = session.scalar(select(SupplyException).where(SupplyException.requirement_id == req.id))
+    assert exception.kind == ExceptionKind.QUALITY_REJECTION and exception.shortfall_kg == Decimal("7")
     sublot = session.get(ReceivedSublot, UUID(receipt["received_sublot_id"]))
     assert sublot.assigned_grade == Grade.B and lot.quality_grade_estimate == Grade.A
     assert committed_quantity(session, req.id) == Decimal("100.000")
     assert _coverage(session, req.id) == Decimal("93.000") and sublot.accepted_quantity_kg == Decimal("93")
     run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == req.id))
     assert run.remaining_shortfall_kg == Decimal("7")
+    agent_round(session)  # no standby and no free stock: the agent escalates the 7 kg truthfully
+    task = task_for(session, req.id)
+    assert task.status == TaskStatus.ESCALATED and task.escalated_kg == Decimal("7")
     with pytest.raises(ValueError): grade(session, sublot.id, Decimal("100"), Decimal("0"), Grade.A, None, None, "g2")
 
 

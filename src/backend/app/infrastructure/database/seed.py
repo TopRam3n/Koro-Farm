@@ -252,7 +252,8 @@ def seed_competition_demo(session: Session) -> UUID:
             confirm_synthetic_plan(session, requirement.id)
             session.commit()
 
-    # A completed recovery proves loss handling and cost/risk re-snapshotting.
+    # A dropout is recorded at once and opens a SUPPLIER_DROPOUT exception; the recovery agent proposes replacement
+    # supply, which waits for a coordinator's approval (nothing is activated by the seed).
     hero_allocation = session.scalar(select(SupplyAllocation).where(
         SupplyAllocation.requirement_id == DEMO_REQUIREMENT_ID,
         SupplyAllocation.role == AllocationRole.COMMITTED,

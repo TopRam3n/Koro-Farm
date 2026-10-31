@@ -21,6 +21,8 @@ class PermissionCode(StrEnum):
     RECOVERY_VIEW = "recovery.view"
     RECOVERY_PROPOSE = "recovery.propose"
     RECOVERY_APPROVE = "recovery.approve"
+    RECOVERY_APPROVE_ELEVATED = "recovery.approve_elevated"
+    # Held by no user role: only the recovery gateway executes, and only an approved proposal (agents/application/gateway.py).
     RECOVERY_EXECUTE = "recovery.execute"
     RECEIVING_VIEW = "receiving.view"
     RECEIVING_RECORD = "receiving.record"
@@ -46,26 +48,34 @@ class PermissionCode(StrEnum):
     AVAILABILITY_ALERT_MANAGE = "availability_alert.manage"
 
 
+# Recovery role policy (R1 WP3, product-owner decision 2):
+# * the recovery agent proposes; supply coordinators and above approve ordinary recovery within existing supplier
+#   consent, buyer terms and approved cost tolerances (RECOVERY_APPROVE);
+# * a proposal above the organization's cost tolerance, with unknown cost, or with no tolerance set and any cost
+#   increase also needs a second, different approver with RECOVERY_APPROVE_ELEVATED (procurement manager or
+#   organization administrator);
+# * execution is never a user privilege: RECOVERY_EXECUTE is held by no role, platform administrators included.
+#   The gateway executes an approved proposal after re-verifying the approvals (agents/application/gateway.py).
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[PermissionCode]] = {
-    RoleCode.PLATFORM_ADMIN: frozenset(PermissionCode),
+    RoleCode.PLATFORM_ADMIN: frozenset(PermissionCode) - {PermissionCode.RECOVERY_EXECUTE},
     RoleCode.ORGANIZATION_ADMIN: frozenset({
         PermissionCode.REQUIREMENT_VIEW, PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW,
-        PermissionCode.RECOVERY_APPROVE, PermissionCode.RECEIVING_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW,
-        PermissionCode.COMPLIANCE_VIEW, PermissionCode.USER_VIEW, PermissionCode.USER_INVITE,
+        PermissionCode.RECOVERY_APPROVE, PermissionCode.RECOVERY_APPROVE_ELEVATED, PermissionCode.RECEIVING_VIEW,
+        PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.USER_VIEW, PermissionCode.USER_INVITE,
         PermissionCode.USER_MANAGE_ROLE, PermissionCode.AUDIT_VIEW, PermissionCode.APPROVAL_POLICY_VIEW,
         PermissionCode.APPROVAL_POLICY_MANAGE,
     }),
     RoleCode.PROCUREMENT_MANAGER: frozenset({
         PermissionCode.REQUIREMENT_VIEW, PermissionCode.REQUIREMENT_CREATE, PermissionCode.REQUIREMENT_UPDATE,
-        PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_APPROVE,
-        PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
+        PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE,
+        PermissionCode.RECOVERY_APPROVE, PermissionCode.RECOVERY_APPROVE_ELEVATED, PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
         PermissionCode.APPROVAL_POLICY_VIEW,
     }),
     # Spec R1 §2: the coordinator/exporter manages orders as well as supply.
     RoleCode.SUPPLY_COORDINATOR: frozenset({
         PermissionCode.REQUIREMENT_VIEW, PermissionCode.REQUIREMENT_CREATE, PermissionCode.REQUIREMENT_UPDATE,
         PermissionCode.SUPPLY_VIEW, PermissionCode.SUPPLY_MANAGE,
-        PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE, PermissionCode.RECOVERY_EXECUTE,
+        PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE, PermissionCode.RECOVERY_APPROVE,
         PermissionCode.RECEIVING_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
     }),
     RoleCode.WAREHOUSE_OPERATOR: frozenset({

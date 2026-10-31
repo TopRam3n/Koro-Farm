@@ -13,6 +13,8 @@ class ExceptionKind(StrEnum):
     CAPACITY_SHORTFALL = "CAPACITY_SHORTFALL"  # confirmed commitments exceed reported capacity
     RESPONSE_OVERDUE = "RESPONSE_OVERDUE"      # a supplier did not answer before the deadline
     STANDBY_EXPIRED = "STANDBY_EXPIRED"        # an expired authorization leaves an active recovery short
+    SUPPLIER_DROPOUT = "SUPPLIER_DROPOUT"      # a committed supplier can no longer supply (recorded dropout)
+    QUALITY_REJECTION = "QUALITY_REJECTION"    # received produce was rejected at grading
 
 
 class ExceptionStatus(StrEnum):

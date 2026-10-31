@@ -31,7 +31,8 @@ response_router = APIRouter(prefix="/allocations", tags=["supplier responses"])
 
 
 class DropoutCommand(BaseModel):
-    reason: str
+    reason: str = Field(min_length=3, max_length=500)
+    # Kept for compatibility. Only true is accepted: recovery is proposed by the agent and needs approval (R1 WP3).
     defer_recovery: bool = True
 
 
@@ -77,13 +78,17 @@ def _run(fn):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/{allocation_id}/dropout")
+@router.post("/{allocation_id}/dropout", dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
 def post_dropout(allocation_id: UUID, payload: DropoutCommand,
                  idempotency_key: str | None = Depends(tenant_idempotency_key),
                  session: Session = Depends(get_session)) -> dict:
+    """Record a supplier dropout immediately. Recovery is proposed by the agent and needs approval."""
     key = _require_key(idempotency_key)
+    if not payload.defer_recovery:
+        raise HTTPException(status_code=422, detail="immediate recovery is no longer available: standby is activated only "
+                                                    "through an approved recovery proposal")
     try:
-        result = dropout(session, allocation_id, payload.reason, key, auto_recover=not payload.defer_recovery)
+        result = dropout(session, allocation_id, payload.reason, key)
         session.commit()
         return result
     except ValueError as exc:

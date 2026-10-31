@@ -21,7 +21,7 @@ python -m uvicorn src.backend.app.main:app --reload
 
 Open `http://127.0.0.1:8000/docs` for the complete API contract.
 
-Run the supply-exception worker next to the API, with the same environment. It is deterministic (no language model): it turns supplier capacity reports into supply exceptions through the transactional outbox, sends in-app reply reminders at the half-way point, expires unanswered supplier requests at their deadline, and expires standby authorizations past their end date. Without it, capacity reports are still stored and exposure is still shown, but no exceptions are opened and no deadlines are enforced.
+Run the supply-exception worker next to the API, with the same environment. It also runs the recovery agent (see R1 WP3 below). Exception detection is deterministic: it turns supplier capacity reports into supply exceptions through the transactional outbox, sends in-app reply reminders at the half-way point, expires unanswered supplier requests at their deadline, and expires standby authorizations past their end date. Without it, capacity reports are still stored and exposure is still shown, but no exceptions are opened and no deadlines are enforced.
 
 ```powershell
 $env:WORKER_POLL_SECONDS = "2"   # optional, default 2
@@ -39,6 +39,25 @@ Monitoring never assumes the worker is running. Each tick records a heartbeat.
 - A report below what is already committed keeps every commitment on record. The shortfall is reported as exposure (latest commitment first) and the worker opens one `CAPACITY_SHORTFALL` exception per order, closed automatically when capacity is restored. Nothing is activated automatically.
 - Supplier requests get a reply deadline: 24 hours, or 4 hours when delivery starts within 48 hours; `PATCH /allocations/{id}/deadline` changes it with a recorded reason. A missed deadline expires the request (`RESPONSE_OVERDUE`); it is never treated as acceptance, refusal or permission to activate supply.
 - `GET /exceptions`, `POST /exceptions/{id}/acknowledge`, `POST /exceptions/{id}/resolve` (refused for a capacity shortfall while exposure remains).
+
+## Recovery agent with human approval (R1 WP3)
+
+- Every supply exception opens, or joins, the order's single recovery task. Exceptions include supplier dropouts and quality rejections, which are recorded at once. The agent proposes options computed by deterministic tools:
+  - release commitment a supplier's capacity report no longer supports;
+  - activate authorized standby;
+  - ask eligible suppliers;
+  - escalate what is left.
+- **Nothing happens until a person approves the exact proposal** (`POST /recovery-proposals/{id}/approve` with its `proposal_hash`). Supply coordinators approve ordinary proposals. Proposals with unknown or above-tolerance cost also need a procurement manager or organization administrator.
+- The gateway in the worker re-verifies the approvals, the policy and current stock under row locks before applying anything. No user role can execute.
+- `GET /recovery-tasks` (and `?requirement_id=` for an order's full timeline), `POST /recovery-proposals/{id}/reject`, `POST /recovery-tasks/{id}/cancel`, `GET|POST /recovery-approval-policy`.
+- `POST /requirements/{id}/recovery` now only asks the agent to plan (202). `defer_recovery=false` on dropout is refused.
+- **Optional model** (development and staging only):
+  - install with `pip install "./src/backend[model]"`;
+  - set `AGENT_MODEL_PROVIDER=anthropic`, plus `ANTHROPIC_API_KEY`;
+  - `AGENT_MODEL_ID` defaults to `claude-opus-5-5`;
+  - the API refuses to start with a provider set when `APP_ENV=production`.
+- Model-on evaluation with synthetic data: `python -m src.backend.scripts.evaluate_recovery_model` (needs the same settings; writes a JSON report).
+- Details: `docs/product/R1_WP3_REPORT.md`.
 
 ## Current planning endpoints
 
@@ -86,16 +105,9 @@ states, plus one delivered, buyer-confirmed, evidence-backed reconciliation.
 Every synthetic organisation, evidence reference, and operator-facing record
 is labelled as synthetic. Re-running the seed is idempotent.
 
-## Demo the physical quality-recovery flow
+## Pre-R1 recovery demo scripts (retired)
 
-From the repository root, run:
-
-```powershell
-python -m src.backend.scripts.e2e_recovery_demo
-python -m src.backend.scripts.e2e_quality_recovery_demo
-```
-
-The second demo receives a 100kg farmer sublot, records 70kg accepted and 30kg rejected at inspection, activates exactly 30kg of authorised standby supply, and reports the resulting 500kg effective Grade-A coverage.
+`src/backend/scripts/e2e_recovery_demo.py` and `e2e_quality_recovery_demo.py` predate R1. They no longer run, and they describe automatic standby activation, which WP3 removed. See `docs/product/TECH_DEBT_REGISTER.md` (item 12). The approved recovery flow is shown end to end by `src/frontend/e2e/r1/recovery-approval.spec.ts`.
 
 ## Frontend integration and authentication
 

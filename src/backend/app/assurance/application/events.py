@@ -48,12 +48,13 @@ SYSTEM_ACTOR = "supply-exception-worker"
 
 def record_system_event(session: Session, organization_id: UUID, event_type: str, aggregate_type: str,
                         aggregate_id: UUID, payload: dict, *, correlation_id: UUID | None = None,
-                        causation_id: UUID | None = None) -> DomainEvent:
-    """An event written by the deterministic background worker rather than a person."""
+                        causation_id: UUID | None = None, actor_id: str = SYSTEM_ACTOR,
+                        actor_type: str = "system") -> DomainEvent:
+    """An event written by a background process (the exception worker, the recovery agent or gateway), not a person."""
     event = DomainEvent(
         event_type=event_type, aggregate_type=aggregate_type, aggregate_id=aggregate_id,
-        correlation_id=correlation_id or uuid4(), causation_id=causation_id, actor_type="system",
-        actor_id=SYSTEM_ACTOR, organization_id=organization_id, payload=payload, occurred_at=datetime.now(timezone.utc),
+        correlation_id=correlation_id or uuid4(), causation_id=causation_id, actor_type=actor_type,
+        actor_id=actor_id, organization_id=organization_id, payload=payload, occurred_at=datetime.now(timezone.utc),
     )
     session.add(event)
     session.flush()

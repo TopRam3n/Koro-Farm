@@ -12,8 +12,13 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.backend.app.assurance.application.recovery import continue_recovery, dropout
+from src.backend.app.agents.application.approvals import decide
+from src.backend.app.agents.application.decision import DeterministicDecider
+from src.backend.app.agents.application.orchestrator import advance_task
+from src.backend.app.agents.domain.models import ProposalStatus, RecoveryExecution, RecoveryProposal, RecoveryTask, TaskStatus
+from src.backend.app.assurance.application.recovery import dropout
 from consent_support import TEST_ACTOR, plan_and_confirm, accept
+from recovery_support import agent_round, approve, member, pending
 from src.backend.app.supply.application.commitments import CommitmentError, solicit
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage, RecoveryRun
 from src.backend.app.demand.application.services import create_requirement
@@ -90,6 +95,25 @@ def concurrent(factory, functions):
         return list(pool.map(run, functions))
 
 
+def advance_once(session: Session, task_id) -> str:
+    """One worker's attempt at a task, exactly as advance_due does it (row lock, SKIP LOCKED)."""
+    task = session.scalar(select(RecoveryTask).where(RecoveryTask.id == task_id).with_for_update(skip_locked=True))
+    if task is None:
+        return "skipped: another worker holds the task"
+    advance_task(session, task, DeterministicDecider(), datetime.now(timezone.utc))
+    return task.status.value
+
+
+def approved_task(factory, req_id, *roles):
+    """Plan the order's recovery and record approvals, leaving execution to whichever worker runs next."""
+    from src.backend.app.identity.domain.permissions import RoleCode
+    with factory() as s:
+        agent_round(s)
+        actors = [member(s, role) for role in (roles or (RoleCode.SUPPLY_COORDINATOR,))]
+        approve(s, req_id, *actors, run=False)
+        return s.scalar(select(RecoveryTask.id).where(RecoveryTask.requirement_id == req_id))
+
+
 def assert_inventory(factory):
     with factory() as session:
         assert not session.scalar(select(func.count()).select_from(ProductionLot).where(
@@ -116,28 +140,61 @@ def test_two_requirements_cannot_reserve_the_same_lot(pg_factory):
     assert_inventory(pg_factory)
 
 
-def test_two_recoveries_activate_standby_once(pg_factory):
+def test_two_workers_executing_one_approved_proposal_activate_standby_once(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); lot(s, "100", "10"); lot(s, "100", "20")
+        req = requirement(s); lot(s, "100", "10"); lot(s, "100", "10")
         plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=0))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
-        dropout(s, allocation.id, "loss", "drop", auto_recover=False); s.commit()
-    results = concurrent(pg_factory, [lambda s: continue_recovery(s, req.id, "recover-a"), lambda s: continue_recovery(s, req.id, "recover-b")])
-    assert sum(result[0] == "ok" for result in results) == 1
+        dropout(s, allocation.id, "loss", "drop"); s.commit()
+    task_id = approved_task(pg_factory, req.id)
+    results = concurrent(pg_factory, [lambda s: advance_once(s, task_id), lambda s: advance_once(s, task_id)])
+    assert all(result[0] == "ok" for result in results), results
     with pg_factory() as s:
         assert s.scalar(select(func.sum(SupplyAllocation.quantity_kg)).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED)) == Decimal("100")
+        assert s.scalar(select(func.count()).select_from(RecoveryExecution)) == 1
+        assert s.scalar(select(func.count()).select_from(DomainEvent).where(DomainEvent.event_type == "allocation.standby_activated")) == 1
     assert_inventory(pg_factory)
 
 
 def test_two_acceptances_cannot_use_replacement_twice(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); lot(s, "100", "10"); lot(s, "100", "20")
+        req = requirement(s); lot(s, "100", "10"); lot(s, "100", "10")
         plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
-        dropout(s, allocation.id, "loss", "drop", auto_recover=False); continue_recovery(s, req.id, "recover"); s.commit()
+        dropout(s, allocation.id, "loss", "drop"); s.commit()
+    task_id = approved_task(pg_factory, req.id)
+    with pg_factory() as s:
+        advance_once(s, task_id); s.commit()
         solicited = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.SOLICITED))
     results = concurrent(pg_factory, [lambda s: accept(s, solicited.id, "accept-a"), lambda s: accept(s, solicited.id, "accept-b")])
     assert sum(result[0] == "ok" for result in results) == 1
+    assert_inventory(pg_factory)
+
+
+def test_stock_taken_between_approval_and_execution_is_refused_not_over_reserved(pg_factory):
+    """The approved request's lot is consumed by another order before the gateway runs: the gateway refuses the
+    stale approval (nothing applied), and the task re-plans from current facts."""
+    with pg_factory() as s:
+        req, rival = requirement(s), requirement(s); lot(s, "100", "10"); spare = lot(s, "100", "10")
+        plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
+        dropout(s, allocation.id, "loss", "drop"); s.commit()
+    task_id = approved_task(pg_factory, req.id)
+    # The rival order takes the spare lot while the approval waits for execution, racing the gateway.
+    results = concurrent(pg_factory, [lambda s: advance_once(s, task_id),
+                                      lambda s: plan_and_confirm(s, rival.id, PlannerConfig(standby_target_pct=Decimal("0")))])
+    assert all(result[0] == "ok" for result in results), results
+    with pg_factory() as s:
+        proposal = s.scalar(select(RecoveryProposal).where(RecoveryProposal.version == 1))
+        rival_committed = s.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+            SupplyAllocation.requirement_id == rival.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
+        if proposal.status == ProposalStatus.STALE:  # the rival won: nothing was requested from the spare lot
+            assert rival_committed == Decimal("100")
+            assert s.scalar(select(func.count()).select_from(RecoveryExecution)) == 0
+            assert s.get(RecoveryTask, task_id).status == TaskStatus.ESCALATED
+        else:  # the gateway won: a request was issued; the rival's acceptance and that request cannot both hold stock
+            assert proposal.status == ProposalStatus.EXECUTED
+        assert s.get(ProductionLot, spare.id).reserved_quantity_kg <= Decimal("100")
     assert_inventory(pg_factory)
 
 
@@ -145,7 +202,7 @@ def test_two_dropout_commands_do_not_duplicate_loss(pg_factory):
     with pg_factory() as s:
         req = requirement(s); lot(s, "100"); plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
-    results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "a", False), lambda s: dropout(s, allocation.id, "loss", "b", False)])
+    results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "a"), lambda s: dropout(s, allocation.id, "loss", "b")])
     assert sum(result[0] == "ok" for result in results) == 1
     with pg_factory() as s:
         assert s.scalar(select(func.count()).select_from(DomainEvent).where(DomainEvent.event_type == "allocation.lost")) == 1
@@ -156,7 +213,7 @@ def test_duplicate_in_progress_command_returns_same_result(pg_factory):
     with pg_factory() as s:
         req = requirement(s); lot(s, "100"); plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
-    results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "same", False), lambda s: dropout(s, allocation.id, "loss", "same", False)])
+    results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "same"), lambda s: dropout(s, allocation.id, "loss", "same")])
     assert all(result[0] == "ok" for result in results) and results[0][1] == results[1][1]
     assert_inventory(pg_factory)
 
@@ -214,8 +271,9 @@ def test_recovery_and_new_requirement_compete_without_creating_supply(pg_factory
         recovering, newcomer = requirement(s), requirement(s); lot(s, "100", "10"); discovery = lot(s, "100", "100")
         plan_and_confirm(s, recovering.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == recovering.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
-        dropout(s, allocation.id, "loss", "drop", False); s.commit()
-    concurrent(pg_factory, [lambda s: continue_recovery(s, recovering.id, "recover"), lambda s: plan_and_confirm(s, newcomer.id, PlannerConfig(standby_target_pct=Decimal("0")))])
+        dropout(s, allocation.id, "loss", "drop"); s.commit()
+    task_id = approved_task(pg_factory, recovering.id)
+    concurrent(pg_factory, [lambda s: advance_once(s, task_id), lambda s: plan_and_confirm(s, newcomer.id, PlannerConfig(standby_target_pct=Decimal("0")))])
     with pg_factory() as s:
         row = s.get(ProductionLot, discovery.id)
         used = s.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.production_lot_id == discovery.id, SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.SOLICITED, AllocationStatus.STANDBY])))
@@ -297,6 +355,9 @@ def test_concurrent_workers_open_exactly_one_exception(pg_factory):
         rows = s.scalars(select(SupplyException).where(SupplyException.requirement_id == req.id)).all()
         assert len(rows) == 1 and rows[0].shortfall_kg == Decimal("80")
         assert s.scalar(select(func.count()).select_from(OutboxMessage).where(OutboxMessage.status != "PROCESSED")) == 0
+        # Three concurrent workers saw the exception: one recovery task, one proposal.
+        assert s.scalar(select(func.count()).select_from(RecoveryTask).where(RecoveryTask.requirement_id == req.id)) == 1
+        assert s.scalar(select(func.count()).select_from(RecoveryProposal).where(RecoveryProposal.requirement_id == req.id)) <= 1
 
 
 def test_concurrent_capacity_reports_on_one_lot_both_recorded_and_consistent(pg_factory):

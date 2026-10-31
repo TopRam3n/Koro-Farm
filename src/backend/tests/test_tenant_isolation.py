@@ -78,6 +78,15 @@ def worlds(factory, http):
                                     dedupe_key=f"capacity:{a['requirement']}", shortfall_kg=Decimal("10"), summary="test", details={})
         session.add(exception); session.commit()
         a["exception"] = exception.id
+    # The recovery agent turns the dropout into a task and a proposal owned by organization A.
+    from src.backend.app import worker
+    from src.backend.app.agents.domain.models import RecoveryProposal, RecoveryTask
+    worker.run_once(factory)
+    with factory() as session:
+        task = session.scalar(select(RecoveryTask).where(RecoveryTask.requirement_id == a["requirement"]))
+        a["recovery_task"] = task.id
+        a["recovery_proposal"] = session.scalar(select(RecoveryProposal.id).where(RecoveryProposal.task_id == task.id))
+        assert a["recovery_proposal"] is not None
     return a, b
 
 
@@ -223,7 +232,8 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
     a, b = worlds
     ids = {"requirement_id": a["requirement"], "allocation_id": a["allocation"], "sublot_id": a["sublot"],
            "shipment_id": a["shipment"], "lot_id": a["lot"], "farmer_id": a["farmer"], "programme_id": a["programme"],
-           "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"], "exception_id": a["exception"]}
+           "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"], "exception_id": a["exception"],
+           "recovery_task_id": a["recovery_task"], "recovery_proposal_id": a["recovery_proposal"]}
     checked, problems = 0, []
     for path, operations in app.openapi()["paths"].items():
         params = [part[1:-1] for part in path.split("/") if part.startswith("{") and part.endswith("}")]

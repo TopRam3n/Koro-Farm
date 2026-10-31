@@ -24,6 +24,11 @@ dev = [
     "httpx>=0.28",
     "pytest>=8.3",
 ]
+# Optional recovery-agent model adapter (agents/infrastructure/model.py). Development and staging only; production
+# model access stays disabled until approved. Not needed for tests or CI.
+model = [
+    "anthropic>=2.0,<3",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

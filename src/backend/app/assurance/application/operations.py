@@ -6,14 +6,17 @@ is responsible for is overdue or dead-lettered; otherwise DEGRADED, with the rea
 * WORKER_STALE_SECONDS (default 30): a worker silent for longer is treated as stopped.
 * PROCESSING_OVERDUE_SECONDS (default 60): a pending outbox message, an unanswered request past its deadline, or
   a standby authorization past its end date still untouched after this long means processing is behind.
+* Recovery: a recovery task due for longer than PROCESSING_OVERDUE_SECONDS, or a FAILED task that no newer task
+  for the same order has replaced, also makes monitoring DEGRADED (an incident would otherwise go unhandled).
 """
 import os
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
+from src.backend.app.agents.domain.models import ACTIVE_TASK_STATUSES, RecoveryTask, TaskStatus
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage, WorkerHeartbeat
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
@@ -68,6 +71,18 @@ def operational_status(session: Session, now: datetime | None = None, organizati
                                   SupplyAllocation.consent_status == ConsentStatus.RECORDED,
                                   SupplyAllocation.authorization_valid_until < (now - overdue_after).date())
 
+    def tasks(*conditions):
+        statement = select(func.count()).select_from(RecoveryTask).where(*conditions)
+        if organization_id is not None:
+            statement = statement.where(RecoveryTask.organization_id == organization_id)
+        return session.scalar(statement) or 0
+
+    newer = aliased(RecoveryTask)
+    overdue_tasks = tasks(RecoveryTask.status.in_(ACTIVE_TASK_STATUSES), RecoveryTask.next_run_at.is_not(None),
+                          RecoveryTask.next_run_at < now - overdue_after)
+    failed_tasks = tasks(RecoveryTask.status == TaskStatus.FAILED, ~select(newer.id).where(
+        newer.requirement_id == RecoveryTask.requirement_id, newer.created_at > RecoveryTask.created_at).exists())
+
     reasons = []
     if worker_state != "RUNNING":
         reasons.append("worker_not_running" if worker_state == "STOPPED" else "worker_never_started")
@@ -77,6 +92,10 @@ def operational_status(session: Session, now: datetime | None = None, organizati
         reasons.append("deadlines_overdue")
     if dead_letters:
         reasons.append("dead_letters")
+    if overdue_tasks:
+        reasons.append("recovery_overdue")
+    if failed_tasks:
+        reasons.append("recovery_failed")
     return {
         "status": "DEGRADED" if reasons else "OPERATIONAL",
         "reasons": reasons,
@@ -86,5 +105,6 @@ def operational_status(session: Session, now: datetime | None = None, organizati
         "processing": {"overdue_messages": overdue_messages, "dead_letters": dead_letters,
                        "overdue_deadlines": overdue_deadlines + overdue_standby,
                        "overdue_after_seconds": int(overdue_after.total_seconds())},
+        "recovery": {"overdue_tasks": overdue_tasks, "failed_tasks": failed_tasks},
     }
 

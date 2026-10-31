@@ -9,6 +9,8 @@ export const exceptionKindLabel: Record<SupplyException['kind'], string> = {
   CAPACITY_SHORTFALL: 'Capacity shortfall',
   RESPONSE_OVERDUE: 'Supplier reply overdue',
   STANDBY_EXPIRED: 'Standby authorization expired',
+  SUPPLIER_DROPOUT: 'Supplier dropout',
+  QUALITY_REJECTION: 'Quality rejection',
 };
 
 /** Open supply exceptions, refreshed in the background so worker-raised exceptions appear without a reload. */
@@ -46,7 +48,7 @@ function ExceptionItem({ item, showOrder }: { item: SupplyException; showOrder: 
       <button type="button" onClick={() => setResolving(v => !v)} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground">Resolve…</button>
     </div>
     {resolving && <form onSubmit={onResolve} aria-label="Resolve exception" className="mt-3 flex flex-wrap items-end gap-2">
-      <div className="min-w-[240px] flex-1"><Field label="What was done" name="resolution" required minLength={3} hint="A capacity shortfall closes by itself once the exposure is covered; it cannot be resolved by hand while exposure remains." /></div>
+      <div className="min-w-[240px] flex-1"><Field label="What was done" name="resolution" required minLength={3} hint="A capacity shortfall closes by itself once the exposure is covered; it cannot be resolved by hand while exposure remains. Dropouts and rejections close when recovery covers the order." /></div>
       <SubmitButton busy={resolve.isPending}>Resolve</SubmitButton>
     </form>}
     <ErrorNote error={acknowledge.error ?? resolve.error} />
