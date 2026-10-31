@@ -17,6 +17,7 @@ from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.risk.application.calculator import create_risk_snapshot
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 PLANNER_VERSION = "deterministic-greedy-v1"
 CALCULATION_VERSION = "landed-cost-v1"
@@ -93,7 +94,7 @@ def _eligible(requirement: Requirement, lot: ProductionLot, costs: LotCostInput,
         and lot.harvest_start <= requirement.delivery_window_end
         and lot.harvest_end >= requirement.delivery_window_start
         and lot.status == ProductionLotStatus.AVAILABLE
-        and lot.available_quantity_kg > lot.reserved_quantity_kg
+        and free_kg(lot) > 0
         and _minimum_confidence_value(lot.availability_confidence) >= _minimum_confidence_value(config.minimum_confidence)
     )
 
@@ -185,7 +186,7 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
             .with_for_update()
         ).all()
         candidates = [
-            Candidate(lot=lot, farmer=farmer, costs=costs, free_quantity_kg=lot.available_quantity_kg - lot.reserved_quantity_kg)
+            Candidate(lot=lot, farmer=farmer, costs=costs, free_quantity_kg=free_kg(lot))
             for lot, farmer, costs in rows if _eligible(requirement, lot, costs, config)
         ]
         free = {candidate.lot.id: candidate.free_quantity_kg for candidate in candidates}

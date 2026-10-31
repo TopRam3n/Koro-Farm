@@ -17,6 +17,9 @@ from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.supply.application.crops import require_active_crop
 from src.backend.app.supply.domain.models import CapacityVerification, Farmer, ProductionLot, ProductionLotStatus
+from src.backend.app.supply.domain.capacity import CapacityReport
+from src.backend.app.supply.application.capacity import CapacityError, CapacityForbidden, record_capacity_report
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 router = APIRouter(prefix="/production-lots", tags=["production-lots"])
 
@@ -43,6 +46,9 @@ class ProductionLotRead(BaseModel):
     evidence_reference: str | None = None
     declared_at: datetime | None = None
     farmgate_price_per_kg_jmd: Decimal | None = None
+    reported_capacity_kg: Decimal | None = None
+    capacity_reported_at: datetime | None = None
+    free_kg: Decimal | None = None
     version: int
 
 
@@ -98,6 +104,7 @@ def _read(session: Session, lot: ProductionLot, farmer: Farmer | None = None) ->
     data.farmer_name = farmer.name if farmer else None
     costs = _costs(session, lot.id)
     data.farmgate_price_per_kg_jmd = costs.farmgate_price_per_kg_jmd if costs else None
+    data.free_kg = free_kg(lot)
     return data
 
 
@@ -232,7 +239,7 @@ def update_production_lot(lot_id: UUID, payload: ProductionLotUpdate, session: S
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     now = datetime.now(timezone.utc)
-    lot.status = ProductionLotStatus.AVAILABLE if lot.available_quantity_kg > lot.reserved_quantity_kg else ProductionLotStatus.UNAVAILABLE
+    lot.status = ProductionLotStatus.AVAILABLE if free_kg(lot) > 0 else ProductionLotStatus.UNAVAILABLE
     lot.capacity_verification = CapacityVerification.DECLARED
     lot.provenance_source, lot.attestation_method = payload.provenance_source.strip(), payload.attestation_method.strip()
     lot.evidence_reference, lot.recorded_by_user_id, lot.declared_at, lot.last_verified_at = payload.evidence_reference, context.user_id, now, now
@@ -244,3 +251,52 @@ def update_production_lot(lot_id: UUID, payload: ProductionLotUpdate, session: S
     session.commit()
     session.refresh(lot)
     return _read(session, lot)
+
+
+class CapacityReportCommand(BaseModel):
+    reported_capacity_kg: Decimal = Field(ge=0, max_digits=12, decimal_places=3,
+                                          description="Total quantity the farmer can now supply from this lot")
+    effective_at: datetime | None = Field(default=None, description="When the reported situation applies; defaults to now")
+    original_source: str | None = Field(default=None, max_length=200, description="Required when relayed, e.g. 'phone call with farmer'")
+    attestation_method: str | None = Field(default=None, max_length=100, description="Required when relayed, e.g. 'verbal'")
+    evidence_reference: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/{lot_id}/capacity-reports", status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(PermissionCode.SUPPLY_VIEW))])
+def post_capacity_report(lot_id: UUID, payload: CapacityReportCommand, session: Session = Depends(get_session),
+                         context: AuthorizationContext = Depends(get_authorization_context),
+                         idempotency_key: str | None = Depends(tenant_idempotency_key)) -> dict:
+    """A farmer (own lots) or a coordinator on their behalf reports current capacity.
+
+    The report is stored immutably and its event is written to the outbox in the same transaction; the
+    exception worker opens an exception if confirmed commitments are no longer covered.
+    """
+    try:
+        result = record_capacity_report(
+            session, context, lot_id, payload.reported_capacity_kg, effective_at=payload.effective_at,
+            original_source=payload.original_source, attestation_method=payload.attestation_method,
+            evidence_reference=payload.evidence_reference, key=idempotency_key)
+    except CapacityForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except CapacityError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    session.commit()
+    return result
+
+
+@router.get("/{lot_id}/capacity-reports", dependencies=[Depends(require_permission(PermissionCode.SUPPLY_VIEW))])
+def list_capacity_reports(lot_id: UUID, session: Session = Depends(get_session),
+                          context: AuthorizationContext = Depends(get_authorization_context)) -> list[dict]:
+    lot = session.get(ProductionLot, lot_id)
+    if context.role == RoleCode.FARMER and context.farmer_id != lot.farmer_id:
+        raise HTTPException(404, "production lot not found")
+    rows = session.scalars(select(CapacityReport).where(CapacityReport.production_lot_id == lot_id)
+                           .order_by(CapacityReport.effective_at.desc(), CapacityReport.recorded_at.desc())).all()
+    return [{"id": str(r.id), "reported_capacity_kg": str(r.reported_capacity_kg),
+             "previous_reported_kg": str(r.previous_reported_kg) if r.previous_reported_kg is not None else None,
+             "committed_at_report_kg": str(r.committed_at_report_kg), "effective_at": r.effective_at, "recorded_at": r.recorded_at,
+             "channel": r.channel.value, "original_source": r.original_source, "attestation_method": r.attestation_method,
+             "evidence_reference": r.evidence_reference, "verification_status": r.verification_status.value,
+             "applied": r.applied, "recorded_by_user_id": str(r.recorded_by_user_id) if r.recorded_by_user_id else None}
+            for r in rows]

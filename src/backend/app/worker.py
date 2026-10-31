@@ -1,0 +1,143 @@
+"""Deterministic supply-exception worker. No language model is involved.
+
+Run it next to the API:  APP_ENV=... DATABASE_URL=... python -m src.backend.app.worker
+
+* Outbox: each PENDING message is claimed with SELECT ... FOR UPDATE SKIP LOCKED, so several workers never
+  handle the same message. The handler runs in a savepoint: on failure its changes roll back, the attempt is
+  recorded with a backoff, and after MAX_ATTEMPTS the message is marked DEAD. Handlers are idempotent
+  (exceptions are de-duplicated by key), so a retried or replayed message cannot open duplicates.
+* Timers: response reminders (half-way), overdue responses (deadline) and standby expiry, one item per
+  transaction, each re-checked under a row lock.
+"""
+import logging
+import os
+import signal
+import time
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session, sessionmaker
+
+import src.backend.app.main  # noqa: F401  (registers every mapped model and validates configuration)
+from src.backend.app.assurance.application.exceptions import (
+    expire_overdue_response, expire_standby, reevaluate_lot, send_reminder,
+)
+from src.backend.app.assurance.domain.models import OutboxMessage
+from src.backend.app.infrastructure.database.session import create_session_factory
+from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
+
+log = logging.getLogger("korofarm.worker")
+MAX_ATTEMPTS = 5
+
+
+def _handle(session: Session, message: OutboxMessage) -> None:
+    if message.topic == "lot.capacity_reported":
+        if message.payload.get("applied", True):
+            reevaluate_lot(session, UUID(message.payload["production_lot_id"]), message.event_id)
+    # Other topics need no exception handling yet; they are marked processed.
+
+
+def process_next_message(factory: sessionmaker[Session], now: datetime | None = None) -> bool:
+    """Claim and handle one pending outbox message. Returns False when none is ready."""
+    now = now or datetime.now(timezone.utc)
+    with factory() as session, session.begin():
+        message = session.scalar(
+            select(OutboxMessage)
+            .where(OutboxMessage.status == "PENDING",
+                   (OutboxMessage.available_at.is_(None)) | (OutboxMessage.available_at <= now))
+            .order_by(OutboxMessage.created_at, OutboxMessage.id)
+            .limit(1)
+            .with_for_update(skip_locked=True))
+        if message is None:
+            return False
+        try:
+            with session.begin_nested():
+                _handle(session, message)
+            message.status, message.processed_at, message.last_error = "PROCESSED", now, None
+        except Exception as exc:  # recorded and retried; never silently dropped
+            message.attempts += 1
+            message.last_error = f"{type(exc).__name__}: {exc}"[:1000]
+            if message.attempts >= MAX_ATTEMPTS:
+                message.status = "DEAD"
+                log.error("outbox message %s dead after %s attempts: %s", message.id, message.attempts, message.last_error)
+            else:
+                message.available_at = now + timedelta(seconds=2 ** message.attempts)
+                log.warning("outbox message %s failed (attempt %s): %s", message.id, message.attempts, message.last_error)
+        return True
+
+
+def _each(factory: sessionmaker[Session], ids, action) -> int:
+    done = 0
+    for item_id in ids:
+        try:
+            with factory() as session, session.begin():
+                if action(session, item_id):
+                    done += 1
+        except Exception:  # one bad item must not block the others; it is retried on the next tick
+            log.exception("timer action failed for %s", item_id)
+    return done
+
+
+def _expired(action, session: Session, allocation_id: UUID, now: datetime) -> bool:
+    before = session.get(SupplyAllocation, allocation_id).status
+    action(session, allocation_id, now.date())
+    return before == AllocationStatus.STANDBY and session.get(SupplyAllocation, allocation_id).status == AllocationStatus.EXPIRED
+
+
+def run_timers(factory: sessionmaker[Session], now: datetime | None = None) -> dict:
+    now = now or datetime.now(timezone.utc)
+    with factory() as session:
+        open_requests = session.execute(select(SupplyAllocation.id, SupplyAllocation.response_due_at).where(
+            SupplyAllocation.status == AllocationStatus.SOLICITED, SupplyAllocation.response_due_at.is_not(None))).all()
+        expiring = session.scalars(select(SupplyAllocation.id).where(
+            SupplyAllocation.status == AllocationStatus.STANDBY, SupplyAllocation.consent_status == ConsentStatus.RECORDED,
+            SupplyAllocation.authorization_valid_until.is_not(None),
+            SupplyAllocation.authorization_valid_until < now.date())).all()
+
+    def due(value):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+    overdue = [row.id for row in open_requests if due(row.response_due_at) <= now]
+    pending = [row.id for row in open_requests if due(row.response_due_at) > now]
+    return {
+        "reminders": _each(factory, pending, lambda s, i: send_reminder(s, i, now)),
+        "expired_requests": _each(factory, overdue, lambda s, i: expire_overdue_response(s, i, now) is not None),
+        # Counts standby authorizations checked and expired this tick (recovery-impact exceptions are a subset).
+        "standby_expired": _each(factory, expiring, lambda s, i: _expired(expire_standby, s, i, now)),
+    }
+
+
+def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_messages: int = 500) -> dict:
+    processed = 0
+    while processed < max_messages and process_next_message(factory, now):
+        processed += 1
+    return {"messages": processed, **run_timers(factory, now)}
+
+
+def main() -> None:
+    logging.basicConfig(level=os.getenv("WORKER_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    interval = float(os.getenv("WORKER_POLL_SECONDS", "2"))
+    factory = create_session_factory()
+    stopping = False
+
+    def stop(*_):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGINT, stop)
+    signal.signal(signal.SIGTERM, stop)
+    log.info("supply-exception worker started (poll every %ss)", interval)
+    while not stopping:
+        try:
+            result = run_once(factory)
+            if any(result.values()):
+                log.info("tick %s", result)
+        except Exception:
+            log.exception("worker tick failed; retrying")
+        time.sleep(interval)
+    log.info("supply-exception worker stopped")
+
+
+if __name__ == "__main__":
+    main()

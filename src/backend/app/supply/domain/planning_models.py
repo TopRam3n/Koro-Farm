@@ -113,6 +113,8 @@ class SupplyAllocation(Base):
     authorization_valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     solicited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lost_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     plan_version: Mapped[int] = mapped_column(Integer, nullable=False)

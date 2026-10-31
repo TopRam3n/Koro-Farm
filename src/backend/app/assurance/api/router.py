@@ -23,6 +23,8 @@ from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.assurance.application.recovery import _coverage, committed_quantity
 from src.backend.app.assurance.application.recovery import continue_recovery
 from src.backend.app.assurance.domain.models import DomainEvent
+from src.backend.app.assurance.domain.exceptions import ExceptionStatus, SupplyException
+from src.backend.app.supply.application.capacity import lot_exposure, requirement_exposure
 
 router = APIRouter(prefix="/requirements", tags=["assurance"])
 
@@ -74,6 +76,10 @@ class AllocationRead(BaseModel):
     authorization_valid_until: date | None = None
     solicited_at: datetime | None = None
     responded_at: datetime | None = None
+    response_due_at: datetime | None = None
+    reminder_sent_at: datetime | None = None
+    covered_kg: Decimal | None = None
+    exposed_kg: Decimal = Decimal("0")
 
 
 class RequirementSummary(BaseModel):
@@ -104,6 +110,12 @@ class AssuranceRead(BaseModel):
     solicited_quantity_kg: Decimal = Decimal("0")
     proposed_standby_kg: Decimal = Decimal("0")
     unsupported_legacy_kg: Decimal = Decimal("0")
+    # Capacity reports (WP2): commitments stay as agreed; exposure is reported separately.
+    currently_covered_kg: Decimal = Decimal("0")
+    exposed_kg: Decimal = Decimal("0")
+    standby_uncovered_kg: Decimal = Decimal("0")
+    expired_standby_kg: Decimal = Decimal("0")
+    open_exceptions: list[dict] = []
     committed_farmer_count: int
     standby_farmer_count: int
     parish_concentration: dict[str, Decimal]
@@ -207,7 +219,8 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
                        consent_id=allocation.consent_evidence_id if allocation.consent_status == ConsentStatus.RECORDED else None,
                        holds_reservation=allocation.holds_reservation, activation_conditions=allocation.activation_conditions,
                        authorization_valid_until=allocation.authorization_valid_until,
-                       solicited_at=allocation.solicited_at, responded_at=allocation.responded_at)
+                       solicited_at=allocation.solicited_at, responded_at=allocation.responded_at,
+                       response_due_at=allocation.response_due_at, reminder_sent_at=allocation.reminder_sent_at)
         for allocation, lot, farmer in rows
     ]
     committed_rows = [(allocation, lot, farmer) for allocation, lot, farmer in rows if allocation.role == AllocationRole.COMMITTED and allocation.status == AllocationStatus.COMMITTED and allocation.consent_status == ConsentStatus.RECORDED]
@@ -229,6 +242,22 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
     solicited_kg = _sum(lambda a: a.status == AllocationStatus.SOLICITED)
     proposed_standby_kg = _sum(lambda a: a.role == AllocationRole.STANDBY and a.status == AllocationStatus.PROPOSED)
     unsupported_kg = _sum(lambda a: a.consent_status == ConsentStatus.UNSUPPORTED_LEGACY and a.status in (AllocationStatus.COMMITTED, AllocationStatus.STANDBY))
+    exposed_kg, exposure_by_allocation, _ = requirement_exposure(session, requirement.id)
+    for row in allocations:
+        exposure = exposure_by_allocation.get(row.id)
+        if exposure is not None:
+            row.covered_kg, row.exposed_kg = exposure.covered_kg, exposure.exposed_kg
+    standby_uncovered = Decimal("0")
+    for allocation, lot, _ in rows:
+        if allocation.status == AllocationStatus.STANDBY and allocation.consent_status == ConsentStatus.RECORDED:
+            standby_uncovered += min(allocation.quantity_kg, lot_exposure(session, lot).standby_uncovered_kg)
+    expired_standby = _sum(lambda a: a.role == AllocationRole.STANDBY and a.status == AllocationStatus.EXPIRED)
+    open_exceptions = [{"id": str(e.id), "kind": e.kind.value, "shortfall_kg": str(e.shortfall_kg), "summary": e.summary,
+                        "opened_at": e.opened_at.isoformat() if e.opened_at else None,
+                        "acknowledged": e.acknowledged_at is not None}
+                       for e in session.scalars(select(SupplyException).where(
+                           SupplyException.requirement_id == requirement.id, SupplyException.status == ExceptionStatus.OPEN)
+                           .order_by(SupplyException.opened_at))]
     concentration = {parish: quantity / committed_kg for parish, quantity in parish_quantities.items()} if committed_kg else {}
     initial_plan = session.scalar(select(SupplyPlan).where(SupplyPlan.requirement_id == requirement.id).order_by(SupplyPlan.plan_version))
     original_cost = session.scalar(select(CostSnapshot).where(CostSnapshot.supply_plan_id == initial_plan.id)) if initial_plan else None
@@ -245,6 +274,8 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
         assured_coverage_quantity_kg=assured_kg, standby_quantity_kg=standby_kg,
         proposed_quantity_kg=proposed_kg, solicited_quantity_kg=solicited_kg, proposed_standby_kg=proposed_standby_kg,
         unsupported_legacy_kg=unsupported_kg,
+        currently_covered_kg=committed_kg - exposed_kg, exposed_kg=exposed_kg,
+        standby_uncovered_kg=standby_uncovered, expired_standby_kg=expired_standby, open_exceptions=open_exceptions,
         unfilled_quantity_kg=max(requirement.required_quantity_kg - assured_kg, Decimal("0")),
         committed_farmer_count=len({farmer.id for _, _, farmer in committed_rows}),
         standby_farmer_count=len({farmer.id for allocation, _, farmer in rows if allocation.role == AllocationRole.STANDBY}),

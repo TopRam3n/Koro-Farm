@@ -97,6 +97,11 @@ def _org_of_corridor(corridor_id) -> Select:
     return select(TradeCorridor.organization_id).where(TradeCorridor.id == corridor_id)
 
 
+def _org_of_exception(exception_id) -> Select:
+    from src.backend.app.assurance.domain.exceptions import SupplyException
+    return select(SupplyException.organization_id).where(SupplyException.id == exception_id)
+
+
 # Kind -> ownership query. Path parameters use the same names with an ``_id`` suffix.
 RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "buyer": _org_of_buyer,
@@ -113,6 +118,7 @@ RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "fulfilment_node": _org_of_node,
     "corridor": _org_of_corridor,
     "trade_corridor": _org_of_corridor,
+    "exception": _org_of_exception,
 }
 
 

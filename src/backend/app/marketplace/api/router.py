@@ -22,6 +22,7 @@ from src.backend.app.marketplace.domain.models import (
     MarketplaceOrderStatus,
 )
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 router = APIRouter(prefix="/marketplace", tags=["customer marketplace"])
 
@@ -71,7 +72,7 @@ def _availability_row(lot: ProductionLot, farmer: Farmer) -> dict:
         "harvest_start": lot.harvest_start,
         "harvest_end": lot.harvest_end,
         "expected_quantity_kg": str(lot.expected_quantity_kg),
-        "available_quantity_kg": str(lot.available_quantity_kg - lot.reserved_quantity_kg),
+        "available_quantity_kg": str(free_kg(lot)),
         "availability_confidence": lot.availability_confidence.value,
         "last_reported_at": lot.last_verified_at,
     }
@@ -101,7 +102,7 @@ def list_availability(
         Farmer.organization_id == context.organization_id,
         Farmer.active.is_(True),
         ProductionLot.status == ProductionLotStatus.AVAILABLE,
-        ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+        has_free_stock_sql(),
     )
     if crop is not None:
         statement = statement.where(ProductionLot.crop == crop)
@@ -133,7 +134,7 @@ def create_order(
     if row is None:
         raise HTTPException(404, "available production lot not found")
     lot, farmer = row
-    remaining = lot.available_quantity_kg - lot.reserved_quantity_kg
+    remaining = free_kg(lot)
     if payload.quantity_kg > remaining:
         raise HTTPException(409, f"only {remaining} kg remains available")
 
@@ -231,7 +232,7 @@ def list_alerts(
                     Farmer.active.is_(True),
                     ProductionLot.crop == watch.crop,
                     ProductionLot.status == ProductionLotStatus.AVAILABLE,
-                    ProductionLot.available_quantity_kg - ProductionLot.reserved_quantity_kg >= watch.minimum_quantity_kg,
+                    free_kg_sql() >= watch.minimum_quantity_kg,
                 )
             ).all()
             for lot, _farmer in matches:
@@ -271,7 +272,7 @@ def list_alerts(
                 "watch_id": str(watch.id),
                 "crop": watch.crop.value,
                 "minimum_quantity_kg": str(watch.minimum_quantity_kg),
-                "available_quantity_kg": str(lot.available_quantity_kg - lot.reserved_quantity_kg),
+                "available_quantity_kg": str(free_kg(lot)),
                 "farmer_name": farmer.name,
                 "parish": farmer.parish,
                 "quality_grade_estimate": lot.quality_grade_estimate.value,

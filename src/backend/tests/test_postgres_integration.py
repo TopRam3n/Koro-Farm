@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.backend.app.assurance.application.recovery import continue_recovery, dropout
 from consent_support import TEST_ACTOR, plan_and_confirm, accept
 from src.backend.app.supply.application.commitments import CommitmentError, solicit
-from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun
+from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage, RecoveryRun
 from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
@@ -244,4 +244,74 @@ def test_two_orders_accepting_against_the_same_lot_cannot_over_reserve(pg_factor
         assert s.get(ProductionLot, item.id).reserved_quantity_kg == Decimal("100")
         committed = s.scalars(select(SupplyAllocation).where(SupplyAllocation.status == AllocationStatus.COMMITTED)).all()
         assert len(committed) == 1 and committed[0].consent_status.value == "RECORDED"
+    assert_inventory(pg_factory)
+
+
+RELAYED = dict(effective_at=None, original_source="phone call with farmer", attestation_method="verbal", evidence_reference=None)
+
+
+def _solicited_proposal(s, quantity="100"):
+    req = requirement(s, quantity); item = lot(s, quantity)
+    finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+    proposal = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
+    solicit(s, TEST_ACTOR, proposal.id, None, f"solicit-{proposal.id}"); s.commit()
+    return req, item, proposal
+
+
+def test_capacity_report_and_acceptance_serialize_without_over_reservation(pg_factory):
+    """Either the acceptance lands first (then the report exposes it) or the report lands first (then the
+    acceptance is refused). Never over-reserved, never negative free stock, never an integrity failure."""
+    from src.backend.app.supply.application.capacity import free_kg, lot_exposure, record_capacity_report
+    with pg_factory() as s:
+        req, item, proposal = _solicited_proposal(s)
+    results = concurrent(pg_factory, [
+        lambda s: accept(s, proposal.id, "race-accept"),
+        lambda s: record_capacity_report(s, TEST_ACTOR, item.id, Decimal("40"), key="race-report", **RELAYED),
+    ])
+    assert not any(isinstance(r[1], IntegrityError) for r in results if r[0] == "error"), results
+    accepted, reported = results[0][0] == "ok", results[1][0] == "ok"
+    assert reported
+    with pg_factory() as s:
+        row = s.get(ProductionLot, item.id)
+        assert row.reported_capacity_kg == Decimal("40") and free_kg(row) >= 0
+        if accepted:  # acceptance won the lock: the commitment stands and is reported as exposed
+            assert row.reserved_quantity_kg == Decimal("100")
+            assert lot_exposure(s, row).exposed_kg == Decimal("60")
+        else:         # the report won: the acceptance was refused as stale
+            assert isinstance(results[0][1], CommitmentError) and row.reserved_quantity_kg == 0
+    assert_inventory(pg_factory)
+
+
+def test_concurrent_workers_open_exactly_one_exception(pg_factory):
+    from src.backend.app import worker
+    from src.backend.app.assurance.domain.exceptions import SupplyException
+    from src.backend.app.supply.application.capacity import record_capacity_report
+    with pg_factory() as s:
+        req, item, proposal = _solicited_proposal(s)
+        accept(s, proposal.id, "accept-1"); s.commit()
+        record_capacity_report(s, TEST_ACTOR, item.id, Decimal("30"), key="report-1", **RELAYED); s.commit()
+        record_capacity_report(s, TEST_ACTOR, item.id, Decimal("20"), key="report-2", **RELAYED); s.commit()
+    concurrent(pg_factory, [lambda s: worker.run_once(pg_factory), lambda s: worker.run_once(pg_factory),
+                            lambda s: worker.run_once(pg_factory)])
+    with pg_factory() as s:
+        rows = s.scalars(select(SupplyException).where(SupplyException.requirement_id == req.id)).all()
+        assert len(rows) == 1 and rows[0].shortfall_kg == Decimal("80")
+        assert s.scalar(select(func.count()).select_from(OutboxMessage).where(OutboxMessage.status != "PROCESSED")) == 0
+
+
+def test_concurrent_capacity_reports_on_one_lot_both_recorded_and_consistent(pg_factory):
+    from src.backend.app.supply.application.capacity import record_capacity_report
+    from src.backend.app.supply.domain.capacity import CapacityReport
+    with pg_factory() as s:
+        req, item, proposal = _solicited_proposal(s)
+    results = concurrent(pg_factory, [
+        lambda s: record_capacity_report(s, TEST_ACTOR, item.id, Decimal("70"), key="r-a", **RELAYED),
+        lambda s: record_capacity_report(s, TEST_ACTOR, item.id, Decimal("90"), key="r-b", **RELAYED),
+    ])
+    assert all(r[0] == "ok" for r in results), results
+    with pg_factory() as s:
+        reports = s.scalars(select(CapacityReport).where(CapacityReport.production_lot_id == item.id)).all()
+        assert len(reports) == 2
+        applied = [r for r in reports if r.applied]
+        assert s.get(ProductionLot, item.id).reported_capacity_kg in {r.reported_capacity_kg for r in applied}
     assert_inventory(pg_factory)
