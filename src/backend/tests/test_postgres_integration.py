@@ -97,10 +97,22 @@ def assert_inventory(factory):
 
 
 def test_two_requirements_cannot_reserve_the_same_lot(pg_factory):
+    """Two orders race for one 100 kg lot, each planning and recording its supplier's acceptance.
+
+    Planning reserves nothing, so either interleaving is legitimate: the later order may find no free
+    stock to propose, or both may be proposed the lot and the later acceptance is refused as stale.
+    The invariant checked is the same either way: exactly 100 kg committed, held by one order.
+    """
     with pg_factory() as s:
-        first, second = requirement(s), requirement(s); lot(s, "100")
+        first, second = requirement(s), requirement(s); item = lot(s, "100")
     results = concurrent(pg_factory, [lambda s: plan_and_confirm(s, first.id), lambda s: plan_and_confirm(s, second.id)])
-    assert sorted(r[1].committed_quantity_kg for r in results if r[0] == "ok") == [Decimal("0"), Decimal("100")]
+    assert all(isinstance(r[1], CommitmentError) for r in results if r[0] == "error"), results
+    with pg_factory() as s:
+        committed = s.scalars(select(SupplyAllocation).where(SupplyAllocation.status == AllocationStatus.COMMITTED)).all()
+        assert sum((a.quantity_kg for a in committed), Decimal("0")) == Decimal("100")
+        assert len({a.requirement_id for a in committed}) == 1
+        assert all(a.consent_status.value == "RECORDED" for a in committed)
+        assert s.get(ProductionLot, item.id).reserved_quantity_kg == Decimal("100")
     assert_inventory(pg_factory)
 
 
