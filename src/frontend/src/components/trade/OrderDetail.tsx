@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react';
 import { rememberActiveOrder } from '@/hooks/useActiveRequirement';
 import {
-  type Allocation, type Order, useCancelOrder, useOrder, useOrderHistory, useOrderSupply, usePlanOrder, useRespond, useSolicit,
-  useUpdateOrder, useWithdraw,
+  type Allocation, type Order, useCancelOrder, useOrder, useOrderHistory, useOrderSupply, usePlanOrder, useRespond, useSetDeadline,
+  useSolicit, useUpdateOrder, useWithdraw,
 } from '@/hooks/useTrade';
+import { ExceptionList } from '@/components/trade/ExceptionList';
 import {
   ErrorNote, Field, LoadState, Pill, Select, SubmitButton, SupplyStatePill, TextArea, TradePage, formValues, humanize, kg,
 } from '@/components/trade/TradeUi';
@@ -20,6 +21,10 @@ export function OrderDetail({ id }: { id: string }) {
       {order.data && <div className="space-y-6">
         <Terms order={order.data} />
         <Supply order={order.data} />
+        <section aria-labelledby="order-exceptions" className="operational-panel p-5">
+          <h2 id="order-exceptions" className="text-base font-semibold">Needs attention</h2>
+          <ExceptionList requirementId={id} empty="No open supply exceptions for this order." />
+        </section>
         <History id={id} />
       </div>}
     </LoadState>
@@ -97,11 +102,15 @@ function Supply({ order }: { order: Order }) {
   const cancelled = order.lifecycle_status === 'CANCELLED';
   const s = supply.data;
   const figures: Array<[string, string | undefined, string]> = s ? [
-    ['Committed', s.committed_quantity_kg, 'Supplier acceptance recorded'],
+    ['Committed', s.committed_quantity_kg, 'Supplier acceptance recorded. Stays recorded even if the supplier later reports less.'],
+    ['Currently covered', s.currently_covered_kg, 'Committed quantity the suppliers\u2019 latest capacity reports still support'],
+    ['Exposed', s.exposed_kg, 'Committed quantity the suppliers\u2019 latest capacity reports no longer support'],
     ['Authorized standby', s.standby_quantity_kg, 'Supplier authorization recorded; not buyer coverage'],
+    ['Standby uncovered', s.standby_uncovered_kg, 'Authorized standby the supplier\u2019s reported capacity no longer supports'],
+    ['Expired standby', s.expired_standby_kg, 'Standby authorizations past their end date; no longer usable'],
     ['Awaiting supplier', s.solicited_quantity_kg, 'Asked, no answer yet'],
     ['Proposed', s.proposed_quantity_kg, 'Suggested by the planner; not yet asked'],
-    ['Not yet covered', s.unfilled_quantity_kg, 'Required minus committed'],
+    ['Not yet committed', s.unfilled_quantity_kg, 'Required minus committed. Exposed quantity is shown separately and is not included here.'],
   ] : [];
   return <section aria-labelledby="supply" className="operational-panel p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -110,11 +119,12 @@ function Supply({ order }: { order: Order }) {
     </div>
     <LoadState query={supply}>
       {s && <>
-        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5" aria-label="Supply states">
-          {figures.map(([label, value, hint]) => <div key={label} className="rounded-md border border-white/[0.07] p-3" title={hint}>
+        <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5" aria-label="Supply states">
+          {figures.map(([label, value, hint]) => <div key={label} className={`rounded-md border p-3 ${label === 'Exposed' && Number(value) > 0 ? 'border-destructive/60' : 'border-white/[0.07]'}`} title={hint}>
             <dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold" data-figure={label}>{kg(value)}</dd>
           </div>)}
         </dl>
+        {Number(s.exposed_kg) > 0 && <p role="alert" className="mt-3 text-sm text-destructive">{kg(s.exposed_kg)} of the committed supply is no longer backed by the suppliers&apos; reported capacity. The commitments remain on record; nothing has been activated automatically.</p>}
         {Number(s.unsupported_legacy_kg) > 0 && <p className="mt-3 text-sm text-destructive">{kg(s.unsupported_legacy_kg)} was recorded before supplier consent was captured and does not count as committed.</p>}
         {order.plan_version === 0 && !cancelled && <div className="mt-4">
           <button type="button" disabled={plan.isPending} onClick={() => plan.mutate()} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
@@ -143,26 +153,60 @@ export function healthLabel(health: string, planVersion: number) {
 
 function AllocationRow({ orderId, allocation, locked }: { orderId: string; allocation: Allocation; locked: boolean }) {
   const [responding, setResponding] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
   const solicit = useSolicit(orderId);
   const withdraw = useWithdraw(orderId);
   const open = allocation.status === 'PROPOSED' || allocation.status === 'SOLICITED';
+  const exposed = Number(allocation.exposed_kg ?? 0) > 0;
   const label = `${allocation.farmer_name} ${allocation.role === 'STANDBY' ? 'standby' : 'commitment'}`;
   return <>
     <tr data-allocation={allocation.id}>
       <td className="py-2">{allocation.farmer_name}<span className="block text-xs text-muted-foreground">{allocation.parish}</span></td>
       <td>{allocation.role === 'STANDBY' ? 'Standby' : 'Commitment'}</td>
-      <td className="text-right">{kg(allocation.quantity_kg)}</td>
+      <td className="text-right">{kg(allocation.quantity_kg)}{exposed && <span className="block text-[11px] text-destructive" data-exposed={allocation.exposed_kg ?? ''}>{kg(allocation.exposed_kg)} exposed</span>}</td>
       <td className="pl-3"><SupplyStatePill status={allocation.status} consent={allocation.consent_status} />
+        {allocation.status === 'SOLICITED' && allocation.response_due_at && <span className="block text-[11px] text-muted-foreground">Reply by {formatDue(allocation.response_due_at)}{allocation.reminder_sent_at ? ' · reminder sent' : ''}</span>}
+        {allocation.status === 'EXPIRED' && allocation.role === 'COMMITTED' && <span className="block text-[11px] text-muted-foreground">No reply by the deadline. Not treated as acceptance or refusal.</span>}
         {allocation.activation_conditions && <span className="block text-[11px] text-muted-foreground">If: {allocation.activation_conditions}{allocation.authorization_valid_until ? ` (until ${allocation.authorization_valid_until})` : ''}</span>}
       </td>
-      <td className="pl-3">{!locked && open && <div className="flex flex-wrap gap-2">
+      <td className="pl-3">{!locked && allocation.status === 'EXPIRED' && allocation.role === 'COMMITTED' && <button type="button" aria-label={`Ask ${label} again`} disabled={solicit.isPending} onClick={() => solicit.mutate({ allocationId: allocation.id })} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary disabled:opacity-60">Ask again</button>}
+        {!locked && open && <div className="flex flex-wrap gap-2">
         {allocation.status === 'PROPOSED' && <button type="button" aria-label={`Ask ${label}`} disabled={solicit.isPending} onClick={() => solicit.mutate({ allocationId: allocation.id })} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary disabled:opacity-60">Ask supplier</button>}
         {allocation.status === 'SOLICITED' && <button type="button" aria-label={`Record response for ${label}`} onClick={() => setResponding(v => !v)} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Record response</button>}
+        {allocation.status === 'SOLICITED' && <button type="button" aria-label={`Change reply deadline for ${label}`} onClick={() => setRescheduling(v => !v)} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground">Change deadline</button>}
         <button type="button" aria-label={`Withdraw ${label}`} disabled={withdraw.isPending} onClick={() => withdraw.mutate({ allocationId: allocation.id, reason: 'Withdrawn by coordinator' })} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground disabled:opacity-60">Withdraw</button>
       </div>}<ErrorNote error={solicit.error ?? withdraw.error} /></td>
     </tr>
     {responding && allocation.status === 'SOLICITED' && <tr><td colSpan={5} className="pb-4"><ResponseForm orderId={orderId} allocation={allocation} onDone={() => setResponding(false)} /></td></tr>}
+    {rescheduling && allocation.status === 'SOLICITED' && <tr><td colSpan={5} className="pb-4"><DeadlineForm orderId={orderId} allocation={allocation} onDone={() => setRescheduling(false)} /></td></tr>}
   </>;
+}
+
+export function formatDue(value: string) {
+  return new Date(value).toLocaleString('en-JM', { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/** `datetime-local` gives wall-clock time with no zone; send it as an absolute instant. */
+export function localToIso(value: string) {
+  return new Date(value).toISOString();
+}
+
+function DeadlineForm({ orderId, allocation, onDone }: { orderId: string; allocation: Allocation; onDone: () => void }) {
+  const deadline = useSetDeadline(orderId);
+
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = formValues(event.currentTarget);
+    const ok = await deadline.mutateAsync({ allocationId: allocation.id, respond_by: localToIso(values.respond_by ?? ''), reason: values.reason ?? '' }).then(() => true, () => false);
+    if (ok) onDone();
+  }
+
+  return <form onSubmit={onSubmit} aria-label={`Reply deadline for ${allocation.farmer_name}`} className="grid gap-3 rounded-md border border-white/[0.1] p-4 sm:grid-cols-2">
+    <p className="text-xs text-muted-foreground sm:col-span-2">The change and your reason are recorded in the order history. A missed deadline never counts as the supplier&apos;s answer.</p>
+    <Field label="New reply deadline" name="respond_by" type="datetime-local" required />
+    <Field label="Reason for the change" name="reason" required minLength={3} />
+    <div className="sm:col-span-2"><SubmitButton busy={deadline.isPending}>Save deadline</SubmitButton><ErrorNote error={deadline.error} /></div>
+  </form>;
 }
 
 function ResponseForm({ orderId, allocation, onDone }: { orderId: string; allocation: Allocation; onDone: () => void }) {

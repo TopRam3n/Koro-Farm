@@ -5,12 +5,22 @@ Runs the R1 order workflow through the real UI against a live stack:
 - production Next.js build (live mode, no demo replay);
 - FastAPI backend with real membership-based authorization (`APP_ENV=test`, demo auth bypass **off**);
 - a disposable PostgreSQL database migrated with Alembic;
+- the deterministic supply-exception worker (`python -m src.backend.app.worker`), which turns outbox events
+  into supply exceptions and runs the reply-deadline and standby-expiry timers;
 - `support/auth-stub.mjs`, a **test-only** stand-in for the Supabase Auth endpoints the app calls
   (password sign-in, token refresh, `GET /auth/v1/user`, logout). The login page and the backend's token
   check run unchanged; they point at the stand-in instead of a hosted Supabase project.
 
 The specs create every buyer, supplier, lot and order through the UI with run-unique names. The seed
-creates only two organizations and three users.
+creates two organizations, four users and one supplier record: the farmer account (`farmer_a`) must be linked
+to the supplier it reports for.
+
+| Spec | Covers |
+| --- | --- |
+| `order-workflow.spec.ts` | order creation, versioned edits, proposed → awaiting supplier → committed, second session, other organization |
+| `consent-and-boundaries.spec.ts` | decline and withdrawal, refused cancellation, cross-organization tokens, independent sessions |
+| `capacity-exceptions.spec.ts` (WP2) | the farmer sees the request and its reply deadline in the portal and accepts it there (farmer navigation only); the farmer reports less in the portal; the coordinator's already-open order page shows the exposure and an open exception without a reload; acknowledge; manual resolve refused while exposed; restored capacity closes the exception by itself; other organization sees nothing. **Needs the worker running.** |
+| `workspaces.spec.ts` | route map, command palette, Scenario Lab is visibly non-persistent |
 
 ## Procedure (CI runs the same steps: `.github/workflows/competition-readiness.yml`)
 
@@ -29,6 +39,7 @@ KOROFARM_E2E_AUTH_STANDIN=1 node src/frontend/e2e/r1/support/auth-stub.mjs /path
 SUPABASE_URL=http://127.0.0.1:54999 SUPABASE_PUBLISHABLE_KEY=e2e-test-key APP_ENV=test \
   ALLOW_INSECURE_DEMO_AUTH=false CORS_ORIGINS=http://127.0.0.1:3100 \
   .venv/Scripts/python.exe -m uvicorn src.backend.app.main:app --host 127.0.0.1 --port 8100 &
+SUPABASE_URL=http://127.0.0.1:54999 SUPABASE_PUBLISHABLE_KEY=e2e-test-key APP_ENV=test   WORKER_POLL_SECONDS=1 .venv/Scripts/python.exe -m src.backend.app.worker &
 
 # 3. Frontend (production build, live mode)
 cd src/frontend
@@ -39,6 +50,9 @@ npx next start -p 3100 -H 127.0.0.1 &
 # 4. Tests
 R1_E2E_USERS=/path/outside/repo/users.json npm run test:e2e
 ```
+
+Real Supabase sign-in, session handling, cross-organization access and sign-out are **not** covered here;
+they are a separate release gate: `docs/product/STAGING_AUTH_VERIFICATION.md`.
 
 ## Safety boundaries
 

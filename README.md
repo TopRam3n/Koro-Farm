@@ -21,6 +21,20 @@ python -m uvicorn src.backend.app.main:app --reload
 
 Open `http://127.0.0.1:8000/docs` for the complete API contract.
 
+Run the supply-exception worker next to the API, with the same environment. It is deterministic (no language model): it turns supplier capacity reports into supply exceptions through the transactional outbox, sends in-app reply reminders at the half-way point, expires unanswered supplier requests at their deadline, and expires standby authorizations past their end date. Without it, capacity reports are still stored and exposure is still shown, but no exceptions are opened and no deadlines are enforced.
+
+```powershell
+$env:WORKER_POLL_SECONDS = "2"   # optional, default 2
+python -m src.backend.app.worker
+```
+
+## Supplier capacity and supply exceptions (R1 WP2)
+
+- `POST /production-lots/{id}/capacity-reports` records what a supplier can now supply. A farmer reports for their own lots (`FARMER_PORTAL`, self-reported); a coordinator relaying it must give the original source and attestation (`COORDINATOR_RELAYED`, coordinator-attested). Reports are immutable; an older report arriving after a newer one is stored but not applied.
+- A report below what is already committed keeps every commitment on record. The shortfall is reported as exposure (latest commitment first) and the worker opens one `CAPACITY_SHORTFALL` exception per order, closed automatically when capacity is restored. Nothing is activated automatically.
+- Supplier requests get a reply deadline: 24 hours, or 4 hours when delivery starts within 48 hours; `PATCH /allocations/{id}/deadline` changes it with a recorded reason. A missed deadline expires the request (`RESPONSE_OVERDUE`); it is never treated as acceptance, refusal or permission to activate supply.
+- `GET /exceptions`, `POST /exceptions/{id}/acknowledge`, `POST /exceptions/{id}/resolve` (refused for a capacity shortfall while exposure remains).
+
 ## Current planning endpoints
 
 - `POST /requirements/{id}/plan` creates one immutable initial plan. It reserves exactly the required committed quantity where possible, then a 20% standby target. A second initial plan request returns `409` rather than double allocating lots.

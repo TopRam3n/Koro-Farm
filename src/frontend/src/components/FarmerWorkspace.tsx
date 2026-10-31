@@ -6,6 +6,7 @@ import { CalendarDays, CircleAlert, ClipboardPlus, PackageCheck } from 'lucide-r
 import { AppShell } from '@/components/AppShell';
 import { apiFetch } from '@/lib/api';
 import { useIdentity } from '@/hooks/useIdentity';
+import { FarmerRequests } from '@/components/FarmerRequests';
 
 const crops = ['BANANA', 'BREADFRUIT', 'CALLALOO', 'CASSAVA', 'GINGER', 'MANGO', 'PLANTAIN', 'SWEET_POTATO', 'YAM'];
 
@@ -17,6 +18,8 @@ type FarmerLot = {
   expected_quantity_kg: string;
   available_quantity_kg: string;
   reserved_quantity_kg: string;
+  reported_capacity_kg: string | null;
+  capacity_reported_at: string | null;
   quality_grade_estimate: string;
   availability_confidence: string;
   status: 'AVAILABLE' | 'UNAVAILABLE' | 'EXHAUSTED';
@@ -34,8 +37,11 @@ export function FarmerWorkspace() {
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['farmer', 'lots'] }),
   });
   const readyStock = useMutation({
-    mutationFn: ({ lotId, quantity }: { lotId: string; quantity: string }) => apiFetch(`/v1/ingestion/farmer-production-lots/${lotId}/availability`, {
-      method: 'POST', body: JSON.stringify({ available_quantity_kg: quantity }),
+    // A capacity report covers increases and reductions alike. A reduction below what is already promised to
+    // orders is accepted: the promises stand and the coordinator is alerted to the shortfall.
+    mutationFn: ({ lotId, quantity }: { lotId: string; quantity: string }) => apiFetch(`/production-lots/${lotId}/capacity-reports`, {
+      method: 'POST', body: JSON.stringify({ reported_capacity_kg: quantity }),
+      headers: { 'Idempotency-Key': crypto.randomUUID() },
     }),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['farmer', 'lots'] }),
   });
@@ -58,7 +64,7 @@ export function FarmerWorkspace() {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
-    await readyStock.mutateAsync({ lotId, quantity: String(values.get('available_quantity_kg')) });
+    await readyStock.mutateAsync({ lotId, quantity: String(values.get('reported_capacity_kg')) });
     form.reset();
   }
 
@@ -79,11 +85,16 @@ export function FarmerWorkspace() {
       </form>}
     </section>
 
+    {identity.data?.active_role === 'FARMER' && <section className="mt-8" aria-labelledby="requests-title">
+      <div className="mb-4"><p className="section-eyebrow">Buyers asking</p><h2 id="requests-title" className="mt-1 text-xl font-semibold">Requests awaiting your answer</h2></div>
+      <FarmerRequests />
+    </section>}
+
     <section className="mt-8" aria-labelledby="lots-title">
       <div className="mb-4 flex items-end justify-between gap-4"><div><p className="section-eyebrow">My listings</p><h2 id="lots-title" className="mt-1 text-xl font-semibold">Reported harvests</h2></div><span className="text-xs text-muted-foreground">{lots.data?.length ?? 0} listings</span></div>
-      {lots.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading your harvests…</p> : lots.error ? <p role="alert" className="py-8 text-sm text-destructive">Your harvest records are unavailable.</p> : lots.data?.length ? <div className="divide-y divide-white/[0.07] border-y border-white/[0.07]">{lots.data.map(lot => <article key={lot.id} className="grid gap-4 py-4"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h3 className="text-sm font-semibold">{lot.crop.replace(/_/g, ' ')} · Grade {lot.quality_grade_estimate}</h3><p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />{lot.harvest_start} to {lot.harvest_end}</p></div><div className="flex flex-wrap items-center gap-2 text-xs"><PackageCheck className="h-4 w-4 text-primary" /><span className="tabular">{lot.expected_quantity_kg} kg expected</span><span className="text-muted-foreground">· {lot.available_quantity_kg} kg ready · {lot.status.toLowerCase()}</span></div></div>{identity.data?.active_role === 'FARMER' && <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={event => submitReadyStock(event, lot.id)}><label className="grid gap-1 text-[10px] font-medium text-muted-foreground">Kilograms ready for orders<input name="available_quantity_kg" type="number" min={lot.reserved_quantity_kg} max={lot.expected_quantity_kg} step="0.001" defaultValue={lot.available_quantity_kg} required className="h-10 rounded-md border border-white/10 bg-background px-3 text-sm text-foreground" /></label><button type="submit" disabled={readyStock.isPending} className="min-h-10 rounded-md border border-white/10 px-3 text-xs font-semibold hover:bg-white/[0.05] disabled:opacity-60">{readyStock.isPending ? 'Updating…' : 'Update ready stock'}</button></form>}</article>)}</div> : <div className="border-y border-white/[0.07] py-10 text-center"><PackageCheck className="mx-auto h-5 w-5 text-muted-foreground" /><p className="mt-3 text-sm font-medium">No harvests reported</p><p className="mt-1 text-xs text-muted-foreground">Your saved estimates will appear here.</p></div>}
+      {lots.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading your harvests…</p> : lots.error ? <p role="alert" className="py-8 text-sm text-destructive">Your harvest records are unavailable.</p> : lots.data?.length ? <div className="divide-y divide-white/[0.07] border-y border-white/[0.07]">{lots.data.map(lot => <article key={lot.id} className="grid gap-4 py-4"><div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h3 className="text-sm font-semibold">{lot.crop.replace(/_/g, ' ')} · Grade {lot.quality_grade_estimate}</h3><p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />{lot.harvest_start} to {lot.harvest_end}</p></div><div className="flex flex-wrap items-center gap-2 text-xs"><PackageCheck className="h-4 w-4 text-primary" /><span className="tabular">{lot.expected_quantity_kg} kg expected</span><span className="text-muted-foreground">· {lot.reported_capacity_kg ?? lot.available_quantity_kg} kg you can supply · {lot.reserved_quantity_kg} kg promised to orders · {lot.status.toLowerCase()}</span></div></div>{identity.data?.active_role === 'FARMER' && <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" onSubmit={event => submitReadyStock(event, lot.id)}><label className="grid gap-1 text-[10px] font-medium text-muted-foreground">Kilograms you can supply now<input name="reported_capacity_kg" type="number" min="0" max={lot.expected_quantity_kg} step="0.001" defaultValue={lot.reported_capacity_kg ?? lot.available_quantity_kg} required className="h-10 rounded-md border border-white/10 bg-background px-3 text-sm text-foreground" /></label><button type="submit" disabled={readyStock.isPending} className="min-h-10 rounded-md border border-white/10 px-3 text-xs font-semibold hover:bg-white/[0.05] disabled:opacity-60">{readyStock.isPending ? 'Sending…' : 'Report what I can supply'}</button></form>}</article>)}</div> : <div className="border-y border-white/[0.07] py-10 text-center"><PackageCheck className="mx-auto h-5 w-5 text-muted-foreground" /><p className="mt-3 text-sm font-medium">No harvests reported</p><p className="mt-1 text-xs text-muted-foreground">Your saved estimates will appear here.</p></div>}
       {readyStock.error && <p role="alert" className="mt-3 text-sm text-destructive">{readyStock.error.message}</p>}
-      {readyStock.isSuccess && <p role="status" className="mt-3 text-sm text-success">Ready stock updated. Customers will see available quantities.</p>}
+      {readyStock.isSuccess && <p role="status" className="mt-3 text-sm text-success">Report recorded. If it is less than you have promised, your coordinator is alerted; your existing promises are not cancelled.</p>}
     </section>
   </main></AppShell>;
 }

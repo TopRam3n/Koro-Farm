@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test -c playwright.r1.config.ts",
+    "test:staging-auth": "playwright test -c playwright.staging.config.ts",
     "check:bundle": "node scripts/check-bundle-no-test-auth.mjs"
   },
   "dependencies": {

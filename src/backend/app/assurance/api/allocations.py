@@ -190,4 +190,5 @@ def my_solicitations(session: Session = Depends(get_session),
         .order_by(SupplyAllocation.solicited_at)).all()
     return [{"allocation_id": str(a.id), "role": a.role.value, "quantity_kg": str(a.quantity_kg), "crop": str(r.crop),
              "grade": r.grade.value, "delivery_window_start": r.delivery_window_start, "delivery_window_end": r.delivery_window_end,
-             "buyer_name": b.name, "production_lot_id": str(lot.id), "solicited_at": a.solicited_at} for a, lot, r, b in rows]
+             "buyer_name": b.name, "production_lot_id": str(lot.id), "solicited_at": a.solicited_at,
+             "response_due_at": a.response_due_at, "reminder_sent_at": a.reminder_sent_at} for a, lot, r, b in rows]
