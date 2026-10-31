@@ -28,9 +28,14 @@ $env:WORKER_POLL_SECONDS = "2"   # optional, default 2
 python -m src.backend.app.worker
 ```
 
+Monitoring never assumes the worker is running. Each tick records a heartbeat.
+- `GET /health/worker` (no sign-in, no tenant data) returns 200 only when monitoring is `OPERATIONAL`, and 503 with reasons otherwise. Point an uptime monitor at it; `GET /health` only says the API process is up.
+- `GET /system/status` (signed-in staff) adds the organization's backlog counts.
+- It reports `DEGRADED` when no worker has beaten within `WORKER_STALE_SECONDS` (default 30), a supplier update or deadline has waited longer than `PROCESSING_OVERDUE_SECONDS` (default 60), or any outbox message is dead-lettered. The app shows the same status in the header, with a banner when degraded, and the worker logs an error once per degraded condition.
+
 ## Supplier capacity and supply exceptions (R1 WP2)
 
-- `POST /production-lots/{id}/capacity-reports` records what a supplier can now supply. A farmer reports for their own lots (`FARMER_PORTAL`, self-reported); a coordinator relaying it must give the original source and attestation (`COORDINATOR_RELAYED`, coordinator-attested). Reports are immutable; an older report arriving after a newer one is stored but not applied.
+- `POST /production-lots/{id}/capacity-reports` records what a supplier can still supply, not counting anything already delivered. A farmer reports for their own lots (`FARMER_PORTAL`, self-reported); a coordinator relaying it must give the original source and attestation (`COORDINATOR_RELAYED`, coordinator-attested). Reports are immutable; an older report arriving after a newer one is stored but not applied.
 - A report below what is already committed keeps every commitment on record. The shortfall is reported as exposure (latest commitment first) and the worker opens one `CAPACITY_SHORTFALL` exception per order, closed automatically when capacity is restored. Nothing is activated automatically.
 - Supplier requests get a reply deadline: 24 hours, or 4 hours when delivery starts within 48 hours; `PATCH /allocations/{id}/deadline` changes it with a recorded reason. A missed deadline expires the request (`RESPONSE_OVERDUE`); it is never treated as acceptance, refusal or permission to activate supply.
 - `GET /exceptions`, `POST /exceptions/{id}/acknowledge`, `POST /exceptions/{id}/resolve` (refused for a capacity shortfall while exposure remains).

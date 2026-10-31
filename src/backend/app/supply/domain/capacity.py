@@ -24,13 +24,19 @@ class CapacityVerification(StrEnum):
 class CapacityReport(Base):
     """Immutable record of a supplier capacity report. Never updated or deleted."""
     __tablename__ = "capacity_reports"
-    __table_args__ = (CheckConstraint("reported_capacity_kg >= 0", name="ck_capacity_report_non_negative"),)
+    __table_args__ = (CheckConstraint("reported_capacity_kg >= 0", name="ck_capacity_report_non_negative"),
+                      CheckConstraint("delivered_at_report_kg >= 0", name="ck_capacity_report_delivered_non_negative"))
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     production_lot_id: Mapped[UUID] = mapped_column(ForeignKey("production_lots.id"), nullable=False, index=True)
     farmer_id: Mapped[UUID] = mapped_column(ForeignKey("farmers.id"), nullable=False)
+    # What the supplier said they could still supply (excluding anything already delivered).
     reported_capacity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
+    # Received against the lot when the report was made; reported + delivered is the lot's capacity ceiling.
+    delivered_at_report_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"),
+                                                            server_default="0")
+    # The lot's capacity ceiling before this report (delivered plus still to supply).
     previous_reported_kg: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
     committed_at_report_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

@@ -64,13 +64,13 @@ export function SuppliersWorkspace() {
           <LoadState query={lots} empty={<HonestEmpty title="No production recorded" detail="Record a farmer's declared lot to make it available for orders." />}>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm" aria-label="Production lots">
-                <thead className="text-left text-xs text-muted-foreground"><tr><th className="py-2">Supplier</th><th>Crop</th><th>Harvest</th><th className="text-right">Available</th><th className="text-right">Reported</th><th className="text-right">Reserved</th><th className="pl-3">Capacity</th></tr></thead>
+                <thead className="text-left text-xs text-muted-foreground"><tr><th className="py-2">Supplier</th><th>Crop</th><th>Harvest</th><th className="text-right">Available</th><th className="text-right">Still to supply</th><th className="text-right">Reserved</th><th className="pl-3">Capacity</th></tr></thead>
                 <tbody className="divide-y divide-white/[0.07]">
                   {lots.data?.map(lot => <tr key={lot.id}>
                     <td className="py-2">{lot.farmer_name}</td><td>{lot.crop} · {lot.quality_grade_estimate}</td>
                     <td className="text-xs">{lot.harvest_start} → {lot.harvest_end}</td>
                     <td className="text-right">{kg(lot.available_quantity_kg)}</td>
-                    <td className="text-right" title={lot.capacity_reported_at ? `Reported ${new Date(lot.capacity_reported_at).toLocaleString('en-JM')}` : 'No capacity report yet'}>{kg(lot.reported_capacity_kg)}</td>
+                    <td className="text-right" title={lot.capacity_reported_at ? `Reported ${new Date(lot.capacity_reported_at).toLocaleString('en-JM')}; ${kg(lot.delivered_kg)} delivered` : 'No capacity report yet'}>{lot.reported_capacity_kg === null ? '—' : kg(Math.max(Number(lot.reported_capacity_kg) - Number(lot.delivered_kg), 0))}</td>
                     <td className={`text-right ${lot.reported_capacity_kg !== null && Number(lot.reported_capacity_kg) < Number(lot.reserved_quantity_kg) ? 'text-destructive' : ''}`}>{kg(lot.reserved_quantity_kg)}</td>
                     <td className="pl-3"><VerificationPill state={lot.capacity_verification} />{lot.provenance_source && <span className="block text-[11px] text-muted-foreground">{lot.provenance_source} · {lot.attestation_method}</span>}</td>
                   </tr>)}
@@ -113,7 +113,7 @@ export function SuppliersWorkspace() {
           <p className="mt-1 text-xs text-muted-foreground">Record what a farmer told you they can now supply from a lot. It is stored as their report, relayed and attested by you. A figure below what is already committed keeps the commitments on record and raises an exception; nothing is activated automatically.</p>
           <form className="mt-3 space-y-3" onSubmit={onCapacity} aria-label="Relay capacity report">
             <Select label="Lot" name="production_lot_id" required placeholder="Choose a lot" options={(lots.data ?? []).map(l => ({ value: l.id, label: `${l.farmer_name} · ${l.crop} · ${l.harvest_start}` }))} />
-            <Field label="Farmer can now supply (kg)" name="reported_capacity_kg" type="number" min="0" step="0.001" required />
+            <Field label="Farmer can still supply (kg)" name="reported_capacity_kg" type="number" min="0" step="0.001" required hint="Not counting anything already delivered." />
             <Field label="How the farmer told you" name="original_source" required minLength={3} placeholder="e.g. phone call with farmer" />
             <Field label="How it was attested" name="attestation_method" required minLength={3} placeholder="e.g. verbal, signed form" />
             <Field label="Evidence for this report" name="evidence_reference" placeholder="e.g. call log entry" />

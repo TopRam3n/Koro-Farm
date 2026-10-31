@@ -247,10 +247,13 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
         exposure = exposure_by_allocation.get(row.id)
         if exposure is not None:
             row.covered_kg, row.exposed_kg = exposure.covered_kg, exposure.exposed_kg
+    # Each standby allocation's own uncovered share; a lot's shortfall is split across its allocations, not repeated.
     standby_uncovered = Decimal("0")
+    lot_exposures: dict = {}
     for allocation, lot, _ in rows:
         if allocation.status == AllocationStatus.STANDBY and allocation.consent_status == ConsentStatus.RECORDED:
-            standby_uncovered += min(allocation.quantity_kg, lot_exposure(session, lot).standby_uncovered_kg)
+            exposure = lot_exposures.get(lot.id) or lot_exposures.setdefault(lot.id, lot_exposure(session, lot))
+            standby_uncovered += exposure.standby_uncovered.get(allocation.id, Decimal("0"))
     expired_standby = _sum(lambda a: a.role == AllocationRole.STANDBY and a.status == AllocationStatus.EXPIRED)
     open_exceptions = [{"id": str(e.id), "kind": e.kind.value, "shortfall_kg": str(e.shortfall_kg), "summary": e.summary,
                         "opened_at": e.opened_at.isoformat() if e.opened_at else None,

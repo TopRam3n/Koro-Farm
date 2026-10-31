@@ -90,3 +90,12 @@ class OutboxMessage(Base):
     last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WorkerHeartbeat(Base):
+    """Liveness of each supply-exception worker process (app/worker.py), written on every tick."""
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_beat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    last_tick: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

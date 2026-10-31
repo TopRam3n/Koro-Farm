@@ -33,7 +33,7 @@ async function freshSession(browser: Browser, user: TestUser) {
 async function farmerReports(browser: Browser, quantity: string, shot?: string) {
   const farmer = await freshSession(browser, users.farmer_a);
   await farmer.page.goto('/farmer');
-  await farmer.page.getByLabel('Kilograms you can supply now').fill(quantity);
+  await farmer.page.getByLabel(/Kilograms you can still supply/).fill(quantity);
   await farmer.page.getByRole('button', { name: 'Report what I can supply' }).click();
   await expect(farmer.page.getByRole('status').filter({ hasText: 'Report recorded' })).toBeVisible();
   if (shot) await farmer.page.screenshot({ path: `${shots}/${shot}`, fullPage: true });
@@ -41,6 +41,18 @@ async function farmerReports(browser: Browser, quantity: string, shot?: string) 
 }
 
 const figure = (page: Page, label: string) => page.locator(`dd[data-figure="${label}"]`);
+const API = process.env.R1_API_URL ?? 'http://127.0.0.1:8100';
+
+test('monitoring status comes from the running worker, and its detail needs a signed-in user', async ({ page }) => {
+  const probe = await page.request.get(`${API}/health/worker`);
+  expect(probe.status()).toBe(200);
+  expect(await probe.json()).toMatchObject({ status: 'OPERATIONAL', worker: 'RUNNING' });
+  expect((await page.request.get(`${API}/system/status`)).status()).toBe(401);
+  await signIn(page, users.coordinator_a);
+  await page.goto('/orders');
+  await expect(page.locator('[data-monitoring="OPERATIONAL"]')).toHaveText('Exception monitoring running');
+  await expect(page.getByText('Exception monitoring is degraded')).toHaveCount(0);
+});
 
 test.describe.serial('WP2 capacity reports and supply exceptions', () => {
   let orderPath = '';

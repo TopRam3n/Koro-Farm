@@ -19,7 +19,7 @@ from src.backend.app.supply.application.crops import require_active_crop
 from src.backend.app.supply.domain.models import CapacityVerification, Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.capacity import CapacityReport
 from src.backend.app.supply.application.capacity import CapacityError, CapacityForbidden, record_capacity_report
-from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
+from src.backend.app.supply.application.capacity import delivered_kg, free_kg, free_kg_sql, has_free_stock_sql
 
 router = APIRouter(prefix="/production-lots", tags=["production-lots"])
 
@@ -46,8 +46,9 @@ class ProductionLotRead(BaseModel):
     evidence_reference: str | None = None
     declared_at: datetime | None = None
     farmgate_price_per_kg_jmd: Decimal | None = None
-    reported_capacity_kg: Decimal | None = None
+    reported_capacity_kg: Decimal | None = None  # capacity ceiling: delivered plus still to supply, as last reported
     capacity_reported_at: datetime | None = None
+    delivered_kg: Decimal = Decimal("0")
     free_kg: Decimal | None = None
     version: int
 
@@ -105,6 +106,7 @@ def _read(session: Session, lot: ProductionLot, farmer: Farmer | None = None) ->
     costs = _costs(session, lot.id)
     data.farmgate_price_per_kg_jmd = costs.farmgate_price_per_kg_jmd if costs else None
     data.free_kg = free_kg(lot)
+    data.delivered_kg = delivered_kg(session, lot.id)
     return data
 
 
@@ -255,7 +257,7 @@ def update_production_lot(lot_id: UUID, payload: ProductionLotUpdate, session: S
 
 class CapacityReportCommand(BaseModel):
     reported_capacity_kg: Decimal = Field(ge=0, max_digits=12, decimal_places=3,
-                                          description="Total quantity the farmer can now supply from this lot")
+                                          description="Quantity the farmer can still supply from this lot, not counting anything already delivered")
     effective_at: datetime | None = Field(default=None, description="When the reported situation applies; defaults to now")
     original_source: str | None = Field(default=None, max_length=200, description="Required when relayed, e.g. 'phone call with farmer'")
     attestation_method: str | None = Field(default=None, max_length=100, description="Required when relayed, e.g. 'verbal'")
@@ -295,7 +297,7 @@ def list_capacity_reports(lot_id: UUID, session: Session = Depends(get_session),
                            .order_by(CapacityReport.effective_at.desc(), CapacityReport.recorded_at.desc())).all()
     return [{"id": str(r.id), "reported_capacity_kg": str(r.reported_capacity_kg),
              "previous_reported_kg": str(r.previous_reported_kg) if r.previous_reported_kg is not None else None,
-             "committed_at_report_kg": str(r.committed_at_report_kg), "effective_at": r.effective_at, "recorded_at": r.recorded_at,
+             "delivered_at_report_kg": str(r.delivered_at_report_kg), "committed_at_report_kg": str(r.committed_at_report_kg), "effective_at": r.effective_at, "recorded_at": r.recorded_at,
              "channel": r.channel.value, "original_source": r.original_source, "attestation_method": r.attestation_method,
              "evidence_reference": r.evidence_reference, "verification_status": r.verification_status.value,
              "applied": r.applied, "recorded_by_user_id": str(r.recorded_by_user_id) if r.recorded_by_user_id else None}

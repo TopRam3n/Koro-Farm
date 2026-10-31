@@ -19,7 +19,7 @@ to the supplier it reports for.
 | --- | --- |
 | `order-workflow.spec.ts` | order creation, versioned edits, proposed → awaiting supplier → committed, second session, other organization |
 | `consent-and-boundaries.spec.ts` | decline and withdrawal, refused cancellation, cross-organization tokens, independent sessions |
-| `capacity-exceptions.spec.ts` (WP2) | the farmer sees the request and its reply deadline in the portal and accepts it there (farmer navigation only); the farmer reports less in the portal; the coordinator's already-open order page shows the exposure and an open exception without a reload; acknowledge; manual resolve refused while exposed; restored capacity closes the exception by itself; other organization sees nothing. **Needs the worker running.** |
+| `capacity-exceptions.spec.ts` (WP2) | `/health/worker` reports the running worker as operational and `/system/status` refuses an anonymous request; the header shows the real monitoring status; the farmer sees the request and its reply deadline in the portal and accepts it there (farmer navigation only); the farmer reports less in the portal; the coordinator's already-open order page shows the exposure and an open exception without a reload; acknowledge; manual resolve refused while exposed; restored capacity closes the exception by itself; other organization sees nothing. **Needs the worker running.** |
 | `workspaces.spec.ts` | route map, command palette, Scenario Lab is visibly non-persistent |
 
 ## Procedure (CI runs the same steps: `.github/workflows/competition-readiness.yml`)

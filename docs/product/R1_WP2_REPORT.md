@@ -2,12 +2,12 @@
 
 **Branch:** `feat/r1-wp2-supply-exceptions` (from `feat/r1-trade-core` @ `68d1767`). Not merged.
 **Date:** 31 October 2026.
-**Scope:** your WP2 instruction of 31 October and the four policy answers that followed it (attribution, expired standby, reminders, no automatic activation).
+**Scope:** your WP2 instruction of 31 October and the four policy answers that followed it (attribution, expired standby, reminders, no automatic activation), and the corrections from your WP2 technical review (see [Technical review corrections](#technical-review-corrections)).
 
 ## What now works, in plain language
 
 - **Suppliers can say they have less, and the system believes them without rewriting history.**
-  - A farmer reports what they can now supply from their own lot in the farmer portal.
+  - A farmer reports what they can still supply from their own lot in the farmer portal, not counting anything already delivered.
   - A coordinator can relay a farmer's report on the suppliers page, but must say how the farmer told them and how it was attested.
   - Every report is stored permanently with who recorded it, for which supplier, the original source, the channel, the time it applies from, evidence, attestation and verification status. A coordinator's relay is marked coordinator-attested; it never appears as the farmer's own confirmation.
   - A report that arrives after a newer one is kept but not applied.
@@ -36,11 +36,32 @@
 | Concern | Design |
 |---|---|
 | Durability | The capacity report, its domain event and its outbox message are written in one transaction (`supply/application/capacity.py`) |
-| Race safety | A report locks the lot row (`FOR UPDATE`), the same lock that supplier acceptance takes. A report and an acceptance therefore serialize; acceptance re-checks free stock against `min(available, reported) − reserved`. Free stock is clamped at zero and acceptance never exceeds it |
+| Race safety | A report locks the lot row (`FOR UPDATE`), the same lock that supplier acceptance and receipts take. Reports, acceptances and receipts on a lot therefore serialize; acceptance re-checks free stock against `min(available, ceiling) − reserved`. Free stock is clamped at zero and acceptance never exceeds it |
 | Detection | `python -m src.backend.app.worker`, deterministic, no language model. Messages are claimed with `FOR UPDATE SKIP LOCKED`. Each handler runs in a savepoint; failures are recorded and retried with backoff, and dead-lettered after 5 attempts. Timers re-check each item under a row lock |
 | Idempotency | One open exception per `(kind, order)` or `(kind, request)`, enforced by a partial unique index; a duplicate or replayed message updates instead of duplicating. Exception state and order health change in the same transaction |
 | Tenancy | Exceptions carry the organization. All reads filter by it, and `exception_id` is in the central path-scope resolver and the tenant-isolation sweep |
 | Configuration | Deadline defaults and limits are constants in `supply/application/commitments.py` (24 h, 4 h, 48 h window, 336 h maximum) |
+| Monitoring | Each worker tick writes a heartbeat. `GET /health/worker` (for uptime probes; 503 unless operational) and `GET /system/status` (staff; organization backlog) derive the state in `assurance/application/operations.py` |
+
+## Quantity meanings
+
+| Quantity | Meaning | Changed by |
+|---|---|---|
+| `expected_quantity_kg` | The declared harvest | Lot declaration (create or edit, with provenance) |
+| `available_quantity_kg` | Planning availability: the most the platform may plan from the lot, delivered stock included | Declarations, and a farmer's own capacity report offering more (recorded as `availability_raised_from_kg`). A coordinator-relayed report never raises it; no report lowers it |
+| `reserved_quantity_kg` | Held by accepted commitments, authorized standby and marketplace orders, delivered stock included | Acceptance, withdrawal, expiry, recovery, marketplace orders. Receipts do not release it |
+| delivered | Received against the lot's allocations (`received_sublots`), from any allocation | Receipts |
+| `reported_capacity_kg` | Capacity ceiling from the latest applied report: delivered at the time of the report plus what the supplier said they could still supply | Applied capacity reports only. Later receipts move stock from "still to supply" to "delivered" and leave the ceiling unchanged |
+| capacity report `reported_capacity_kg` | What the supplier said they could still supply, as entered; the report also stores `delivered_at_report_kg` | Immutable |
+
+Derived:
+- effective capacity = min(planning availability, ceiling);
+- free stock = max(0, effective capacity − reserved);
+- delivered quantity is always covered;
+- the rest of the ceiling covers the undelivered part of commitments, earliest accepted first, then authorized standby, earliest authorized first;
+- exposure is the undelivered committed quantity left uncovered.
+
+A report can never ask for more than the declared harvest minus what has been delivered.
 
 ## Completion criteria
 
@@ -56,8 +77,34 @@
 | Committed, covered, exposed and standby shown separately | **Met** | Order page; screenshot 11 |
 | Exceptions visible without manual refresh | **Met** | E2E test 2 asserts the exposure and exception appear on an already-open page with no navigation |
 | Tests: database concurrency, duplicate events, stale reports, authorization, browser E2E | **Met** | See [R1_WP2_HANDOFF.md](R1_WP2_HANDOFF.md) for counts and the clean-checkout and CI runs |
+| Review 1: standby uncovered never double counted | **Met** | `test_capacity_accounting.py` (several standby allocations on one lot, across two orders and within one order; standby on separate lots) |
+| Review 2: reports cannot recreate stock removed from planning; quantities documented; lifecycle tests | **Met** | `test_capacity_accounting.py` (declared reduction not restored by a relay; full and partial delivery; receipts after a report; harvest-minus-delivered limit; farmer's own increase) |
+| Review 3: worker liveness, overdue processing and dead-letter detection | **Met** | `test_worker_monitoring.py`; E2E monitoring test (live probe returns 200 with the worker running; status refused without sign-in) |
+| Review 4: truthful status indicators | **Met** | `systemStatus.test.tsx` (degraded, unavailable, farmer); screenshot 11 |
 | Separate staging verification of real Supabase auth | **Established, not run** | [STAGING_AUTH_VERIFICATION.md](STAGING_AUTH_VERIFICATION.md), `npm run test:staging-auth`. It needs a staging deployment and accounts that do not exist yet |
 | No LLM in detection | **Met** | The worker and exception code import no model client |
+
+## Technical review corrections
+
+1. **Standby uncovered was double counted. Fixed.**
+   - Before: the order view added, for each standby allocation, the smaller of its quantity and its whole lot's shortfall. Two 40 kg standby allocations on a lot with a 30 kg shortfall therefore reported 60 kg.
+   - Now: the lot's remaining capacity is assigned to each standby allocation in turn (earliest authorized first), and each order sums only its own allocations' uncovered shares. The total across orders equals the lot's real shortfall.
+   - The regression tests failed on the old code.
+2. **Capacity accounting had two conservation defects. Both fixed.**
+   - *A report could recreate stock a declaration had removed.* A report set planning availability to the reported figure whenever it covered reserved stock. A coordinator's relay of an old figure therefore restored stock the coordinator had just declared sold elsewhere. Now no report lowers availability (the ceiling does that), and only the farmer's own report can raise it. That raise is recorded on the event.
+   - *Delivered stock was counted as if it were still in the field.* Receipts never left the lot's figures, so a report was read as the lot's total. A farmer who had delivered 200 kg and then said "100 kg left" opened a false 100 kg shortfall on an order being fulfilled. Now a report means what can still be supplied, and the ceiling adds what had been delivered when the report was made. Delivered stock is always covered and never offered again, and a report cannot exceed the harvest minus deliveries.
+   - Receipts now take the lot lock, so they serialize with reports. The worker re-checks the lot after each receipt, so an exception closes once deliveries cover it.
+   - Six of the eight new tests failed on the old code.
+3. **Worker reliability: done.**
+   - Heartbeats are recorded on every tick.
+   - A readiness probe (`/health/worker`, 503 unless operational) detects a stopped or never-started worker, overdue outbox processing, overdue deadlines and dead letters. Signed-in staff get the same status with their organization's counts.
+   - The worker logs an error once per degraded condition.
+   - `/health` is documented as API-process-only.
+4. **Status indicators: made truthful.**
+   - The header's "Synced now" and the sidebar's "System operational" were fixed text. Both now show the real monitoring status for staff, or "status unavailable" when it cannot be read.
+   - A banner lists the reasons whenever monitoring is degraded.
+   - Farmers and buyers see no staff status.
+5. **Release gates: kept.** The staging Supabase verification remains mandatory. Nothing is merged or deployed.
 
 ## Fixed along the way
 
@@ -65,16 +112,23 @@
 - **The header bell's warning dot was always lit.** It now reflects real open exceptions, and only staff see it.
 - **"Not yet covered" was misleading next to an exposure.** The figure is required minus committed, so it now says *not yet committed*; exposure is reported beside it.
 
-## Limitations
+## Remaining work
 
-| Severity | Limitation |
+### Mandatory before any public deployment or pilot
+
+| Item | Why |
 |---|---|
-| High | **Real Supabase authentication is untested.** Every E2E run uses the test-only stand-in. The staging task must pass before any public deployment |
-| High | **`main` is still the vulnerable pre-R1 code** and the repository is public. Neither WP1 nor WP2 is merged |
-| Medium | **Reminders and escalation are in-app only.** There is no SMS, WhatsApp or email. A farmer who does not open the portal will not see a reminder |
-| Medium | **The worker must run as its own process.** Without it, reports are stored and exposure is still shown, but no exception opens and deadlines are not enforced. There is no health endpoint or alert for a stopped worker |
-| Medium | **Deadline defaults are code constants.** Coordinators can change individual deadlines with an audit trail, but the 24 h and 4 h defaults cannot be changed per organization yet |
-| Low | **The older ingestion endpoint** (`POST /v1/ingestion/farmer-production-lots/{id}/availability`) still refuses figures below reserved stock. The farmer portal no longer uses it; it should be retired or routed through capacity reports |
-| Low | **Exceptions do not trigger recovery.** By your decision, an exception only alerts; activating standby or finding new supply remains a separate human action |
-| Low | **Grade A only** for orders, unchanged from WP1 |
-| Low | **Static status indicators.** The header's "Synced now" and the sidebar's "Environment LIVE · System operational" are fixed text, not live checks. They predate WP2 and should be wired up or removed |
+| **Run the staging Supabase verification** (5 of 5) | Real sign-in, refresh, cross-organization access and sign-out are untested; every run so far uses the test-only stand-in |
+| **Review and merge WP1, then WP2** | `main` is still the vulnerable pre-R1 code, and the repository is public |
+| **Deploy the worker as a supervised service and point an uptime monitor at `/health/worker`** | The probe and in-app banner exist, but paging someone depends on the deployment wiring them to an alerting service |
+
+### Later enhancements (not required to close WP2)
+
+| Item | Note |
+|---|---|
+| SMS or WhatsApp reminders | Reminders and escalation are in-app only; a farmer who does not open the portal will not see one |
+| Organization-wide deadline policy | Individual deadlines can be changed with an audit trail; the 24 h and 4 h defaults are code constants |
+| Retire the legacy ingestion availability endpoint | `POST /v1/ingestion/farmer-production-lots/{id}/availability` is no longer used by the portal and still refuses figures below reserved stock |
+| Marketplace reservations in exposure | Exposure covers supplier commitments and standby. A capacity cut below stock reserved by marketplace orders lowers free stock but does not open an exception |
+| Exceptions do not trigger recovery | By your decision. Activating standby or finding new supply stays a separate human action (WP3 must keep this) |
+| Grade A only for orders | Unchanged from WP1 |

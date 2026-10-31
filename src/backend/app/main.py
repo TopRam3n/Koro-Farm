@@ -1,4 +1,5 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Response
+from sqlalchemy.orm import Session
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.app.core.auth import get_current_user
@@ -6,6 +7,9 @@ from src.backend.app.core.config import cors_origins, validate_runtime_configura
 from src.backend.app.assurance.api.router import router as assurance_router
 from src.backend.app.assurance.api.allocations import router as allocations_router
 from src.backend.app.assurance.api.exceptions import router as exceptions_router
+from src.backend.app.assurance.api.operations import router as operations_router
+from src.backend.app.assurance.application.operations import operational_status
+from src.backend.app.main_dependencies import get_session
 from src.backend.app.assurance.api.allocations import response_router as supplier_responses_router
 from src.backend.app.demand.api.router import router as requirements_router
 from src.backend.app.demand.api.buyers import router as buyers_router
@@ -43,6 +47,7 @@ app.include_router(farmers_router, dependencies=staff_dependencies)
 app.include_router(assurance_router, dependencies=staff_dependencies)
 app.include_router(allocations_router, dependencies=staff_dependencies)
 app.include_router(exceptions_router, dependencies=staff_dependencies)
+app.include_router(operations_router, dependencies=staff_dependencies)
 # Farmers answer their own solicitations; staff record decisions on a farmer's behalf (commitments.respond enforces which).
 app.include_router(supplier_responses_router, dependencies=[
     Depends(get_current_user), Depends(require_roles(*staff_roles, RoleCode.FARMER)), Depends(enforce_path_scope),
@@ -73,4 +78,15 @@ app.add_middleware(
 
 @app.get("/health", tags=["health"])
 def health() -> dict[str, str]:
+    """The API process is up. It says nothing about exception monitoring; see /health/worker."""
     return {"status": "ok"}
+
+
+@app.get("/health/worker", tags=["health"])
+def worker_health(response: Response, session: Session = Depends(get_session)) -> dict:
+    """Readiness of supply-exception monitoring, for uptime probes: 503 unless OPERATIONAL. No tenant data."""
+    state = operational_status(session)
+    if state["status"] != "OPERATIONAL":
+        response.status_code = 503
+    return {"status": state["status"], "reasons": state["reasons"], "worker": state["worker"]["state"],
+            "last_beat_at": state["worker"]["last_beat_at"]}

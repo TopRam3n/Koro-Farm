@@ -13,6 +13,7 @@ from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.demand.domain.models import Requirement
 from src.backend.app.identity.domain.models import Organization
 from src.backend.app.identity.domain.permissions import RoleCode
+from src.backend.app.supply.application.capacity import free_kg
 from src.backend.app.supply.domain.capacity import CapacityReport
 from src.backend.app.supply.domain.models import ProductionLot
 from src.backend.app.supply.domain.planning_models import AllocationStatus, SupplyAllocation
@@ -141,8 +142,9 @@ def test_a_reduction_that_does_not_threaten_commitments_only_updates_availabilit
     assert open_exceptions(factory, order["id"]) == []
     state = supply(http, org, order)
     assert state["exposed_kg"] in ("0", "0.000") and state["supply_health"] == "COVERED"
-    with factory() as session:
-        assert session.get(ProductionLot, UUID(lot_id)).available_quantity_kg == committed
+    with factory() as session:  # planning availability: nothing more is free for new orders
+        lot = session.get(ProductionLot, UUID(lot_id))
+        assert free_kg(lot) == 0 and lot.reported_capacity_kg == committed
 
 
 def test_exposure_opens_one_exception_preserves_the_commitment_and_resolves_on_restore(http, org, factory) -> None:

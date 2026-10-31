@@ -13,7 +13,7 @@ export interface Lot {
   availability_confidence: string; parish: string; status: string; capacity_verification: 'DECLARED' | 'VERIFIED' | 'UNSPECIFIED';
   provenance_source: string | null; attestation_method: string | null; evidence_reference: string | null; declared_at: string | null;
   farmgate_price_per_kg_jmd: string | null; reported_capacity_kg: string | null; capacity_reported_at: string | null;
-  free_kg: string | null; version: number;
+  delivered_kg: string; free_kg: string | null; version: number;
 }
 export interface Order {
   id: string; buyer_id: string; buyer_name: string | null; crop: string; grade: string; required_quantity_kg: string; quantity_unit: string;
@@ -42,7 +42,7 @@ export interface SupplyException {
   acknowledged_at: string | null; resolved_at: string | null; resolved_by: string | null; resolution: string | null;
 }
 export interface CapacityReport {
-  id: string; reported_capacity_kg: string; previous_reported_kg: string | null; committed_at_report_kg: string; effective_at: string;
+  id: string; reported_capacity_kg: string; delivered_at_report_kg: string; previous_reported_kg: string | null; committed_at_report_kg: string; effective_at: string;
   recorded_at: string; channel: 'FARMER_PORTAL' | 'COORDINATOR_RELAYED'; original_source: string | null; attestation_method: string | null;
   evidence_reference: string | null; verification_status: string; applied: boolean; recorded_by_user_id: string | null;
 }

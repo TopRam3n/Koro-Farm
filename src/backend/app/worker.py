@@ -8,10 +8,14 @@ Run it next to the API:  APP_ENV=... DATABASE_URL=... python -m src.backend.app.
   (exceptions are de-duplicated by key), so a retried or replayed message cannot open duplicates.
 * Timers: response reminders (half-way), overdue responses (deadline) and standby expiry, one item per
   transaction, each re-checked under a row lock.
+* Heartbeat: every tick records this process's liveness (worker_heartbeats). GET /health/worker and
+  GET /system/status report monitoring as DEGRADED when no worker has beaten recently, processing is overdue or
+  messages are dead-lettered (app/assurance/application/operations.py).
 """
 import logging
 import os
 import signal
+import socket
 import time
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -23,6 +27,7 @@ import src.backend.app.main  # noqa: F401  (registers every mapped model and val
 from src.backend.app.assurance.application.exceptions import (
     expire_overdue_response, expire_standby, reevaluate_lot, send_reminder,
 )
+from src.backend.app.assurance.application.operations import operational_status, record_heartbeat
 from src.backend.app.assurance.domain.models import OutboxMessage
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
@@ -35,6 +40,11 @@ def _handle(session: Session, message: OutboxMessage) -> None:
     if message.topic == "lot.capacity_reported":
         if message.payload.get("applied", True):
             reevaluate_lot(session, UUID(message.payload["production_lot_id"]), message.event_id)
+    elif message.topic == "sublot.received":
+        # Deliveries can cover what a capacity report left exposed; re-check the lot.
+        allocation = session.get(SupplyAllocation, UUID(message.payload["allocation_id"]))
+        if allocation is not None:
+            reevaluate_lot(session, allocation.production_lot_id, message.event_id)
     # Other topics need no exception handling yet; they are marked processed.
 
 
@@ -115,11 +125,21 @@ def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_me
     return {"messages": processed, **run_timers(factory, now)}
 
 
+def beat(factory: sessionmaker[Session], worker_id: str, started_at: datetime, tick: dict,
+         now: datetime | None = None) -> None:
+    now = now or datetime.now(timezone.utc)
+    with factory() as session, session.begin():
+        record_heartbeat(session, worker_id, started_at, tick, now)
+
+
 def main() -> None:
     logging.basicConfig(level=os.getenv("WORKER_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     interval = float(os.getenv("WORKER_POLL_SECONDS", "2"))
     factory = create_session_factory()
+    worker_id = f"{socket.gethostname()}:{os.getpid()}"
+    started_at = datetime.now(timezone.utc)
     stopping = False
+    alerted: set[str] = set()
 
     def stop(*_):
         nonlocal stopping
@@ -133,6 +153,12 @@ def main() -> None:
             result = run_once(factory)
             if any(result.values()):
                 log.info("tick %s", result)
+            beat(factory, worker_id, started_at, result)
+            with factory() as session:
+                reasons = set(operational_status(session)["reasons"]) - {"worker_not_running", "worker_never_started"}
+            for reason in sorted(reasons - alerted):  # alert once per condition until it clears
+                log.error("supply-exception monitoring degraded: %s", reason)
+            alerted = reasons
         except Exception:
             log.exception("worker tick failed; retrying")
         time.sleep(interval)
