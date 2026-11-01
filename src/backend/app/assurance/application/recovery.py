@@ -6,7 +6,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage, RecoveryRun, RecoveryStatus
-from datetime import date
 
 from sqlalchemy import or_
 
@@ -30,7 +29,9 @@ def authorized_standby() -> list:
     return [
         SupplyAllocation.status == AllocationStatus.STANDBY,
         SupplyAllocation.consent_status == ConsentStatus.RECORDED,
-        or_(SupplyAllocation.authorization_valid_until.is_(None), SupplyAllocation.authorization_valid_until >= date.today()),
+        # UTC, like standby expiry (worker), response validation and the gateway: one authorization day everywhere.
+        or_(SupplyAllocation.authorization_valid_until.is_(None),
+            SupplyAllocation.authorization_valid_until >= datetime.now(timezone.utc).date()),
     ]
 
 

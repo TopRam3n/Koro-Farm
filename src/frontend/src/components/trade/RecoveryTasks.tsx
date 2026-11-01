@@ -96,7 +96,8 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
         ? `${Number(c.cost.increase_jmd) > 0 ? '+' : ''}${money(c.cost.increase_jmd)} (${(Number(c.cost.increase_pct) * 100).toFixed(1)}%) against ${money(c.cost.baseline_cost_per_kg_jmd)}/kg now`
         : 'Unknown: some cost inputs are missing'}</dd></div>
       <div><dt className="text-muted-foreground">Why this approval level</dt><dd>{c.approval.reasons.join('; ') || '—'}</dd></div>
-      <div><dt className="text-muted-foreground">Decided by</dt><dd>{c.decision.mode === 'model' ? `Recovery agent with ${c.decision.model}` : 'Recovery agent (deterministic rules)'}{c.decision.fallback_reason ? ` (model not used: ${c.decision.fallback_reason})` : ''}</dd></div>
+      <div><dt className="text-muted-foreground">Decided by</dt><dd>{c.decision.mode === 'model' ? `Recovery agent with ${c.decision.provider ? `${c.decision.provider}/` : ''}${c.decision.model}` : 'Recovery agent (deterministic rules)'}{c.decision.fallback_reason ? ` (model not used: ${c.decision.fallback_reason})` : ''}
+        {c.decision.latency_ms != null && <span className="block text-muted-foreground">{(c.decision.latency_ms / 1000).toFixed(1)} s{c.decision.estimated_cost?.usd ? `, about US$${c.decision.estimated_cost.usd} at list price` : ''}</span>}</dd></div>
       <div><dt className="text-muted-foreground">Approval valid until</dt><dd>{when(proposal.expires_at)}</dd></div>
     </dl>
     <p className="mt-2 text-sm"><span className="text-xs text-muted-foreground">Reasoning: </span>{c.decision.rationale}</p>

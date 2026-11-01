@@ -72,7 +72,7 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
     if _bypass_requested(env) and app_env != "test":
         raise UnsafeConfigurationError(
             f"ALLOW_INSECURE_DEMO_AUTH=true is only permitted when APP_ENV=test (APP_ENV is {app_env!r}); refusing to start")
-    if app_env == "production" and env.get("AGENT_MODEL_PROVIDER", "").strip():
+    if app_env == "production" and env.get("AGENT_MODEL_PROVIDER", "").strip().lower() not in ("", "none"):
         raise UnsafeConfigurationError("AGENT_MODEL_PROVIDER is not permitted in production until model use is approved; refusing to start")
     if not is_production(env):
         return

@@ -61,6 +61,8 @@ Enforcement:
 
 ### 3. Language model with controlled autonomy
 
+> **Updated on branch `feat/r1-wp3-model-providers`:** the decider is now provider-independent. The providers are MiniMax and Nebius Token Factory, with Anthropic as an optional adapter that is off by default. Model calls hold no database locks; claims that aren't numbers are validated; usage and cost are recorded per model. See [R1_WP3_MODEL_PROVIDERS_HANDOFF.md](R1_WP3_MODEL_PROVIDERS_HANDOFF.md). The description below is of the original Anthropic-only adapter.
+
 - **The adapter** (`agents/infrastructure/model.py`):
   - uses Claude (`claude-opus-5-5` by default) through the official SDK;
   - constrains the response to a JSON schema;

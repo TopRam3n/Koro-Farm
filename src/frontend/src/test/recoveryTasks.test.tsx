@@ -31,8 +31,10 @@ function proposal(overrides: Partial<Proposal> = {}): Proposal {
         { id: 'D', title: 'Escalate the whole shortfall to a coordinator', actions: [], standby_activated_kg: '0', requested_kg: '0', escalation_kg: '110', cost },
       ],
       approval: { tier: 'ORDINARY', reasons: ['no landed-cost increase'], required: 'one approver with recovery.approve', policy: { version: 0 } },
-      decision: { mode: 'model', model: 'claude-opus-5-5', rationale: 'Standby already authorized covers most of the need.', recommend_escalation: false,
-        information_requests: [], violations: ['buyer draft discarded (too long or citing figures not in the evidence)'], fallback_reason: null },
+      decision: { mode: 'model', model: 'Qwen/Qwen3-30B-A3B-Instruct-2507', provider: 'nebius', latency_ms: 2400, call_outcome: 'partially_withheld',
+        estimated_cost: { usd: '0.000660', price_version: 'list-prices-2026-10-31', basis: 'standard list price; estimate, not an account charge' },
+        rationale: 'Standby already authorized covers most of the need.', recommend_escalation: false,
+        information_requests: [], violations: ['buyer draft discarded: commercial (guarantee)'], fallback_reason: null },
       drafts: { buyer: 'A recovery plan is awaiting approval.', status: 'Draft only. Not sent to anyone; external messages are not sent automatically.' },
     },
     ...overrides,
@@ -61,8 +63,9 @@ describe('recovery proposals', () => {
     expect(actions).toHaveTextContent('Ask Mia Brown (Manchester) for 30 kg, reply within 24 hours. Not supply until they accept');
     expect(actions).toHaveTextContent('Could you supply 30 kg?');
     expect(card).toHaveTextContent('30 kg is not covered by this proposal and is left for a coordinator.');
-    expect(card).toHaveTextContent('Recovery agent with claude-opus-5-5');
-    expect(card).toHaveTextContent("Checks applied to the model's answer: buyer draft discarded");
+    expect(card).toHaveTextContent('Recovery agent with nebius/Qwen/Qwen3-30B-A3B-Instruct-2507');
+    expect(card).toHaveTextContent('2.4 s, about US$0.000660 at list price');
+    expect(card).toHaveTextContent("Checks applied to the model's answer: buyer draft discarded: commercial (guarantee)");
     expect(card).toHaveTextContent('Draft update for the buyer (not sent)');
     expect(screen.getByRole('link', { name: 'SCOTCH BONNET for Sauce Works' })).toHaveAttribute('href', '/orders/req-1');
   });

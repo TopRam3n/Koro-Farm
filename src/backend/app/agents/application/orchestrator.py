@@ -1,4 +1,4 @@
-"""Recovery task orchestrator, run by the worker (app/worker.py). It proposes; it never executes.
+r"""Recovery task orchestrator, run by the worker (app/worker.py). It proposes; it never executes.
 
 Lifecycle of the single active task per order:
   QUEUED -> AWAITING_APPROVAL -> EXECUTING -> AWAITING_SUPPLIER -> ... -> COMPLETED
@@ -13,8 +13,15 @@ Lifecycle of the single active task per order:
 * Each advance runs in one transaction under the task's row lock (SELECT ... FOR UPDATE SKIP LOCKED). Its steps,
   proposals and any execution commit together or not at all, so a worker restart resumes from the last committed
   step without repeating supplier requests or standby activation.
+* An external (model) decision never runs inside a transaction. The worker records a planning lease and a
+  fingerprint of the evidence and commits; calls the model with no database locks held; then, in a new
+  transaction, uses the answer only if the lease is still its own and the re-gathered evidence has the same
+  fingerprint. A worker that dies during the call leaves an expiring lease, and the next worker plans again. The
+  model call has no side effects, so repeating it costs only money; every call is recorded (recovery_model_calls).
 """
 import logging
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
@@ -28,7 +35,7 @@ from src.backend.app.agents.application.decision import Decider, DeterministicDe
 from src.backend.app.agents.application.policy import content_hash, current_policy, evaluate, policy_snapshot
 from src.backend.app.agents.application.timeline import AGENT, add_step, agent_event, current_proposal
 from src.backend.app.agents.domain.models import (
-    ACTIVE_TASK_STATUSES, ProposalStatus, RecoveryIncident, RecoveryProposal, RecoveryTask, StepKind,
+    ACTIVE_TASK_STATUSES, ProposalStatus, RecoveryIncident, RecoveryModelCall, RecoveryProposal, RecoveryTask, StepKind,
     TaskStatus,
 )
 from src.backend.app.assurance.application.exceptions import resolve_recovered
@@ -52,6 +59,39 @@ WAKE_TOPICS = {
 
 class RecoveryError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class PendingDecision:
+    """A model decision to make outside any transaction, then to apply only if nothing changed meanwhile."""
+    task_id: UUID
+    lease_id: str
+    fingerprint: str
+    context: dict
+
+
+def lease_seconds(decider: Decider) -> float:
+    config = getattr(decider, "config", None)
+    if config is None:
+        return 120.0
+    # Each structured-output mode may be tried once, each with one SDK retry, plus headroom.
+    return config.timeout * 2 * max(len(config.profile.structured), 1) + 30
+
+
+def record_call(session: Session, task: RecoveryTask, decision, proposal_id: UUID | None = None, outcome: str | None = None) -> None:
+    call = getattr(decision, "call", None)
+    if not call:
+        return
+    usage, cost = call["usage"], call["cost"]
+    session.add(RecoveryModelCall(
+        task_id=task.id, organization_id=task.organization_id, proposal_id=proposal_id, provider=call["provider"],
+        model=(call["model"] or call["configured_model"])[:120], configured_model=call["configured_model"][:120],
+        structured_mode=call["structured_mode"], latency_ms=call["latency_ms"], input_tokens=usage["input_tokens"],
+        output_tokens=usage["output_tokens"], reasoning_tokens=usage["reasoning_tokens"], cached_tokens=usage["cached_tokens"],
+        estimated_cost_usd=Decimal(cost["usd"]) if cost["usd"] is not None else None, price_version=cost["price_version"],
+        cost_basis=cost["basis"][:200], outcome=outcome or call["outcome"], error_kind=call["error_kind"],
+        error=call["error"], violations=list(decision.violations), request_id=(call["request_id"] or "")[:120] or None))
+    session.flush()
 
 
 def _aware(value: datetime | None) -> datetime | None:
@@ -243,7 +283,9 @@ def _complete(session: Session, task: RecoveryTask, requirement: Requirement, ba
         add_step(session, task, StepKind.COMPLETE, AGENT, f"Closed {resolved} incident exception(s) on the order")
 
 
-def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decider: Decider, now: datetime) -> None:
+def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decider: Decider, now: datetime,
+          decision=None, pending: PendingDecision | None = None) -> PendingDecision | None:
+    """Plan from current facts. Returns a PendingDecision when an external decider must be asked first."""
     evidence = ev.gather(session, requirement, now)
     basis = evidence.basis
     if basis.net_need_kg <= 0:
@@ -269,15 +311,34 @@ def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decide
 
     incidents = _incidents(session, task)
     context = model_context(evidence, options, incidents)
-    decision = decider.decide(context)
+    fingerprint = content_hash({"basis": basis.as_dict(), "options": options, "incidents": incidents})
+    if decision is None and getattr(decider, "external", False):
+        lease = str(uuid.uuid4())
+        task.planning_lease_id, task.planning_fingerprint = lease, fingerprint
+        task.planning_lease_until = task.next_run_at = now + timedelta(seconds=lease_seconds(decider))
+        add_step(session, task, StepKind.MODEL_REQUEST, AGENT,
+                 f"Asked {decider.provider}/{decider.model} to choose among {len(options)} options (no database locks held during the call)",
+                 {"options_offered": [o["id"] for o in options], "fingerprint": fingerprint})
+        return PendingDecision(task.id, lease, fingerprint, context)
+    if pending is not None and pending.fingerprint != fingerprint:
+        record_call(session, task, decision, outcome="discarded")
+        add_step(session, task, StepKind.PLAN, AGENT, "The order changed while the model was answering; its answer was "
+                 "discarded and recovery will be planned again from current facts", {"fingerprint": fingerprint})
+        task.next_run_at = now
+        return None
+    if decision is None:
+        decision = decider.decide(context)
     option = next(o for o in options if o["id"] == decision.option_id)
+    call = decision.call or {}
     add_step(session, task, StepKind.DECISION, AGENT,
              f"Chose option {option['id']} of {len(options)} ({decision.mode}{', ' + decision.model if decision.model else ''})",
              {"options_offered": [o["id"] for o in options], "rationale": decision.rationale,
-              "violations": decision.violations, "fallback_reason": decision.fallback_reason})
+              "violations": decision.violations, "fallback_reason": decision.fallback_reason,
+              "call": {k: call.get(k) for k in ("provider", "model", "latency_ms", "usage", "cost", "outcome", "error_kind")} if call else None})
     if not option["actions"]:
+        record_call(session, task, decision)
         _escalate(session, task, requirement, basis.net_need_kg, f"decision recommends escalation: {decision.rationale}")
-        return
+        return None
 
     window = f"{requirement.delivery_window_start.isoformat()} to {requirement.delivery_window_end.isoformat()}"
     crop = str(requirement.crop).replace("_", " ").lower()
@@ -302,7 +363,9 @@ def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decide
         "decision": {"mode": decision.mode, "model": decision.model, "rationale": decision.rationale,
                      "recommend_escalation": decision.recommend_escalation,
                      "information_requests": decision.information_requests, "violations": decision.violations,
-                     "fallback_reason": decision.fallback_reason},
+                     "fallback_reason": decision.fallback_reason,
+                     "provider": call.get("provider"), "latency_ms": call.get("latency_ms"), "usage": call.get("usage"),
+                     "estimated_cost": call.get("cost"), "call_outcome": call.get("outcome")},
         "drafts": {"buyer": decision.buyer_draft or template_buyer_draft(context, option),
                    "status": "Draft only. Not sent to anyone; external messages are not sent automatically."},
     }
@@ -311,6 +374,7 @@ def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decide
                                 content_hash=content_hash(content), expires_at=expires, created_at=now)
     session.add(proposal)
     session.flush()
+    record_call(session, task, decision, proposal.id)
     task.proposals_made = version
     task.status, task.next_run_at = TaskStatus.AWAITING_APPROVAL, expires
     add_step(session, task, StepKind.PROPOSE, AGENT,
@@ -322,22 +386,23 @@ def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decide
                                                      "escalation_kg": option["escalation_kg"]})
     if Decimal(option["escalation_kg"]) > 0:
         task.escalated_kg = Decimal(option["escalation_kg"])
+    return None
 
 
-def advance_task(session: Session, task: RecoveryTask, decider: Decider, now: datetime) -> None:
+def advance_task(session: Session, task: RecoveryTask, decider: Decider, now: datetime) -> PendingDecision | None:
     from src.backend.app.agents.application.gateway import execute
     task.next_run_at = None
     requirement = session.scalar(select(Requirement).where(Requirement.id == task.requirement_id).with_for_update().execution_options(**FRESH))
     if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
         _supersede_pending(session, task, "order cancelled", ProposalStatus.SUPERSEDED)
         _close(session, task, TaskStatus.CANCELLED, "The order was cancelled")
-        return
+        return None
     proposal = current_proposal(session, task)
     if task.status == TaskStatus.EXECUTING and proposal is not None and proposal.status == ProposalStatus.APPROVED:
         execute(session, task, proposal, requirement, now)
         if task.status == TaskStatus.QUEUED:  # stale or partially applied: re-plan from current facts now
-            _plan(session, task, requirement, decider, now)
-        return
+            return _plan(session, task, requirement, decider, now)
+        return None
     if task.status == TaskStatus.AWAITING_APPROVAL and proposal is not None and proposal.status == ProposalStatus.PENDING:
         if _aware(proposal.expires_at) <= now:
             _supersede_pending(session, task, "the approval window expired", ProposalStatus.SUPERSEDED)
@@ -345,14 +410,53 @@ def advance_task(session: Session, task: RecoveryTask, decider: Decider, now: da
             problems = still_feasible(ev.gather(session, requirement, now), proposal.content)
             if not problems:
                 task.next_run_at = proposal.expires_at
-                return
+                return None
             _supersede_pending(session, task, "; ".join(problems), ProposalStatus.SUPERSEDED)
-    _plan(session, task, requirement, decider, now)
+    return _plan(session, task, requirement, decider, now)
+
+
+def _fail(session: Session, task: RecoveryTask, exc: Exception, now: datetime) -> None:
+    task.attempts += 1
+    task.last_error = f"{type(exc).__name__}: {exc}"[:1000]
+    log.warning("recovery task %s failed (attempt %s): %s", task.id, task.attempts, task.last_error)
+    if task.attempts >= MAX_ATTEMPTS:
+        _close(session, task, TaskStatus.FAILED, f"failed after {task.attempts} attempts: {task.last_error}")
+    else:
+        task.next_run_at = now + timedelta(seconds=2 ** task.attempts)
+
+
+def finish_decision(session: Session, task: RecoveryTask, decider: Decider, pending: PendingDecision, decision,
+                    now: datetime) -> None:
+    """Apply a model decision made outside any transaction, only if this worker's lease still stands."""
+    if task.planning_lease_id != pending.lease_id or task.status not in ACTIVE_TASK_STATUSES:
+        record_call(session, task, decision, outcome="discarded")
+        log.info("recovery task %s: model answer discarded (lease taken over or task closed)", task.id)
+        return
+    task.planning_lease_id = task.planning_lease_until = task.planning_fingerprint = None
+    requirement = session.scalar(select(Requirement).where(Requirement.id == task.requirement_id).with_for_update().execution_options(**FRESH))
+    if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
+        record_call(session, task, decision, outcome="discarded")
+        _supersede_pending(session, task, "order cancelled", ProposalStatus.SUPERSEDED)
+        _close(session, task, TaskStatus.CANCELLED, "The order was cancelled")
+        return
+    task.next_run_at = None
+    _plan(session, task, requirement, decider, now, decision=decision, pending=pending)
+
+
+def _decide_outside_transaction(decider: Decider, pending: PendingDecision):
+    try:
+        return decider.decide(pending.context)
+    except Exception as exc:  # deciders catch provider errors themselves; this is a last guard
+        log.exception("recovery decider failed unexpectedly; using deterministic decision")
+        decision = DeterministicDecider().decide(pending.context)
+        decision.fallback_reason = f"error: {type(exc).__name__}: {str(exc)[:200]}"
+        return decision
 
 
 def advance_due(factory: sessionmaker[Session], now: datetime | None = None, decider: Decider | None = None,
                 limit: int = 50) -> int:
-    """Advance every task whose next run is due. Each task in its own transaction; failures retry with backoff."""
+    """Advance every task whose next run is due. Each step in its own transaction; failures retry with backoff.
+    Model decisions are made between two transactions, with no database locks held (see the module docstring)."""
     now = now or datetime.now(timezone.utc)
     decider = decider or DeterministicDecider()
     with factory() as session:
@@ -361,6 +465,7 @@ def advance_due(factory: sessionmaker[Session], now: datetime | None = None, dec
             RecoveryTask.next_run_at <= now).order_by(RecoveryTask.next_run_at).limit(limit)).all()
     advanced = 0
     for task_id in due:
+        pending = None
         try:
             with factory() as session, session.begin():
                 task = session.scalar(select(RecoveryTask).where(RecoveryTask.id == task_id).with_for_update(skip_locked=True))
@@ -368,17 +473,23 @@ def advance_due(factory: sessionmaker[Session], now: datetime | None = None, dec
                     continue
                 try:
                     with session.begin_nested():
-                        advance_task(session, task, decider, now)
-                    task.attempts, task.last_error = 0, None
+                        pending = advance_task(session, task, decider, now)
+                    if pending is None:
+                        task.attempts, task.last_error = 0, None
                 except Exception as exc:  # recorded and retried; never silently dropped
-                    task.attempts += 1
-                    task.last_error = f"{type(exc).__name__}: {exc}"[:1000]
-                    log.warning("recovery task %s failed (attempt %s): %s", task.id, task.attempts, task.last_error)
-                    if task.attempts >= MAX_ATTEMPTS:
-                        _close(session, task, TaskStatus.FAILED, f"failed after {task.attempts} attempts: {task.last_error}")
-                    else:
-                        task.next_run_at = now + timedelta(seconds=2 ** task.attempts)
+                    pending = None
+                    _fail(session, task, exc, now)
                 advanced += 1
+            if pending is not None:
+                decision = _decide_outside_transaction(decider, pending)  # no transaction, no locks
+                with factory() as session, session.begin():
+                    task = session.scalar(select(RecoveryTask).where(RecoveryTask.id == task_id).with_for_update())
+                    try:
+                        with session.begin_nested():
+                            finish_decision(session, task, decider, pending, decision, now)
+                        task.attempts, task.last_error = 0, None
+                    except Exception as exc:
+                        _fail(session, task, exc, now)
         except Exception:
             log.exception("recovery task %s could not be advanced", task_id)
     return advanced

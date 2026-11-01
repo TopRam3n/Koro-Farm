@@ -28,7 +28,10 @@ export interface ProposalContent {
   options: ProposalOption[]; chosen_option_id: string; actions: ProposalAction[]; escalation_kg: string; cost: ProposalCost;
   approval: { tier: 'ORDINARY' | 'ELEVATED'; reasons: string[]; required: string; policy: { version: number } };
   decision: { mode: 'deterministic' | 'model'; model: string | null; rationale: string; recommend_escalation: boolean;
-    information_requests: string[]; violations: string[]; fallback_reason: string | null };
+    information_requests: string[]; violations: string[]; fallback_reason: string | null;
+    provider?: string | null; latency_ms?: number | null; call_outcome?: string | null;
+    usage?: { input_tokens: number | null; output_tokens: number | null; reasoning_tokens: number | null; cached_tokens: number | null } | null;
+    estimated_cost?: { usd: string | null; price_version: string; basis: string } | null };
   drafts: { buyer: string; status: string };
 }
 

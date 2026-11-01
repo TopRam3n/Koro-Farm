@@ -49,6 +49,7 @@ class ApprovalTier(StrEnum):
 class StepKind(StrEnum):
     INCIDENT = "INCIDENT"
     PLAN = "PLAN"
+    MODEL_REQUEST = "MODEL_REQUEST"
     DECISION = "DECISION"
     PROPOSE = "PROPOSE"
     APPROVAL = "APPROVAL"
@@ -84,6 +85,11 @@ class RecoveryTask(Base):
     escalated_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     terminal_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Lock-free model decisions: the worker that asked the model holds this lease while no transaction is open.
+    # The answer is used only if the lease is still its own and the evidence fingerprint is unchanged.
+    planning_lease_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    planning_lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    planning_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -194,4 +200,33 @@ class RecoveryApprovalPolicy(Base):
     max_cost_increase_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     set_by_user_id: Mapped[UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RecoveryModelCall(Base):
+    """One model call made for a recovery task: who answered, how fast, at what estimated cost, and what validation
+    did with it. Append-only. Never holds the prompt, the model's reasoning or any credential."""
+    __tablename__ = "recovery_model_calls"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    task_id: Mapped[UUID] = mapped_column(ForeignKey("recovery_tasks.id"), nullable=False, index=True)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    proposal_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)          # as reported by the provider
+    configured_model: Mapped[str] = mapped_column(String(120), nullable=False)
+    structured_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
+    price_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    cost_basis: Mapped[str] = mapped_column(String(200), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(30), nullable=False)        # valid | partially_withheld | fallback | discarded
+    error_kind: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(300), nullable=True)   # scrubbed of credentials
+    violations: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    request_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

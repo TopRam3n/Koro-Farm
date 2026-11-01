@@ -51,12 +51,17 @@ Monitoring never assumes the worker is running. Each tick records a heartbeat.
 - The gateway in the worker re-verifies the approvals, the policy and current stock under row locks before applying anything. No user role can execute.
 - `GET /recovery-tasks` (and `?requirement_id=` for an order's full timeline), `POST /recovery-proposals/{id}/reject`, `POST /recovery-tasks/{id}/cancel`, `GET|POST /recovery-approval-policy`.
 - `POST /requirements/{id}/recovery` now only asks the agent to plan (202). `defer_recovery=false` on dropout is refused.
-- **Optional model** (development and staging only):
-  - install with `pip install "./src/backend[model]"`;
-  - set `AGENT_MODEL_PROVIDER=anthropic`, plus `ANTHROPIC_API_KEY`;
-  - `AGENT_MODEL_ID` defaults to `claude-opus-5-5`;
+- **Optional model provider** (development and staging only; off by default):
+  - `AGENT_MODEL_PROVIDER` is `none` (default), `minimax`, `nebius` or `anthropic`;
+  - MiniMax and Nebius need `pip install "./src/backend[model]"` (the OpenAI-compatible SDK); Anthropic needs `[anthropic]`. Neither is needed for development, tests or CI;
+  - each provider has its own settings, `<PROVIDER>_API_KEY`, `<PROVIDER>_MODEL` (required), `<PROVIDER>_BASE_URL` and `<PROVIDER>_TIMEOUT_SECONDS`, plus `MINIMAX_REASONING_EFFORT` and `NEBIUS_STRUCTURED_OUTPUT`;
+  - base URLs must be https on the provider's documented host;
+  - after a model error the agent falls back to deterministic rules and never switches provider;
+  - model calls hold no database locks;
   - the API refuses to start with a provider set when `APP_ENV=production`.
-- Model-on evaluation with synthetic data: `python -m src.backend.scripts.evaluate_recovery_model` (needs the same settings; writes a JSON report).
+- Check a provider without revealing the key: `python -m src.backend.scripts.check_model_provider`.
+- Model-on evaluation with synthetic data, the same scenarios for every provider: `python -m src.backend.scripts.evaluate_recovery_model --repeats 3 --max-usd 2`. It writes JSON and Markdown reports.
+- Secure setup: `docs/product/R1_WP3_MODEL_PROVIDERS_PLAN.md`, section 6.
 - Details: `docs/product/R1_WP3_REPORT.md`.
 
 ## Current planning endpoints

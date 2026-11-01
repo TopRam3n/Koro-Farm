@@ -1,6 +1,6 @@
 # R1 WP3: plan for interchangeable model providers
 
-**Status:** plan for your review. Nothing in it is implemented yet.
+**Status:** approved on 31 October 2026, with your decisions on models, prices, Anthropic and Giotto, and implemented on this branch. What was built, the tests and the live evaluation status: [R1_WP3_MODEL_PROVIDERS_HANDOFF.md](R1_WP3_MODEL_PROVIDERS_HANDOFF.md). The setup steps in section 6 are current, and the checker they mention now exists.
 
 **Branch:** `feat/r1-wp3-model-providers`, built on `feat/r1-wp3-agent-orchestration`.
 
@@ -254,12 +254,14 @@ python -m src.backend.scripts.check_model_provider
    ```
    AGENT_MODEL_PROVIDER=nebius
    NEBIUS_API_KEY=…                      (secret)
-   NEBIUS_MODEL=<exact model ID>
+   NEBIUS_MODEL=Qwen/Qwen3-30B-A3B-Instruct-2507   (approved; or Qwen/Qwen3.5-397B-A17B)
    NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1/
    NEBIUS_TIMEOUT_SECONDS=45
    NEBIUS_STRUCTURED_OUTPUT=json_schema
    ```
 5. Run the checker, then the harness with `--provider nebius --repeats 3`.
+
+**Both providers at once:** with both keys set, `python -m src.backend.scripts.evaluate_recovery_model` evaluates all four approved models with the same scenarios. It reports each model as one of: evaluated, unavailable, not run (no key), or not evaluated (too many errors). The harness chooses the model per target, so `MINIMAX_MODEL` and `NEBIUS_MODEL` matter only for the running worker.
 
 ### 6.4 Rotation and revocation
 

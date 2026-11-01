@@ -319,7 +319,7 @@ def _authorize_standby(http, org, order, valid_until: str) -> dict:
 
 def test_expired_standby_is_released_and_flagged_without_an_exception_when_recovery_is_unaffected(http, org, factory) -> None:
     order = make_order(http, org, "200")
-    standby = _authorize_standby(http, org, order, date.today().isoformat())
+    standby = _authorize_standby(http, org, order, datetime.now(timezone.utc).date().isoformat())  # the API's UTC day
     worker.run_timers(factory, datetime.now(timezone.utc) + timedelta(days=1))
     row = _solicited(factory, standby["id"])
     assert row.status == AllocationStatus.EXPIRED and row.holds_reservation is False
@@ -333,7 +333,7 @@ def test_expired_standby_is_released_and_flagged_without_an_exception_when_recov
 
 def test_expired_standby_opens_an_exception_when_an_active_shortfall_needs_it(http, org, factory) -> None:
     order = make_order(http, org, "200")
-    standby = _authorize_standby(http, org, order, date.today().isoformat())
+    standby = _authorize_standby(http, org, order, datetime.now(timezone.utc).date().isoformat())  # the API's UTC day
     commitment = next(a for a in supply(http, org, order)["allocations"] if a["status"] == "COMMITTED")
     report(http, org, commitment["production_lot_id"], Decimal(commitment["quantity_kg"]) - Decimal("30"))
     worker.run_once(factory)

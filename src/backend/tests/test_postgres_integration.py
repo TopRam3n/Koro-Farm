@@ -376,3 +376,46 @@ def test_concurrent_capacity_reports_on_one_lot_both_recorded_and_consistent(pg_
         applied = [r for r in reports if r.applied]
         assert s.get(ProductionLot, item.id).reported_capacity_kg in {r.reported_capacity_kg for r in applied}
     assert_inventory(pg_factory)
+
+
+class SlowExternalDecider:
+    """An external decider stand-in: counts calls and takes long enough for two workers to overlap."""
+    mode, external, provider, model = "model", True, "scripted", "scripted-model"
+
+    def __init__(self):
+        from types import SimpleNamespace
+        self.config = SimpleNamespace(timeout=5.0, profile=SimpleNamespace(structured=("json_schema",)))
+        self.calls = 0
+
+    def decide(self, context):
+        import time
+        self.calls += 1
+        time.sleep(0.5)
+        decision = DeterministicDecider().decide(context)
+        decision.mode, decision.model = "model", self.model
+        return decision
+
+
+def test_two_workers_racing_for_one_task_make_one_model_call_and_one_proposal(pg_factory):
+    from src.backend.app.agents.application.orchestrator import advance_due
+    with pg_factory() as s:
+        req = requirement(s); lot(s, "100", "10"); lot(s, "100", "10")
+        plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=0))
+        allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
+        dropout(s, allocation.id, "loss", "drop"); s.commit()
+    from src.backend.app import worker
+    while worker.process_next_message(pg_factory):  # turn the exception into a task, without advancing it
+        pass
+    decider = SlowExternalDecider()
+    barrier = Barrier(2)
+
+    def race(_session):
+        barrier.wait()
+        return advance_due(pg_factory, decider=decider)
+
+    results = concurrent(pg_factory, [race, race])
+    assert all(result[0] == "ok" for result in results), results
+    assert decider.calls == 1  # the second worker skipped the locked or leased task
+    with pg_factory() as s:
+        assert s.scalar(select(func.count()).select_from(RecoveryProposal)) == 1
+        assert s.scalar(select(RecoveryTask)).planning_lease_id is None

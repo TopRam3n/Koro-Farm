@@ -8,15 +8,18 @@ is responsible for is overdue or dead-lettered; otherwise DEGRADED, with the rea
   a standby authorization past its end date still untouched after this long means processing is behind.
 * Recovery: a recovery task due for longer than PROCESSING_OVERDUE_SECONDS, or a FAILED task that no newer task
   for the same order has replaced, also makes monitoring DEGRADED (an incident would otherwise go unhandled).
+* Models (warnings only, never DEGRADED: deterministic decisions keep recovery working): per provider and model,
+  calls, fallbacks, latency and estimated cost over MODEL_WINDOW_HOURS (default 24); a warning when at least
+  MODEL_WARNING_MIN_CALLS calls (default 5) fell back at a rate of MODEL_FALLBACK_WARNING_RATE (default 0.5) or more.
 """
 import os
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, aliased
 
-from src.backend.app.agents.domain.models import ACTIVE_TASK_STATUSES, RecoveryTask, TaskStatus
+from src.backend.app.agents.domain.models import ACTIVE_TASK_STATUSES, RecoveryModelCall, RecoveryTask, TaskStatus
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage, WorkerHeartbeat
 from src.backend.app.demand.domain.models import Buyer, Requirement
 from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
@@ -83,6 +86,23 @@ def operational_status(session: Session, now: datetime | None = None, organizati
     failed_tasks = tasks(RecoveryTask.status == TaskStatus.FAILED, ~select(newer.id).where(
         newer.requirement_id == RecoveryTask.requirement_id, newer.created_at > RecoveryTask.created_at).exists())
 
+    since = now - timedelta(hours=_seconds("MODEL_WINDOW_HOURS", 24))
+    model_query = select(RecoveryModelCall.provider, RecoveryModelCall.configured_model, func.count(),
+                         func.sum(case((RecoveryModelCall.outcome == "fallback", 1), else_=0)),
+                         func.avg(RecoveryModelCall.latency_ms), func.sum(RecoveryModelCall.estimated_cost_usd)
+                         ).where(RecoveryModelCall.created_at >= since).group_by(RecoveryModelCall.provider, RecoveryModelCall.configured_model)
+    if organization_id is not None:
+        model_query = model_query.where(RecoveryModelCall.organization_id == organization_id)
+    models, warnings = [], []
+    threshold = float(os.getenv("MODEL_FALLBACK_WARNING_RATE", "0.5"))
+    for provider, model, calls, fallbacks, latency, cost in session.execute(model_query).all():
+        rate = (fallbacks or 0) / calls if calls else 0
+        models.append({"provider": provider, "model": model, "calls": calls, "fallbacks": int(fallbacks or 0),
+                       "fallback_rate": round(rate, 3), "average_latency_ms": int(latency) if latency is not None else None,
+                       "estimated_cost_usd": str(cost) if cost is not None else None})
+        if calls >= _seconds("MODEL_WARNING_MIN_CALLS", 5) and rate >= threshold:
+            warnings.append(f"model_fallbacks_high:{provider}:{model}")
+
     reasons = []
     if worker_state != "RUNNING":
         reasons.append("worker_not_running" if worker_state == "STOPPED" else "worker_never_started")
@@ -106,5 +126,8 @@ def operational_status(session: Session, now: datetime | None = None, organizati
                        "overdue_deadlines": overdue_deadlines + overdue_standby,
                        "overdue_after_seconds": int(overdue_after.total_seconds())},
         "recovery": {"overdue_tasks": overdue_tasks, "failed_tasks": failed_tasks},
+        "warnings": warnings,
+        "models": {"window_hours": _seconds("MODEL_WINDOW_HOURS", 24), "by_model": models,
+                   "cost_note": "estimates from published list prices, not account charges"},
     }
 

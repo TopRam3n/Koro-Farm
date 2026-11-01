@@ -1,17 +1,22 @@
-"""Choosing among deterministic options, explaining the choice, and drafting messages.
+"""Choosing among deterministic options, explaining the choice, and drafting messages (provider-independent).
 
 A decider receives a de-identified context (pseudonymous supplier labels, no names or identifiers) and returns a
 `Decision`: one offered option id, a rationale, optional escalation advice and information requests, and message
-drafts. `validated` checks every model answer before it is used:
-* the option id must be one that was offered, otherwise the deterministic choice is used;
-* a rationale or draft citing a number that is not in the evidence is withheld (models may not invent quantities);
-* drafts are capped in length and are only ever stored, never sent.
+drafts. A model's answer passes three checks before anything is used:
+1. `parse_answer`: exactly one JSON object matching `DecisionAnswer` (strict types, no extra fields, bounded lengths);
+2. the option id must be one that was offered, otherwise the deterministic choice is used;
+3. `validated`: a rationale, draft or information request is withheld when it cites a number not in the evidence or
+   makes an unsupported claim (`claim_findings`: regulatory, commercial, state, contact channel, unknown party, or
+   text echoed from untrusted incident notes). Drafts are only ever stored, never sent.
 The deterministic decider is always available and is used whenever the model is disabled, fails or is rejected.
 """
+import json
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Protocol
+from typing import Annotated, Protocol
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 MAX_DRAFT = 800
 MAX_RATIONALE = 2000
@@ -30,13 +35,86 @@ class Decision:
     model: str | None = None
     violations: list[str] = field(default_factory=list)
     fallback_reason: str | None = None
+    call: dict | None = None  # model call record: provider, model, latency, usage, cost, outcome (never reasoning)
 
 
 class Decider(Protocol):
     mode: str
+    external: bool  # True when deciding calls an external service (decided outside database transactions)
 
     def decide(self, context: dict) -> Decision: ...
 
+
+# --- Strict answer schema ----------------------------------------------------------------------------------------
+
+class SupplierDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    supplier_label: str = Field(min_length=1, max_length=10)
+    message: str = Field(max_length=MAX_DRAFT)
+
+
+class DecisionAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    option_id: str = Field(min_length=1, max_length=10)
+    rationale: str = Field(max_length=MAX_RATIONALE)
+    recommend_escalation: bool
+    information_requests: list[Annotated[str, Field(max_length=300)]] = Field(max_length=5)
+    supplier_drafts: list[SupplierDraft] = Field(max_length=10)
+    buyer_draft: str = Field(max_length=MAX_DRAFT)
+
+
+# Sent to providers that accept a JSON schema, and repeated in every prompt. Length limits are enforced locally.
+DECISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "option_id": {"type": "string"},
+        "rationale": {"type": "string"},
+        "recommend_escalation": {"type": "boolean"},
+        "information_requests": {"type": "array", "items": {"type": "string"}},
+        "supplier_drafts": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"supplier_label": {"type": "string"}, "message": {"type": "string"}},
+            "required": ["supplier_label", "message"], "additionalProperties": False}},
+        "buyer_draft": {"type": "string"},
+    },
+    "required": ["option_id", "rationale", "recommend_escalation", "information_requests", "supplier_drafts", "buyer_draft"],
+    "additionalProperties": False,
+}
+
+_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
+
+
+class AnswerFormatError(ValueError):
+    pass
+
+
+def parse_answer(text: str) -> DecisionAnswer:
+    """Exactly one JSON object and nothing else (a single code fence around it is tolerated)."""
+    body = (text or "").strip()
+    fenced = _FENCE.match(body)
+    if fenced:
+        body = fenced.group(1).strip()
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise AnswerFormatError("the answer is not a single JSON object") from exc
+    if not isinstance(data, dict):
+        raise AnswerFormatError("the answer is not a JSON object")
+    try:
+        return DecisionAnswer.model_validate(data)
+    except ValidationError as exc:
+        fields = sorted({".".join(str(p) for p in error["loc"]) or "answer" for error in exc.errors()})
+        raise AnswerFormatError(f"the answer does not match the decision schema ({', '.join(fields)[:200]})") from exc
+
+
+def to_decision(answer: DecisionAnswer, model: str | None) -> Decision:
+    return Decision(option_id=answer.option_id, rationale=answer.rationale, recommend_escalation=answer.recommend_escalation,
+                    information_requests=list(answer.information_requests),
+                    supplier_drafts={d.supplier_label: d.message for d in answer.supplier_drafts},
+                    buyer_draft=answer.buyer_draft or None, mode="model", model=model)
+
+
+# --- Deterministic choice --------------------------------------------------------------------------------------
 
 def _covered(option: dict) -> Decimal:
     return Decimal(option["standby_activated_kg"]) + Decimal(option["requested_kg"])
@@ -69,6 +147,11 @@ def template_buyer_draft(context: dict, option: dict) -> str:
 
 class DeterministicDecider:
     mode = "deterministic"
+    external = False
+
+    def __init__(self, configuration_error: str | None = None):
+        # Set when a model provider was configured but cannot be used; recorded on every decision.
+        self.configuration_error = configuration_error
 
     def decide(self, context: dict) -> Decision:
         option = deterministic_choice(context["options"])
@@ -79,8 +162,14 @@ class DeterministicDecider:
             parts.append(f"asking new suppliers for {option['requested_kg']} kg (a request, not a commitment)")
         if Decimal(option["escalation_kg"]) > 0:
             parts.append(f"leaving {option['escalation_kg']} kg for a coordinator")
-        return Decision(option_id=option["id"], rationale="; ".join(parts) + ".", recommend_escalation=Decimal(option["escalation_kg"]) > 0)
+        decision = Decision(option_id=option["id"], rationale="; ".join(parts) + ".",
+                            recommend_escalation=Decimal(option["escalation_kg"]) > 0)
+        if self.configuration_error:
+            decision.fallback_reason = f"model provider configured but unusable: {self.configuration_error}"
+        return decision
 
+
+# --- Numbers -----------------------------------------------------------------------------------------------------
 
 def allowed_numbers(context: dict) -> set[str]:
     """Every number that appears anywhere in the evidence given to the model, in normalized form."""
@@ -109,12 +198,67 @@ def _norm(text: str) -> str:
         value = Decimal(text.replace(",", ""))
     except InvalidOperation:
         return text
-    normalized = format(value.normalize(), "f")
-    return normalized
+    return format(value.normalize(), "f")
 
 
 def foreign_numbers(text: str, allowed: set[str]) -> list[str]:
     return [match for match in NUMBER.findall(text or "") if _norm(match) not in allowed]
+
+
+# --- Claims that are not numbers ----------------------------------------------------------------------------------
+
+_RULES: list[tuple[str, re.Pattern]] = [
+    # The model never sees authoritative trade rules, so any regulatory or certification statement is unsupported.
+    ("regulatory", re.compile(r"\b(phyto\w*|certif\w*|complian\w*|compliant|compl(?:y|ies)\s+with|regulat\w*|organic|"
+                              r"globalg\.?a\.?p|g\.a\.p\b|residues?|mrls?\b|customs|quarantine|import\s+(?:rules?|requirements?|permits?|licen[cs]es?)|"
+                              r"export\s+(?:rules?|requirements?|permits?|licen[cs]es?)|meets?\s+(?:the\s+)?\w+\s+(?:rules|requirements|standards)|"
+                              r"food[\s-]safety|inspection\s+(?:passed|cleared)|approved\s+for\s+(?:import|export))", re.IGNORECASE)),
+    ("commercial", re.compile(r"\b(guarantee\w*|promis\w*|discount\w*|premiums?|penalt\w*|refund\w*|compensat\w*|"
+                              r"pay(?:s|ing|ment|ments)?|paid|bonus\w*|incentive\w*|rebate\w*|contract\s+price|price\s+(?:of|per|at))\b", re.IGNORECASE)),
+    ("state", re.compile(r"\b(confirmed|(?:has|have|was|were|been|already)\s+(?:shipped|dispatched|delivered|agreed|committed|secured)|"
+                         r"shipped|dispatched|on\s+(?:its|the)\s+way|in\s+transit|locked\s+in|secured)\b", re.IGNORECASE)),
+    ("contact_channel", re.compile(r"\b(whats\s?app|sms|text\s+message|e-?mail(?:ed|s)?|phoned|telephoned|"
+                                   r"(?:we|i)\s+(?:have|'ve|has)\s+(?:contacted|messaged|notified|called|informed)|"
+                                   r"sent\s+(?:a|an|the)\s+(?:message|notification|text))\b", re.IGNORECASE)),
+]
+_LABEL = re.compile(r"\bS\d{1,3}\b")
+_URL = re.compile(r"https?://|www\.", re.IGNORECASE)
+_WORD = re.compile(r"[a-z0-9']+")
+ECHO_WORDS = 6  # a run of this many consecutive words copied from an incident note counts as echoing it
+
+
+def _shingles(text: str) -> set[tuple[str, ...]]:
+    words = _WORD.findall(text.lower())
+    return {tuple(words[i:i + ECHO_WORDS]) for i in range(len(words) - ECHO_WORDS + 1)}
+
+
+def claim_findings(text: str, context: dict) -> list[tuple[str, str]]:
+    """Unsupported claims in model-written text: (category, matched text). Deterministic and auditable."""
+    if not text:
+        return []
+    found = [(category, match.group(0)) for category, pattern in _RULES for match in [pattern.search(text)] if match]
+    labels = {a["supplier_label"] for option in context.get("options", []) for a in option.get("actions", [])}
+    unknown = sorted({label for label in _LABEL.findall(text) if label not in labels})
+    if unknown:
+        found.append(("unknown_party", ", ".join(unknown)))
+    if _URL.search(text):
+        found.append(("echoed_note", "link"))
+    notes = [i.get("note") or "" for i in context.get("incidents", [])]
+    own = _shingles(text)
+    for note in notes:
+        overlap = own & _shingles(note)
+        if overlap:
+            found.append(("echoed_note", " ".join(sorted(overlap)[0])))
+            break
+    return found
+
+
+def _problems(text: str, context: dict, allowed: set[str]) -> list[str]:
+    problems = [f"{category} ({match[:60]})" for category, match in claim_findings(text, context)]
+    invented = foreign_numbers(text, allowed)
+    if invented:
+        problems.append(f"figures not in the evidence ({', '.join(invented[:5])})")
+    return problems
 
 
 def validated(raw: Decision, context: dict, fallback: Decision) -> Decision:
@@ -123,34 +267,42 @@ def validated(raw: Decision, context: dict, fallback: Decision) -> Decision:
     if raw.option_id not in offered:
         fallback.violations.append(f"model chose option {raw.option_id!r}, which was not offered")
         fallback.fallback_reason = "invalid option"
+        fallback.call = raw.call
         return fallback
     allowed = allowed_numbers(context)
     result = Decision(option_id=raw.option_id, rationale=fallback.rationale, mode=raw.mode, model=raw.model,
-                      recommend_escalation=bool(raw.recommend_escalation),
-                      information_requests=[item[:300] for item in raw.information_requests[:5]])
+                      recommend_escalation=bool(raw.recommend_escalation), call=raw.call)
     rationale = (raw.rationale or "").strip()[:MAX_RATIONALE]
-    invented = foreign_numbers(rationale, allowed)
+    problems = _problems(rationale, context, allowed)
     if not rationale:
         result.violations.append("model gave no rationale; deterministic summary used")
-    elif invented:
-        result.violations.append(f"model rationale cited figures not in the evidence ({', '.join(invented[:5])}); withheld")
+    elif problems:
+        result.violations.append(f"model rationale withheld: {'; '.join(problems)}")
         if raw.option_id != fallback.option_id:
-            result.rationale = f"Model selected option {raw.option_id}. Its explanation was withheld because it cited figures not in the evidence."
+            result.rationale = f"Model selected option {raw.option_id}. Its explanation was withheld: {'; '.join(problems)}."
     else:
         result.rationale = rationale
+    for item in raw.information_requests[:5]:
+        issues = _problems(item, context, allowed)
+        if issues:
+            result.violations.append(f"information request withheld: {'; '.join(issues)}")
+        else:
+            result.information_requests.append(item[:300])
     labels = {action["supplier_label"] for option in context["options"] for action in option["actions"]}
     for label, text in (raw.supplier_drafts or {}).items():
         text = (text or "").strip()
+        issues = _problems(text, context, allowed) if text else ["empty"]
         if label not in labels:
             result.violations.append(f"draft for unknown supplier {label!r} discarded")
-        elif not text or len(text) > MAX_DRAFT or foreign_numbers(text, allowed):
-            result.violations.append(f"draft for {label} discarded (empty, too long or citing figures not in the evidence)")
+        elif len(text) > MAX_DRAFT or issues:
+            result.violations.append(f"draft for {label} discarded: {'; '.join(issues) or 'too long'}")
         else:
             result.supplier_drafts[label] = text
     if raw.buyer_draft:
         text = raw.buyer_draft.strip()
-        if len(text) > MAX_DRAFT or foreign_numbers(text, allowed):
-            result.violations.append("buyer draft discarded (too long or citing figures not in the evidence)")
+        issues = _problems(text, context, allowed)
+        if len(text) > MAX_DRAFT or issues:
+            result.violations.append(f"buyer draft discarded: {'; '.join(issues) or 'too long'}")
         else:
             result.buyer_draft = text
     return result

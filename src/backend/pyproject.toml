@@ -24,9 +24,14 @@ dev = [
     "httpx>=0.28",
     "pytest>=8.3",
 ]
-# Optional recovery-agent model adapter (agents/infrastructure/model.py). Development and staging only; production
-# model access stays disabled until approved. Not needed for tests or CI.
+# Optional recovery-agent model providers (agents/infrastructure/providers.py). Development and staging only;
+# production model access stays disabled until approved. Not needed for development, tests or CI.
+# MiniMax and Nebius Token Factory use the OpenAI-compatible SDK both providers document.
 model = [
+    "openai>=3.0,<4",
+]
+# The optional, disabled-by-default Anthropic adapter.
+anthropic = [
     "anthropic>=2.0,<3",
 ]
 

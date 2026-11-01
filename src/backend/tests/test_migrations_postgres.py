@@ -124,5 +124,5 @@ def test_recovery_role_policy_rows_and_round_trip(fresh_database_url, monkeypatc
         assert not [row for row in rows if row[1] == "recovery.execute"]
         tables = set(connection.execute(text("select table_name from information_schema.tables where table_name like 'recovery_%'")).scalars())
         assert {"recovery_tasks", "recovery_incidents", "recovery_steps", "recovery_proposals", "recovery_approvals",
-                "recovery_executions", "recovery_approval_policies", "recovery_runs"} <= tables
+                "recovery_executions", "recovery_approval_policies", "recovery_runs", "recovery_model_calls"} <= tables
     engine.dispose()
