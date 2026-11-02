@@ -78,17 +78,47 @@ def _run(fn):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+class ReleaseRequestCommand(BaseModel):
+    quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class ReleaseAgreementCommand(BaseModel):
+    quantity_kg: Decimal = Field(gt=0, max_digits=12, decimal_places=3)
+    attestation_method: str = Field(min_length=3, max_length=100, description="How the supplier agreed, e.g. 'phone call', 'farmer portal'")
+    evidence_reference: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+@router.post("/{allocation_id}/release-requests", status_code=202,
+             dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
+def post_release_request(allocation_id: UUID, payload: ReleaseRequestCommand, session: Session = Depends(get_session),
+                         context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Ask to release part of an allocation before close-out (P2). Planned deterministically; needs approval."""
+    from src.backend.app.agents.application.orchestrator import RecoveryError, request_task
+    allocation = session.get(SupplyAllocation, allocation_id)
+    try:
+        task = request_task(session, context, allocation.requirement_id, "RELEASE",
+                            {"allocation_id": str(allocation_id), "quantity_kg": str(payload.quantity_kg), "reason": payload.reason})
+    except RecoveryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return {"recovery_task_id": str(task.id), "status": task.status.value,
+            "next_step": "a release proposal will be prepared for approval; nothing is released until it is approved"}
+
+
 @router.post("/{allocation_id}/dropout", dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
 def post_dropout(allocation_id: UUID, payload: DropoutCommand,
                  idempotency_key: str | None = Depends(tenant_idempotency_key),
-                 session: Session = Depends(get_session)) -> dict:
+                 session: Session = Depends(get_session),
+                 context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     """Record a supplier dropout immediately. Recovery is proposed by the agent and needs approval."""
     key = _require_key(idempotency_key)
     if not payload.defer_recovery:
         raise HTTPException(status_code=422, detail="immediate recovery is no longer available: standby is activated only "
                                                     "through an approved recovery proposal")
     try:
-        result = dropout(session, allocation_id, payload.reason, key)
+        result = dropout(session, allocation_id, payload.reason, key, actor_id=str(context.user_id))
         session.commit()
         return result
     except ValueError as exc:
@@ -160,6 +190,43 @@ def post_decline(allocation_id: UUID, payload: LegacyDecision, idempotency_key: 
                  context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     return _respond(allocation_id, ResponseCommand(decision=ConsentDecision.DECLINED, **payload.model_dump()),
                     idempotency_key, session, context)
+
+
+@response_router.post("/{allocation_id}/release-agreements", status_code=201)
+def post_release_agreement(allocation_id: UUID, payload: ReleaseAgreementCommand, session: Session = Depends(get_session),
+                           context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Record that the supplier agreed to be released from part of their commitment (P1, P4).
+
+    The farmer may record it for their own lot (farmer portal); staff record what the farmer told them, with an
+    attestation. Releasing a commitment for a buyer cancellation or reduction needs this agreement unless the
+    organization's supplier terms grant the right."""
+    from src.backend.app.assurance.application.events import record_event
+    from src.backend.app.supply.domain.planning_models import ConsentChannel, ConsentType
+    allocation = session.scalar(select(SupplyAllocation).where(SupplyAllocation.id == allocation_id).with_for_update())
+    lot = session.get(ProductionLot, allocation.production_lot_id)
+    if context.role == RoleCode.FARMER:
+        if context.farmer_id != lot.farmer_id:
+            raise HTTPException(status_code=404, detail="allocation not found")
+        channel = ConsentChannel.FARMER_PORTAL
+    elif PermissionCode.SUPPLY_MANAGE in context.permissions:
+        channel = ConsentChannel.COORDINATOR_RELAYED
+    else:
+        raise HTTPException(status_code=403, detail="recording a supplier's agreement requires supply management permission")
+    if allocation.status != AllocationStatus.COMMITTED:
+        raise HTTPException(status_code=409, detail="only an active commitment can be released")
+    if payload.quantity_kg > allocation.obligation_kg:
+        raise HTTPException(status_code=409, detail=f"the commitment is {allocation.obligation_kg} kg")
+    consent = SupplierConsent(organization_id=context.organization_id, allocation_id=allocation.id, farmer_id=lot.farmer_id,
+                              production_lot_id=lot.id, consent_type=ConsentType.RELEASE_AGREEMENT, decision=ConsentDecision.ACCEPTED,
+                              channel=channel, quantity_kg=payload.quantity_kg, attestation_method=payload.attestation_method.strip(),
+                              evidence_reference=payload.evidence_reference, note=payload.note, recorded_by_user_id=context.user_id)
+    session.add(consent)
+    session.flush()
+    record_event(session, context, "supplier.release_agreed", "requirement", allocation.requirement_id, {
+        "allocation_id": str(allocation.id), "consent_id": str(consent.id), "quantity_kg": str(payload.quantity_kg),
+        "channel": channel.value})
+    session.commit()
+    return {"consent_id": str(consent.id), "channel": channel.value, "quantity_kg": str(payload.quantity_kg)}
 
 
 @response_router.get("/{allocation_id}/consents")

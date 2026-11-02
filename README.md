@@ -64,6 +64,19 @@ Monitoring never assumes the worker is running. Each tick records a heartbeat.
 - Secure setup: `docs/product/R1_WP3_MODEL_PROVIDERS_PLAN.md`, section 6.
 - Details: `docs/product/R1_WP3_REPORT.md`.
 
+## Fulfilment, reservation release and close-out (R1 WP4)
+
+- Quantities stay separate: committed, received, accepted, rejected, dispatched, delivered, buyer-confirmed, disputed and released (`GET /requirements/{id}/fulfilment-record`). Receipts and deliveries are never edited; corrections are added beside them.
+- Reserved stock is released only through `supply/application/release.py`: never what was received, and never by rewriting the agreed commitment. Released stock must be confirmed again before it is offered to another order.
+- Every lot's reserved total is checked against what holds reservations on it (hourly in the worker, `LEDGER_CHECK_SECONDS`). A mismatch degrades monitoring (`stock_ledger_mismatch`) and is never repaired automatically.
+- Cancelling an order with supplier commitments is a request (`POST /requirements/{id}/cancellation-requests`). It needs each supplier's recorded release agreement (or the organization's contractual right) and approval, and elevated approval after goods are received.
+- Buyers confirm or dispute their own deliveries (`/deliveries`, `POST /buyer/deliveries/{id}/confirmation`); staff relay a confirmation only with the buyer's representative, channel, time and an attestation.
+- Reconciliation is versioned; material corrections need a second reviewer. An order closes as `COMPLETED` only when everything is delivered, confirmed and undisputed. Otherwise a procurement manager or organization administrator closes it `CLOSED_WITH_VARIANCE` with a reason. Closing releases what was never received.
+- Lots need re-verification `HARVEST_REVERIFY_DAYS` (default 7) after their harvest ends; a passed `viable_until` or a withdrawal makes them exhausted.
+- Marketplace orders are off unless `MARKETPLACE_ORDERS_ENABLED=true` outside production.
+- `python -m src.backend.scripts.release_audit` lists reservations that should no longer be held (dry run). `--apply` needs the reviewed report, a reason, an approval reference and a backup reference. Never run it on a shared database without approval.
+- Details: `docs/product/R1_WP4_REPORT.md`.
+
 ## Current planning endpoints
 
 - `POST /requirements/{id}/plan` creates one immutable initial plan. It reserves exactly the required committed quantity where possible, then a 20% standby target. A second initial plan request returns `409` rather than double allocating lots.

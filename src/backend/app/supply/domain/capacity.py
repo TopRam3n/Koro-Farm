@@ -13,6 +13,7 @@ class CapacityChannel(StrEnum):
     """FARMER_PORTAL: the farmer reported it while signed in. COORDINATOR_RELAYED: a coordinator recorded what
     the farmer told them, with an attestation; that is not independent farmer confirmation."""
     FARMER_PORTAL = "FARMER_PORTAL"
+    FARMER_SECURE_LINK = "FARMER_SECURE_LINK"  # the farmer answered a one-time secure link; self-reported
     COORDINATOR_RELAYED = "COORDINATOR_RELAYED"
 
 

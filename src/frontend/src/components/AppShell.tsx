@@ -14,7 +14,7 @@ type NavGroup = { label: string; items: readonly NavItem[] };
 
 const groups: readonly NavGroup[] = [
   { label: 'My Work', items: [['My Work', '/', ListTodo], ['Needs attention', '/exceptions', AlertTriangle], ['Command Center', '/command-center', LayoutDashboard]] },
-  { label: 'Operations', items: [['Orders', '/orders', ClipboardList], ['Buyers', '/buyers', Store], ['Suppliers & lots', '/suppliers', Sprout], ['Programmes', '/programmes', Building2], ['Demand', '/demand', ClipboardCheck], ['Supply Network', '/supply', Tractor], ['Assurance', '/assurance', ShieldCheck], ['Fulfilment', '/fulfilment', PackageCheck]] },
+  { label: 'Operations', items: [['Orders', '/orders', ClipboardList], ['Buyers', '/buyers', Store], ['Suppliers & lots', '/suppliers', Sprout], ['Programmes', '/programmes', Building2], ['Demand', '/demand', ClipboardCheck], ['Supply Network', '/supply', Tractor], ['Assurance', '/assurance', ShieldCheck], ['Fulfilment', '/fulfilment', PackageCheck], ['Fulfilment sites', '/fulfilment/sites', Building2]] },
   { label: 'Intelligence', items: [['Scenario Lab', '/scenario-lab', FlaskConical], ['Network', '/network', Network], ['Analytics', '/analytics', BarChart3]] },
   { label: 'Trust', items: [['Compliance', '/compliance', FileCheck2], ['Traceability', '/traceability', GitBranch], ['Trade Evidence', '/trade-evidence', CheckCircle2]] },
   { label: 'System', items: [['Agent Operations', '/agent-operations', Workflow], ['Activity & Audit', '/activity', Activity], ['Integrations', '/integrations', Unplug]] },
@@ -27,7 +27,7 @@ const farmerGroups: readonly NavGroup[] = [
 ];
 
 const buyerGroups: readonly NavGroup[] = [
-  { label: 'Shop', items: [['Available produce', '/marketplace', ShoppingBasket], ['My orders', '/marketplace#orders', ClipboardCheck], ['Food alerts', '/marketplace#alerts', Bell]] },
+  { label: 'Shop', items: [['Available produce', '/marketplace', ShoppingBasket], ['My orders', '/marketplace#orders', ClipboardCheck], ['Food alerts', '/marketplace#alerts', Bell], ['My deliveries', '/deliveries', PackageCheck]] },
   { label: 'Account', items: [['Profile', '/profile', UserRoundCog]] },
 ];
 

@@ -107,7 +107,7 @@ def test_order_lifecycle_transitions(http, org, factory) -> None:
     http.post(f"/allocations/{commitment['id']}/solicit", headers=H(org, "s"), json={})
     http.post(f"/allocations/{commitment['id']}/responses", headers=H(org, "a"), json={"decision": "ACCEPTED", **ATTEST})
     blocked = http.post(f"{path}/cancel", headers=H(org), json={"reason": "buyer withdrew"})
-    assert blocked.status_code == 409 and "release them before cancelling" in blocked.json()["detail"]
+    assert blocked.status_code == 409 and "cancellation request" in blocked.json()["detail"]
     assert http.get(path, headers=H(org)).json()["lifecycle_status"] != "CANCELLED"
 
 

@@ -119,6 +119,7 @@ def test_creates_are_idempotent_per_key(http, org, factory) -> None:
     assert http.post("/buyers", headers=_as(org), json=body).status_code == 409
 
 
+@pytest.mark.ledger_drift_expected  # simulates stock reserved outside KoroFarm by setting the lot directly
 def test_lot_reductions_below_reserved_supply_are_not_silently_applied(http, org, factory) -> None:
     _, _, lot, _ = _setup(http, org)
     with factory() as session:

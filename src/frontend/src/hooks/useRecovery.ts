@@ -4,12 +4,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
 import { LIVE_REFRESH_MS } from '@/hooks/useTrade';
 
-export type ActionType = 'ACTIVATE_STANDBY' | 'SOLICIT_SUPPLY' | 'RELEASE_EXPOSED';
+export type ActionType = 'ACTIVATE_STANDBY' | 'SOLICIT_SUPPLY' | 'RELEASE_EXPOSED'
+  // R1 WP4: approved releases, cancellations and buyer reductions.
+  | 'RELEASE_COMMITMENT' | 'RELEASE_STANDBY' | 'WITHDRAW_REQUEST' | 'CANCEL_ORDER';
 
 export interface ProposalAction {
   type: ActionType; farmer_name: string; supplier_label: string; parish: string; quantity_kg: string; production_lot_id: string;
   allocation_id?: string; consent_channel?: string | null; activation_conditions?: string | null; authorization_valid_until?: string | null;
   respond_within_hours?: number; availability_confidence?: string; message?: string | null; reason?: string;
+  release_kind?: string; release_permitted_by?: string; received_kg?: string; commitment_kg?: string;
+  mode?: 'FULL' | 'REMAINDER'; buyer_instruction?: string | null;
 }
 
 export interface ProposalCost {
@@ -22,6 +26,8 @@ export interface ProposalOption {
 }
 
 export interface ProposalContent {
+  schema?: string; purpose?: 'RECOVERY' | 'RELEASE' | 'CANCELLATION'; commercial_terms?: string;
+  request?: { reason?: string; buyer_instruction?: string; commercial_consequences?: string | null } | null;
   version: number; created_at: string; expires_at: string;
   basis: { required_kg: string; committed_cover_kg: string; exposed_kg: string; assured_kg: string; gap_kg: string; in_flight_kg: string; net_need_kg: string };
   incidents: Array<{ kind: string; quantity_kg: string; note: string | null }>;

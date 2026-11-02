@@ -130,4 +130,26 @@ describe('recovery proposals', () => {
     expect(screen.getAllByText('Applied')).toHaveLength(2);
     expect(screen.getByText('Failed: lot unavailable')).toBeInTheDocument();
   });
+
+  it('describes a cancellation as a buyer decision that keeps commitments and received goods on record', async () => {
+    const base = proposal();
+    const cancellation = proposal({ tier: 'ELEVATED', content: { ...base.content, schema: 'release-proposal-v1', purpose: 'CANCELLATION',
+      request: { reason: 'buyer cancelled the event', buyer_instruction: 'email 12 Oct' }, commercial_terms: 'Cancellation fee J$20,000 agreed with the buyer',
+      actions: [
+        { type: 'RELEASE_COMMITMENT', farmer_name: 'Ena Gordon', supplier_label: '', parish: 'St. Ann', quantity_kg: '150', production_lot_id: 'lot-1',
+          allocation_id: 'al-1', release_kind: 'cancellation', release_permitted_by: 'the supplier agreed to release 150 kg', received_kg: '50', commitment_kg: '200' },
+        { type: 'CANCEL_ORDER', farmer_name: '', supplier_label: '', parish: '', quantity_kg: '0', production_lot_id: '', mode: 'REMAINDER' },
+      ] } });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([task({ current_proposal: cancellation })]), { status: 200 })));
+    renderTasks();
+    const card = await screen.findByRole('region', { name: 'Cancellation proposal 1' });
+    const actions = within(card).getByRole('list', { name: 'Proposed actions' });
+    expect(actions).toHaveTextContent("Release 150 kg of Ena Gordon's undelivered commitment (buyer cancellation, not the farmer’s default)");
+    expect(actions).toHaveTextContent('Their agreed 200 kg stays on record; the 50 kg already received is kept');
+    expect(actions).toHaveTextContent('Allowed because the supplier agreed to release 150 kg');
+    expect(actions).toHaveTextContent('Received goods and their records stay for reconciliation');
+    expect(card).toHaveTextContent("Buyer's instruction: email 12 Oct");
+    expect(card).toHaveTextContent('Commercial consequences: Cancellation fee J$20,000 agreed with the buyer');
+    expect(card).not.toHaveTextContent('Order needs');
+  });
 });

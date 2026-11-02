@@ -17,7 +17,7 @@ from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.identity.domain.permissions import PermissionCode
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.supply.application.crops import require_active_crop
-from src.backend.app.supply.domain.models import ProductionLot
+from src.backend.app.supply.application.release import release_remaining
 from src.backend.app.supply.domain.planning_models import AllocationStatus, SupplyAllocation
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
@@ -280,16 +280,15 @@ def cancel_requirement(requirement_id: UUID, payload: CancelCommand, session: Se
     binding = session.scalar(select(SupplyAllocation.id).where(
         SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.status.in_(BINDING_ALLOCATION_STATES)).limit(1))
     if binding is not None:
-        raise HTTPException(status_code=409, detail="suppliers have accepted or reserved supply for this order; release them before cancelling")
+        raise HTTPException(status_code=409, detail="suppliers hold commitments or standby for this order; submit a cancellation request "
+                                                    "(POST /requirements/{requirement_id}/cancellation-requests), which needs approval")
     # Nothing binding exists; withdraw open proposals and solicitations so no supplier is asked for a cancelled order.
     withdrawn = []
     for allocation in session.scalars(select(SupplyAllocation).where(
             SupplyAllocation.requirement_id == requirement.id,
             SupplyAllocation.status.in_([AllocationStatus.PROPOSED, AllocationStatus.SOLICITED])).with_for_update()):
-        if allocation.holds_reservation:
-            lot = session.scalar(select(ProductionLot).where(ProductionLot.id == allocation.production_lot_id).with_for_update())
-            lot.reserved_quantity_kg -= allocation.quantity_kg
-            allocation.holds_reservation = False
+        release_remaining(session, allocation, kind="request_withdrawn", reason=f"order cancelled: {payload.reason}",
+                          actor_id=str(context.user_id), actor_type="user", organization_id=context.organization_id)
         allocation.status = AllocationStatus.WITHDRAWN
         withdrawn.append(str(allocation.id))
     requirement.lifecycle_status = RequirementLifecycleStatus.CANCELLED
@@ -323,11 +322,37 @@ def requirement_history(requirement_id: UUID, session: Session = Depends(get_ses
     }
 
 
+class CancellationRequestCommand(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+    buyer_instruction: str = Field(min_length=3, max_length=500, description="The buyer's instruction or the evidence of it")
+    commercial_consequences: str | None = Field(default=None, max_length=1000)
+
+
+@router.post("/{requirement_id}/cancellation-requests", status_code=202,
+             dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_UPDATE))])
+def request_cancellation(requirement_id: UUID, payload: CancellationRequestCommand, session: Session = Depends(get_session),
+                         context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Request cancellation of an order holding supplier commitments (P1). Nothing is cancelled until approved."""
+    from src.backend.app.agents.application.orchestrator import RecoveryError, request_task
+    _scoped(session, context, requirement_id)
+    try:
+        task = request_task(session, context, requirement_id, "CANCELLATION", payload.model_dump())
+    except RecoveryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    session.commit()
+    return {"recovery_task_id": str(task.id), "status": task.status.value,
+            "next_step": "a cancellation proposal will be prepared for approval; supplier commitments stay until it is approved"}
+
+
 @router.post("/{requirement_id}/buyer-change",
              dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_UPDATE))])
 def buyer_change(requirement_id: UUID, payload: BuyerChangeCommand, session: Session = Depends(get_session),
                  context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     requirement, _ = _scoped(session, context, requirement_id, lock=True)
+    if requirement.lifecycle_status in (RequirementLifecycleStatus.CANCELLED, RequirementLifecycleStatus.RECONCILED,
+                                        RequirementLifecycleStatus.COMPLETED, RequirementLifecycleStatus.CLOSED_WITH_VARIANCE,
+                                        RequirementLifecycleStatus.CLOSED):
+        raise HTTPException(status_code=409, detail=f"a {requirement.lifecycle_status.value.lower()} order cannot be changed")
     previous = requirement.required_quantity_kg
     if payload.new_quantity_kg == previous:
         raise HTTPException(status_code=422, detail="buyer change must alter the quantity")
@@ -337,5 +362,13 @@ def buyer_change(requirement_id: UUID, payload: BuyerChangeCommand, session: Ses
     session.add(change)
     record_event(session, context, "requirement.buyer_changed", "requirement", requirement.id,
                  {"previous_quantity_kg": str(previous), "new_quantity_kg": str(payload.new_quantity_kg), "reason": payload.reason})
+    coverage = {"gap_kg": "0", "surplus_kg": "0"}
+    if requirement.plan_version > 0:
+        # Coverage stays true (M6): a shortfall or a surplus opens an exception; the recovery agent proposes cover or
+        # reductions, and a person approves. No commitment is revoked because the buyer changed the order (P4).
+        from src.backend.app.assurance.application.exceptions import sync_demand_exceptions
+        coverage = sync_demand_exceptions(session, requirement)
     session.commit()
-    return {"requirement_id": str(requirement.id), "previous_quantity_kg": str(previous), "new_quantity_kg": str(payload.new_quantity_kg), "attribution": "BUYER_CHANGE", "farmer_reliability_impact": "NONE"}
+    return {"requirement_id": str(requirement.id), "previous_quantity_kg": str(previous), "new_quantity_kg": str(payload.new_quantity_kg),
+            "attribution": "BUYER_CHANGE", "farmer_reliability_impact": "NONE", "shortfall_kg": coverage["gap_kg"],
+            "surplus_kg": coverage["surplus_kg"], "supply_health": requirement.supply_health.value}

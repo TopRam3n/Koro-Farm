@@ -242,9 +242,11 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
     }
     committed_kg = committed_quantity(session, requirement.id)
     assured_kg = _coverage(session, requirement.id)
-    standby_kg = sum((a.quantity_kg for a, _, _ in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY and a.consent_status == ConsentStatus.RECORDED), Decimal("0"))
+    standby_kg = sum((a.obligation_kg for a, _, _ in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY and a.consent_status == ConsentStatus.RECORDED), Decimal("0"))
     def _sum(predicate) -> Decimal:
-        return sum((a.quantity_kg for a, _, _ in rows if predicate(a)), Decimal("0"))
+        # Active commitments and standby count what is still owed; ended states report the original quantity.
+        return sum(((a.obligation_kg if a.status in (AllocationStatus.COMMITTED, AllocationStatus.STANDBY) else a.quantity_kg)
+                    for a, _, _ in rows if predicate(a)), Decimal("0"))
     proposed_kg = _sum(lambda a: a.role == AllocationRole.COMMITTED and a.status == AllocationStatus.PROPOSED)
     solicited_kg = _sum(lambda a: a.status == AllocationStatus.SOLICITED)
     proposed_standby_kg = _sum(lambda a: a.role == AllocationRole.STANDBY and a.status == AllocationStatus.PROPOSED)

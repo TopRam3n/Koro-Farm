@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.backend.app.assurance.application.exceptions import assess_lot_eligibility
+from src.backend.app.supply.application.capacity import clear_reverification, refresh_lot_status
 from src.backend.app.assurance.application.events import record_event, remember, replay_or_none
 from src.backend.app.domain.common import AvailabilityConfidence, DateWindow, Grade
 from src.backend.app.domain.common.fields import CropCodeField
@@ -50,6 +52,11 @@ class ProductionLotRead(BaseModel):
     capacity_reported_at: datetime | None = None
     delivered_kg: Decimal = Decimal("0")
     free_kg: Decimal | None = None
+    reverification_required: bool = False
+    reverification_reason: str | None = None
+    viable_until: date | None = None
+    withdrawn_at: datetime | None = None
+    withdrawal_reason: str | None = None
     version: int
 
 
@@ -70,6 +77,7 @@ class ProductionLotCreate(Provenance):
     quality_grade_estimate: Grade
     parish: str | None = Field(default=None, min_length=2, max_length=100)
     farmgate_price_per_kg_jmd: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    viable_until: date | None = Field(default=None, description="Verified date after which the produce is not usable")
 
     @field_validator("harvest_end")
     @classmethod
@@ -93,6 +101,11 @@ class ProductionLotUpdate(Provenance):
     available_quantity_kg: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=3)
     quality_grade_estimate: Grade | None = None
     farmgate_price_per_kg_jmd: Decimal | None = Field(default=None, ge=0, max_digits=12, decimal_places=2)
+    viable_until: date | None = None
+
+
+class LotWithdrawal(Provenance):
+    reason: str = Field(min_length=3, max_length=500)
 
 
 def _costs(session: Session, lot_id: UUID) -> LotCostInput | None:
@@ -174,7 +187,7 @@ def create_production_lot(payload: ProductionLotCreate, session: Session = Depen
         expected_quantity_kg=payload.expected_quantity_kg, available_quantity_kg=payload.available_quantity_kg,
         reserved_quantity_kg=Decimal("0"), quality_grade_estimate=payload.quality_grade_estimate,
         availability_confidence=AvailabilityConfidence.LOW, parish=(payload.parish or farmer.parish).strip(),
-        status=ProductionLotStatus.AVAILABLE if payload.available_quantity_kg > 0 else ProductionLotStatus.UNAVAILABLE,
+        status=ProductionLotStatus.AVAILABLE, viable_until=payload.viable_until,
         last_verified_at=now, capacity_verification=CapacityVerification.DECLARED,
         provenance_source=payload.provenance_source.strip(), attestation_method=payload.attestation_method.strip(),
         evidence_reference=payload.evidence_reference, recorded_by_user_id=context.user_id, declared_at=now,
@@ -183,6 +196,7 @@ def create_production_lot(payload: ProductionLotCreate, session: Session = Depen
         lot.validate()
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    refresh_lot_status(lot)
     session.add(lot)
     session.flush()
     if payload.farmgate_price_per_kg_jmd is not None:
@@ -241,7 +255,9 @@ def update_production_lot(lot_id: UUID, payload: ProductionLotUpdate, session: S
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     now = datetime.now(timezone.utc)
-    lot.status = ProductionLotStatus.AVAILABLE if free_kg(lot) > 0 else ProductionLotStatus.UNAVAILABLE
+    if lot.withdrawn_at is not None:
+        raise HTTPException(409, "a withdrawn lot cannot be re-declared; record a new lot")
+    clear_reverification(lot)  # a new declaration with provenance is fresh evidence of usable capacity
     lot.capacity_verification = CapacityVerification.DECLARED
     lot.provenance_source, lot.attestation_method = payload.provenance_source.strip(), payload.attestation_method.strip()
     lot.evidence_reference, lot.recorded_by_user_id, lot.declared_at, lot.last_verified_at = payload.evidence_reference, context.user_id, now, now
@@ -250,6 +266,41 @@ def update_production_lot(lot_id: UUID, payload: ProductionLotUpdate, session: S
         "changes": diff, "version": lot.version, "provenance_source": lot.provenance_source,
         "attestation_method": lot.attestation_method, "evidence_reference": lot.evidence_reference,
     })
+    # P7: a changed grade or harvest window is recorded truthfully; affected orders get an exception, and agreed
+    # commitments are never silently substituted. Crop identity cannot be changed here at all.
+    if {"quality_grade_estimate", "harvest_start", "harvest_end", "viable_until"} & set(diff):
+        affected = assess_lot_eligibility(session, lot.id)
+        if affected:
+            record_event(session, context, "production_lot.eligibility_changed", "production_lot", lot.id,
+                         {"changes": {k: v for k, v in diff.items() if k in ("quality_grade_estimate", "harvest_start", "harvest_end", "viable_until")},
+                          "affected_requirements": [str(r) for r in affected]})
+    session.commit()
+    session.refresh(lot)
+    return _read(session, lot)
+
+
+@router.post("/{lot_id}/withdraw", response_model=ProductionLotRead,
+             dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
+def withdraw_production_lot(lot_id: UUID, payload: LotWithdrawal, session: Session = Depends(get_session),
+                            context: AuthorizationContext = Depends(get_authorization_context)) -> ProductionLotRead:
+    """Record verified withdrawal of a lot (P9). It is never planned again; affected undelivered commitments get an
+    exception. Commitments and physical history stay; recovery is proposed and approved as usual."""
+    lot = session.scalar(select(ProductionLot).join(Farmer).where(
+        ProductionLot.id == lot_id, Farmer.organization_id == context.organization_id).with_for_update(of=ProductionLot))
+    if lot is None:
+        raise HTTPException(404, "production lot not found")
+    if lot.withdrawn_at is not None:
+        raise HTTPException(409, "this lot is already withdrawn")
+    lot.withdrawn_at, lot.withdrawal_reason = datetime.now(timezone.utc), payload.reason.strip()
+    refresh_lot_status(lot)
+    lot.version += 1
+    record_event(session, context, "production_lot.withdrawn", "production_lot", lot.id, {
+        "reason": lot.withdrawal_reason, "provenance_source": payload.provenance_source,
+        "attestation_method": payload.attestation_method, "evidence_reference": payload.evidence_reference})
+    affected = assess_lot_eligibility(session, lot.id)
+    if affected:
+        record_event(session, context, "production_lot.eligibility_changed", "production_lot", lot.id,
+                     {"changes": {"withdrawn": True}, "affected_requirements": [str(r) for r in affected]})
     session.commit()
     session.refresh(lot)
     return _read(session, lot)

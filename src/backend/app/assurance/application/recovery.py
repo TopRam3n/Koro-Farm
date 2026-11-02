@@ -10,7 +10,7 @@ from src.backend.app.assurance.domain.models import CommandDeduplication, Domain
 from sqlalchemy import or_
 
 from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation, obligation_sql
 from src.backend.app.supply.domain.planning_models import SupplyPlan, SupplyPlanStatus
 from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
 from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
@@ -50,21 +50,32 @@ def committed_quantity(session: Session, requirement_id: UUID) -> Decimal:
         SupplyAllocation.status == AllocationStatus.COMMITTED,
         SupplyAllocation.consent_status == ConsentStatus.RECORDED,
     )).all()
-    return sum((allocation.quantity_kg for allocation in allocations), Decimal("0"))
+    return sum((allocation.obligation_kg for allocation in allocations), Decimal("0"))
+
+
+def _received(session: Session, allocation_id: UUID) -> tuple[Decimal, Decimal]:
+    received, rejected = session.execute(select(func.coalesce(func.sum(ReceivedSublot.received_quantity_kg), 0),
+                                                func.coalesce(func.sum(ReceivedSublot.rejected_quantity_kg), 0))
+                                         .where(ReceivedSublot.allocation_id == allocation_id)).one()
+    return Decimal(received or 0), Decimal(rejected or 0)
 
 
 def _coverage(session: Session, requirement_id: UUID) -> Decimal:
-    """Assured Grade-A coverage used by recovery, kept separate from commitment truth."""
+    """Assured Grade-A coverage used by recovery, kept separate from commitment truth.
+
+    Active commitments count in full less rejected produce. A commitment lost to a dropout still counts what was
+    actually received from it and not rejected (P3: delivered quantities stay accounted for)."""
     allocations = session.scalars(select(SupplyAllocation).where(
         SupplyAllocation.requirement_id == requirement_id,
         SupplyAllocation.role == AllocationRole.COMMITTED,
-        SupplyAllocation.status == AllocationStatus.COMMITTED,
+        SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.LOST]),
         SupplyAllocation.consent_status == ConsentStatus.RECORDED,
     )).all()
-    return sum((allocation.quantity_kg - (
-        session.scalar(select(func.coalesce(func.sum(ReceivedSublot.rejected_quantity_kg), 0)).where(
-            ReceivedSublot.allocation_id == allocation.id
-        )) or Decimal("0")) for allocation in allocations), Decimal("0"))
+    total = Decimal("0")
+    for allocation in allocations:
+        received, rejected = _received(session, allocation.id)
+        total += (allocation.obligation_kg if allocation.status == AllocationStatus.COMMITTED else received) - rejected
+    return total
 
 
 def _create_recovery_snapshot(session: Session, requirement: Requirement) -> SupplyPlan:
@@ -81,7 +92,7 @@ def _create_recovery_snapshot(session: Session, requirement: Requirement) -> Sup
     )))
     version = requirement.plan_version + 1
     committed = _coverage(session, requirement.id)
-    standby = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+    standby = session.scalar(select(func.coalesce(func.sum(obligation_sql()), 0)).where(
         SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.role == AllocationRole.STANDBY,
         *authorized_standby(),
     )) or Decimal("0")
@@ -124,7 +135,7 @@ def _open_recovery_run(session: Session, requirement: Requirement, lost: Decimal
     return run
 
 
-def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dict:
+def dropout(session: Session, allocation_id: UUID, reason: str, key: str, actor_id: str = "system") -> dict:
     """Record that a committed supplier can no longer supply. Recorded immediately; recovery is only proposed.
 
     The loss, the order's at-risk state, the recovery run and a SUPPLIER_DROPOUT exception are written in one
@@ -148,7 +159,12 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str) -> dic
             raise ValueError("only an active committed allocation can be dropped")
         allocation.status = AllocationStatus.LOST; allocation.lost_at = datetime.now(timezone.utc)
         correlation = uuid4()
-        _event(session, "allocation.lost", requirement.id, correlation, {"allocation_id": str(allocation.id), "quantity_kg": str(allocation.quantity_kg), "reason": reason})
+        _event(session, "allocation.lost", requirement.id, correlation, {"allocation_id": str(allocation.id), "quantity_kg": str(allocation.quantity_kg), "reason": reason, "attribution": "SUPPLIER_DROPOUT"})
+        # P3: the lost, undelivered reservation is released in the same transaction. The commitment, the dropout
+        # and its cause stay on record; delivered quantity stays reserved; the lot must be re-verified.
+        from src.backend.app.supply.application.release import release_remaining
+        release_remaining(session, allocation, kind="dropout", reason=reason, actor_id=actor_id,
+                          actor_type="user" if actor_id != "system" else "system", correlation_id=correlation)
         covered = _coverage(session, requirement.id); shortfall = requirement.required_quantity_kg - covered
         if shortfall > 0:
             requirement.supply_health = SupplyHealth.AT_RISK

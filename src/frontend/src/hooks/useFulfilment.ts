@@ -1,0 +1,113 @@
+'use client';
+
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
+import { apiFetch } from '@/lib/api';
+import { LIVE_REFRESH_MS } from '@/hooks/useTrade';
+
+/** Quantities kept apart on purpose (R1 WP4): received is not accepted, delivered is not confirmed. */
+export interface FulfilmentFigures {
+  required_kg: string; committed_kg: string; received_kg: string; accepted_kg: string; rejected_kg: string; ungraded_receipts: number;
+  dispatched_kg: string; delivered_kg: string; buyer_confirmed_kg: string; legacy_unquantified_confirmation_kg: string;
+  unconfirmed_deliveries: number; deliveries_with_discrepancy: number; open_disputes: number; disputed_kg: string; released_kg: string;
+}
+export interface Confirmation {
+  id: string; confirmed_quantity_kg: string; outcome: 'CONFIRMED' | 'DISCREPANCY'; channel: 'BUYER_ACCOUNT' | 'STAFF_RELAYED' | 'LEGACY_UNQUANTIFIED';
+  buyer_representative: string | null; communication_channel: string | null; attestation: string | null; stated_at: string | null; note: string | null; created_at: string;
+}
+export interface DeliveryView {
+  id: string; shipment_id: string; recorded_quantity_kg: string; delivered_quantity_kg: string; delivered_at: string; evidence_reference: string | null;
+  adjustments: Array<{ delta_kg: string; reason: string; created_at: string }>; confirmation: Confirmation | null; confirmation_history: number;
+}
+export interface Receipt {
+  id: string; allocation_id: string; farmer_name: string; fulfilment_node_id: string; received_kg: string; accepted_kg: string; rejected_kg: string;
+  graded: boolean; assigned_grade: string | null; rejection_reason: string | null; received_at: string; corrections: number; shipment_id: string | null;
+}
+export interface Shipment {
+  id: string; reference: string; status: 'OPEN' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'; dispatched_at: string | null;
+  cancellation_reason: string | null; delivery: DeliveryView | null;
+}
+export interface Dispute {
+  id: string; delivery_id: string | null; party: 'BUYER' | 'STAFF'; quantity_kg: string | null; description: string; created_at: string;
+  status: 'OPEN' | 'RESOLVED' | 'WITHDRAWN'; resolution: string | null;
+}
+export interface Reconciliation {
+  id: string; version: number; status: 'EFFECTIVE' | 'PENDING_REVIEW' | 'REJECTED' | 'SUPERSEDED'; figures: FulfilmentFigures;
+  variances: Record<string, string>; reason: string | null; material_change: boolean; legacy: boolean;
+  created_by_user_id: string | null; reviewed_by_user_id: string | null; created_at: string;
+}
+export interface FulfilmentRecord {
+  requirement_id: string; lifecycle_status: string; figures: FulfilmentFigures; variances: Record<string, string>;
+  completion: { can_complete: boolean; blockers: string[] };
+  receivable_allocations: Array<{ allocation_id: string; farmer_name: string; parish: string; obligation_kg: string }>;
+  receipts: Receipt[]; shipments: Shipment[]; disputes: Dispute[]; reconciliations: Reconciliation[];
+  effective_reconciliation_version: number | null; unconfirmed_deliveries: string[];
+}
+export interface FulfilmentSite { id: string; name: string; node_type: string; parish: string; active: boolean; created_at: string }
+export interface BuyerDelivery extends DeliveryView { order: string; requirement_id: string; shipment_reference: string }
+
+function useCommandKey(prefix: string) {
+  const key = useRef<string | null>(null);
+  return { current: () => key.current ??= `${prefix}-${crypto.randomUUID()}`, clear: () => { key.current = null; } };
+}
+
+const post = <T,>(path: string, body: unknown, key?: string) =>
+  apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body), headers: key ? { 'Idempotency-Key': key } : {} });
+
+export const useFulfilmentRecord = (orderId: string) => useQuery({
+  queryKey: ['fulfilment', orderId], queryFn: () => apiFetch<FulfilmentRecord>(`/requirements/${orderId}/fulfilment-record`),
+  enabled: Boolean(orderId), refetchInterval: LIVE_REFRESH_MS,
+});
+export const useFulfilmentSites = (includeInactive = false) => useQuery({
+  queryKey: ['fulfilment-sites', includeInactive], queryFn: () => apiFetch<FulfilmentSite[]>(`/fulfilment-nodes${includeInactive ? '?include_inactive=true' : ''}`),
+});
+export const useBuyerDeliveries = () => useQuery({ queryKey: ['buyer-deliveries'], queryFn: () => apiFetch<BuyerDelivery[]>('/buyer/deliveries'), refetchInterval: LIVE_REFRESH_MS });
+
+/** One mutation per command. Keyed commands reuse their idempotency key on retry and clear it on success. */
+function useCommand<TBody>(run: (body: TBody, key: string) => Promise<unknown>, prefix: string, invalidate: unknown[][]) {
+  const client = useQueryClient();
+  const command = useCommandKey(prefix);
+  return useMutation({
+    mutationFn: (body: TBody) => run(body, command.current()),
+    onSuccess: async () => { command.clear(); await Promise.all(invalidate.map(queryKey => client.invalidateQueries({ queryKey }))); },
+  });
+}
+
+const orderKeys = (orderId: string) => [['fulfilment', orderId], ['order', orderId], ['order-supply', orderId], ['order-history', orderId], ['orders'], ['lots']];
+
+export function useFulfilmentCommands(orderId: string) {
+  const keys = orderKeys(orderId);
+  return {
+    receive: useCommand<Record<string, string>>((b, key) => post('/sublots/receive', b, key), 'receive', keys),
+    grade: useCommand<{ sublotId: string } & Record<string, string>>(({ sublotId, ...b }, key) => post(`/sublots/${sublotId}/grade`, b, key), 'grade', keys),
+    createShipment: useCommand<{ fulfilment_node_id: string; reference: string }>((b, key) => post(`/requirements/${orderId}/shipments`, b, key), 'shipment', keys),
+    addToShipment: useCommand<{ shipmentId: string; received_sublot_id: string }>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/sublots`, b, key), 'ship-add', keys),
+    cancelShipment: useCommand<{ shipmentId: string; reason: string }>(({ shipmentId, ...b }) => post(`/shipments/${shipmentId}/cancel`, b), 'ship-cancel', keys),
+    dispatch: useCommand<{ shipmentId: string; evidence_reference?: string }>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/dispatch`, b, key), 'dispatch', keys),
+    deliver: useCommand<{ shipmentId: string } & Record<string, string>>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/delivery`, b, key), 'deliver', keys),
+    relayConfirmation: useCommand<{ deliveryId: string } & Record<string, string | boolean>>(({ deliveryId, ...b }, key) => post(`/deliveries/${deliveryId}/confirmations`, b, key), 'relay', keys),
+    raiseDispute: useCommand<Record<string, string>>(b => post(`/requirements/${orderId}/disputes`, b), 'dispute', keys),
+    resolveDispute: useCommand<{ disputeId: string; outcome: 'RESOLVED' | 'WITHDRAWN'; resolution: string }>(({ disputeId, ...b }) => post(`/disputes/${disputeId}/resolution`, b), 'resolve', keys),
+    reconcile: useCommand<{ reason?: string; verification_evidence_reference?: string }>((b, key) => post(`/requirements/${orderId}/reconcile`, b, key), 'reconcile', keys),
+    review: useCommand<{ reconciliationId: string; approve: boolean; note: string }>(({ reconciliationId, ...b }) => post(`/reconciliations/${reconciliationId}/review`, b), 'review', keys),
+    close: useCommand<{ accept_variance: boolean; reason?: string }>((b, key) => post(`/requirements/${orderId}/close`, b, key), 'close', keys),
+    requestCancellation: useCommand<{ reason: string; buyer_instruction: string; commercial_consequences?: string }>(
+      b => post(`/requirements/${orderId}/cancellation-requests`, b), 'cancel-request', [...keys, ['recovery-tasks', orderId]]),
+  };
+}
+
+export function useSiteCommands() {
+  const keys = [['fulfilment-sites']];
+  return {
+    create: useCommand<{ name: string; node_type: string; parish: string }>(b => post('/fulfilment-nodes', b), 'site', keys),
+    deactivate: useCommand<{ siteId: string }>(({ siteId }) => post(`/fulfilment-nodes/${siteId}/deactivate`, {}), 'site-off', keys),
+  };
+}
+
+export function useBuyerCommands() {
+  const keys = [['buyer-deliveries']];
+  return {
+    confirm: useCommand<{ deliveryId: string; confirmed_quantity_kg: string; discrepancy: boolean; note?: string }>(
+      ({ deliveryId, ...b }, key) => post(`/buyer/deliveries/${deliveryId}/confirmation`, b, key), 'buyer-confirm', keys),
+  };
+}

@@ -9,7 +9,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, false, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.infrastructure.database.base import Base
@@ -78,6 +78,9 @@ class RecoveryTask(Base):
     requirement_id: Mapped[UUID] = mapped_column(ForeignKey("requirements.id"), nullable=False, index=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus, native_enum=False, length=30), nullable=False,
                                                default=TaskStatus.QUEUED)
+    # RECOVERY: cover a shortfall or surplus. RELEASE: an approved partial release. CANCELLATION: end the order.
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False, default="RECOVERY", server_default="RECOVERY")
+    request: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # who asked, why, evidence (RELEASE, CANCELLATION)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     proposals_made: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -198,6 +201,10 @@ class RecoveryApprovalPolicy(Base):
     # Largest landed-cost increase (J$) over the order's current cost per kg that a coordinator may approve alone.
     max_cost_increase_jmd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     max_cost_increase_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+    # True only when the organization's supplier terms give it the right to release supplier commitments without
+    # each supplier's agreement (buyer cancellation or reduction). Default: every release needs the supplier.
+    commitment_release_without_supplier_consent: Mapped[bool] = mapped_column(nullable=False, default=False,
+                                                                               server_default=false())
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
     set_by_user_id: Mapped[UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

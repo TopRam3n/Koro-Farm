@@ -51,6 +51,12 @@ def _is_private_or_local(host: str) -> bool:
     return address.is_loopback or address.is_private or address.is_link_local or address.is_unspecified or address.is_reserved
 
 
+def marketplace_orders_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Marketplace orders are outside R1 scope (P10): off unless MARKETPLACE_ORDERS_ENABLED=true, never in production."""
+    env = os.environ if env is None else env
+    return env.get("MARKETPLACE_ORDERS_ENABLED", "").strip().lower() == "true" and environment(env) != "production"
+
+
 def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None:
     """Refuse to start with configuration that could let anyone mint or skip identities.
 

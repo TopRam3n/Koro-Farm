@@ -15,6 +15,10 @@ class ExceptionKind(StrEnum):
     STANDBY_EXPIRED = "STANDBY_EXPIRED"        # an expired authorization leaves an active recovery short
     SUPPLIER_DROPOUT = "SUPPLIER_DROPOUT"      # a committed supplier can no longer supply (recorded dropout)
     QUALITY_REJECTION = "QUALITY_REJECTION"    # received produce was rejected at grading
+    DEMAND_INCREASE = "DEMAND_INCREASE"        # the buyer raised the quantity above committed cover
+    OVER_COMMITTED = "OVER_COMMITTED"          # the buyer lowered the quantity below committed cover
+    ELIGIBILITY_CHANGED = "ELIGIBILITY_CHANGED"  # a lot's grade or harvest window no longer matches its orders
+    LOT_UNAVAILABLE = "LOT_UNAVAILABLE"        # verified expiry or withdrawal affects undelivered commitments
 
 
 class ExceptionStatus(StrEnum):

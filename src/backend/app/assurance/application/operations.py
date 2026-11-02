@@ -8,6 +8,8 @@ is responsible for is overdue or dead-lettered; otherwise DEGRADED, with the rea
   a standby authorization past its end date still untouched after this long means processing is behind.
 * Recovery: a recovery task due for longer than PROCESSING_OVERDUE_SECONDS, or a FAILED task that no newer task
   for the same order has replaced, also makes monitoring DEGRADED (an incident would otherwise go unhandled).
+* Stock ledger (R1 WP4): an open StockLedgerFinding (a lot whose reserved quantity does not match what holds
+  reservations on it) makes monitoring DEGRADED with `stock_ledger_mismatch`. It is never repaired automatically.
 * Models (warnings only, never DEGRADED: deterministic decisions keep recovery working): per provider and model,
   calls, fallbacks, latency and estimated cost over MODEL_WINDOW_HOURS (default 24); a warning when at least
   MODEL_WARNING_MIN_CALLS calls (default 5) fell back at a rate of MODEL_FALLBACK_WARNING_RATE (default 0.5) or more.
@@ -22,6 +24,7 @@ from sqlalchemy.orm import Session, aliased
 from src.backend.app.agents.domain.models import ACTIVE_TASK_STATUSES, RecoveryModelCall, RecoveryTask, TaskStatus
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage, WorkerHeartbeat
 from src.backend.app.demand.domain.models import Buyer, Requirement
+from src.backend.app.reconciliation.domain.models import StockLedgerFinding
 from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
 
 
@@ -86,6 +89,11 @@ def operational_status(session: Session, now: datetime | None = None, organizati
     failed_tasks = tasks(RecoveryTask.status == TaskStatus.FAILED, ~select(newer.id).where(
         newer.requirement_id == RecoveryTask.requirement_id, newer.created_at > RecoveryTask.created_at).exists())
 
+    ledger = select(func.count()).select_from(StockLedgerFinding).where(StockLedgerFinding.resolved_at.is_(None))
+    if organization_id is not None:
+        ledger = ledger.where(StockLedgerFinding.organization_id == organization_id)
+    ledger_findings = session.scalar(ledger) or 0
+
     since = now - timedelta(hours=_seconds("MODEL_WINDOW_HOURS", 24))
     model_query = select(RecoveryModelCall.provider, RecoveryModelCall.configured_model, func.count(),
                          func.sum(case((RecoveryModelCall.outcome == "fallback", 1), else_=0)),
@@ -116,6 +124,8 @@ def operational_status(session: Session, now: datetime | None = None, organizati
         reasons.append("recovery_overdue")
     if failed_tasks:
         reasons.append("recovery_failed")
+    if ledger_findings:
+        reasons.append("stock_ledger_mismatch")
     return {
         "status": "DEGRADED" if reasons else "OPERATIONAL",
         "reasons": reasons,
@@ -126,6 +136,7 @@ def operational_status(session: Session, now: datetime | None = None, organizati
                        "overdue_deadlines": overdue_deadlines + overdue_standby,
                        "overdue_after_seconds": int(overdue_after.total_seconds())},
         "recovery": {"overdue_tasks": overdue_tasks, "failed_tasks": failed_tasks},
+        "stock_ledger": {"open_findings": ledger_findings},
         "warnings": warnings,
         "models": {"window_hours": _seconds("MODEL_WINDOW_HOURS", 24), "by_model": models,
                    "cost_note": "estimates from published list prices, not account charges"},

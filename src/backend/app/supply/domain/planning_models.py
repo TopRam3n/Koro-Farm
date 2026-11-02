@@ -49,6 +49,8 @@ class ConsentStatus(StrEnum):
 class ConsentType(StrEnum):
     COMMITMENT = "COMMITMENT"
     STANDBY_AUTHORIZATION = "STANDBY_AUTHORIZATION"
+    # The supplier agreed to be released from (part of) a commitment, e.g. after a buyer cancellation or reduction.
+    RELEASE_AGREEMENT = "RELEASE_AGREEMENT"
 
 
 class ConsentDecision(StrEnum):
@@ -107,8 +109,11 @@ class SupplyAllocation(Base):
     consent_evidence_id: Mapped[UUID | None] = mapped_column(nullable=True)
     consent_status: Mapped[ConsentStatus] = mapped_column(Enum(ConsentStatus, native_enum=False, length=30), nullable=False,
                                                           default=ConsentStatus.NONE, server_default=ConsentStatus.NONE.value)
-    # True when quantity_kg is counted in production_lots.reserved_quantity_kg for this allocation.
+    # True when (quantity_kg - released_quantity_kg) is counted in production_lots.reserved_quantity_kg.
     holds_reservation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    # Reservation released without rewriting the original commitment (supply/application/release.py).
+    released_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, default=Decimal("0"),
+                                                          server_default="0")
     activation_conditions: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     authorization_valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     solicited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -119,6 +124,15 @@ class SupplyAllocation(Base):
     lost_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     plan_version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    @property
+    def obligation_kg(self) -> Decimal:
+        """What is still owed: the agreed quantity less any released part (the agreement itself is never rewritten)."""
+        return self.quantity_kg - (self.released_quantity_kg or Decimal("0"))
+
+
+def obligation_sql():
+    return SupplyAllocation.quantity_kg - func.coalesce(SupplyAllocation.released_quantity_kg, 0)
 
 
 class SupplierConsent(Base):

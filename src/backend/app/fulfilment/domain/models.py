@@ -36,11 +36,16 @@ class InspectionStatus(StrEnum):
 
 class ReceivedSublot(Base):
     __tablename__ = "received_sublots"
+    # RECEIPT rows are the original physical evidence and are never edited after grading. A correction is an
+    # ADJUSTMENT row linked to its receipt, holding signed differences, so every sum includes it automatically
+    # (fulfilment/application/services.py: adjust_receipt). Only RECEIPT rows carry the non-negative checks.
     __table_args__ = (
-        CheckConstraint("received_quantity_kg >= 0", name="ck_sublot_received_non_negative"),
-        CheckConstraint("accepted_quantity_kg >= 0", name="ck_sublot_accepted_non_negative"),
-        CheckConstraint("rejected_quantity_kg >= 0", name="ck_sublot_rejected_non_negative"),
-        CheckConstraint("accepted_quantity_kg + rejected_quantity_kg <= received_quantity_kg", name="ck_sublot_accounted_within_received"),
+        CheckConstraint("entry_type = 'ADJUSTMENT' OR received_quantity_kg >= 0", name="ck_sublot_received_non_negative"),
+        CheckConstraint("entry_type = 'ADJUSTMENT' OR accepted_quantity_kg >= 0", name="ck_sublot_accepted_non_negative"),
+        CheckConstraint("entry_type = 'ADJUSTMENT' OR rejected_quantity_kg >= 0", name="ck_sublot_rejected_non_negative"),
+        CheckConstraint("entry_type = 'ADJUSTMENT' OR accepted_quantity_kg + rejected_quantity_kg <= received_quantity_kg",
+                        name="ck_sublot_accounted_within_received"),
+        CheckConstraint("(entry_type = 'ADJUSTMENT') = (adjusts_sublot_id IS NOT NULL)", name="ck_sublot_adjustment_link"),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     allocation_id: Mapped[UUID] = mapped_column(ForeignKey("supply_allocations.id"), nullable=False, index=True)
@@ -56,5 +61,9 @@ class ReceivedSublot(Base):
     receipt_evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
     inspection_evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    entry_type: Mapped[str] = mapped_column(String(20), nullable=False, default="RECEIPT", server_default="RECEIPT")
+    adjusts_sublot_id: Mapped[UUID | None] = mapped_column(ForeignKey("received_sublots.id"), nullable=True, index=True)
+    adjustment_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recorded_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

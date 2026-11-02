@@ -46,6 +46,14 @@ class PermissionCode(StrEnum):
     ORDER_VIEW = "order.view"
     ORDER_CREATE = "order.create"
     AVAILABILITY_ALERT_MANAGE = "availability_alert.manage"
+    # R1 WP4 (fulfilment and reconciliation; P5, P6, P11)
+    FULFILMENT_SITE_MANAGE = "fulfilment_site.manage"
+    TRADE_RECONCILE = "trade.reconcile"              # reconciliation versions, correction reviews, dispute resolution
+    TRADE_ACCEPT_VARIANCE = "trade.accept_variance"  # close an order with an accepted, documented variance
+    BUYER_CONFIRMATION_RELAY = "buyer_confirmation.relay"  # record a buyer's confirmation given through another channel
+    DELIVERY_CONFIRM_OWN = "delivery.confirm_own"    # a buyer confirms or disputes their own deliveries
+    DISPUTE_RAISE = "dispute.raise"                  # operational staff raise a discrepancy
+    AUDIT_FLAG = "audit.flag"                        # auditors flag an issue without changing anything
 
 
 # Recovery role policy (R1 WP3, product-owner decision 2):
@@ -56,44 +64,40 @@ class PermissionCode(StrEnum):
 #   organization administrator);
 # * execution is never a user privilege: RECOVERY_EXECUTE is held by no role, platform administrators included.
 #   The gateway executes an approved proposal after re-verifying the approvals (agents/application/gateway.py).
+# Fulfilment and reconciliation (R1 WP4, P11): warehouse operators record physical facts but cannot certify
+# commercial reconciliation; coordinators and procurement managers reconcile; procurement managers and organization
+# administrators accept variances; buyers confirm or dispute only their own deliveries; auditors only flag.
+P = PermissionCode
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[PermissionCode]] = {
-    RoleCode.PLATFORM_ADMIN: frozenset(PermissionCode) - {PermissionCode.RECOVERY_EXECUTE},
+    RoleCode.PLATFORM_ADMIN: frozenset(PermissionCode) - {P.RECOVERY_EXECUTE},
     RoleCode.ORGANIZATION_ADMIN: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW,
-        PermissionCode.RECOVERY_APPROVE, PermissionCode.RECOVERY_APPROVE_ELEVATED, PermissionCode.RECEIVING_VIEW,
-        PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.USER_VIEW, PermissionCode.USER_INVITE,
-        PermissionCode.USER_MANAGE_ROLE, PermissionCode.AUDIT_VIEW, PermissionCode.APPROVAL_POLICY_VIEW,
-        PermissionCode.APPROVAL_POLICY_MANAGE,
+        P.REQUIREMENT_VIEW, P.SUPPLY_VIEW, P.RECOVERY_VIEW, P.RECOVERY_APPROVE, P.RECOVERY_APPROVE_ELEVATED,
+        P.RECEIVING_VIEW, P.TRADE_EVIDENCE_VIEW, P.COMPLIANCE_VIEW, P.USER_VIEW, P.USER_INVITE, P.USER_MANAGE_ROLE,
+        P.AUDIT_VIEW, P.APPROVAL_POLICY_VIEW, P.APPROVAL_POLICY_MANAGE,
+        P.TRADE_ACCEPT_VARIANCE, P.FULFILMENT_SITE_MANAGE, P.AUDIT_FLAG,
     }),
     RoleCode.PROCUREMENT_MANAGER: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.REQUIREMENT_CREATE, PermissionCode.REQUIREMENT_UPDATE,
-        PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE,
-        PermissionCode.RECOVERY_APPROVE, PermissionCode.RECOVERY_APPROVE_ELEVATED, PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
-        PermissionCode.APPROVAL_POLICY_VIEW,
+        P.REQUIREMENT_VIEW, P.REQUIREMENT_CREATE, P.REQUIREMENT_UPDATE, P.SUPPLY_VIEW, P.RECOVERY_VIEW,
+        P.RECOVERY_PROPOSE, P.RECOVERY_APPROVE, P.RECOVERY_APPROVE_ELEVATED, P.TRADE_EVIDENCE_VIEW, P.COMPLIANCE_VIEW,
+        P.AUDIT_VIEW, P.APPROVAL_POLICY_VIEW,
+        P.RECEIVING_VIEW, P.TRADE_RECONCILE, P.TRADE_ACCEPT_VARIANCE, P.BUYER_CONFIRMATION_RELAY, P.DISPUTE_RAISE,
     }),
     # Spec R1 §2: the coordinator/exporter manages orders as well as supply.
     RoleCode.SUPPLY_COORDINATOR: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.REQUIREMENT_CREATE, PermissionCode.REQUIREMENT_UPDATE,
-        PermissionCode.SUPPLY_VIEW, PermissionCode.SUPPLY_MANAGE,
-        PermissionCode.RECOVERY_VIEW, PermissionCode.RECOVERY_PROPOSE, PermissionCode.RECOVERY_APPROVE,
-        PermissionCode.RECEIVING_VIEW, PermissionCode.COMPLIANCE_VIEW, PermissionCode.AUDIT_VIEW,
+        P.REQUIREMENT_VIEW, P.REQUIREMENT_CREATE, P.REQUIREMENT_UPDATE, P.SUPPLY_VIEW, P.SUPPLY_MANAGE,
+        P.RECOVERY_VIEW, P.RECOVERY_PROPOSE, P.RECOVERY_APPROVE, P.RECEIVING_VIEW, P.COMPLIANCE_VIEW, P.AUDIT_VIEW,
+        P.FULFILMENT_SITE_MANAGE, P.TRADE_RECONCILE, P.BUYER_CONFIRMATION_RELAY, P.DISPUTE_RAISE,
     }),
     RoleCode.WAREHOUSE_OPERATOR: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.SUPPLY_VIEW, PermissionCode.RECEIVING_VIEW,
-        PermissionCode.RECEIVING_RECORD, PermissionCode.GRADING_RECORD, PermissionCode.SHIPMENT_CREATE,
-        PermissionCode.SHIPMENT_DISPATCH, PermissionCode.DELIVERY_CONFIRM,
+        P.REQUIREMENT_VIEW, P.SUPPLY_VIEW, P.RECEIVING_VIEW, P.RECEIVING_RECORD, P.GRADING_RECORD,
+        P.SHIPMENT_CREATE, P.SHIPMENT_DISPATCH, P.DELIVERY_CONFIRM, P.DISPUTE_RAISE,
     }),
     RoleCode.AUDITOR: frozenset({
-        PermissionCode.REQUIREMENT_VIEW, PermissionCode.SUPPLY_VIEW, PermissionCode.RECOVERY_VIEW,
-        PermissionCode.RECEIVING_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW, PermissionCode.COMPLIANCE_VIEW,
-        PermissionCode.USER_VIEW, PermissionCode.AUDIT_VIEW, PermissionCode.APPROVAL_POLICY_VIEW,
+        P.REQUIREMENT_VIEW, P.SUPPLY_VIEW, P.RECOVERY_VIEW, P.RECEIVING_VIEW, P.TRADE_EVIDENCE_VIEW,
+        P.COMPLIANCE_VIEW, P.USER_VIEW, P.AUDIT_VIEW, P.APPROVAL_POLICY_VIEW, P.AUDIT_FLAG,
     }),
-    RoleCode.FARMER: frozenset({
-        PermissionCode.SUPPLY_VIEW, PermissionCode.TRADE_EVIDENCE_VIEW,
-        PermissionCode.FARMER_SUPPLY_REPORT,
-    }),
+    RoleCode.FARMER: frozenset({P.SUPPLY_VIEW, P.TRADE_EVIDENCE_VIEW, P.FARMER_SUPPLY_REPORT}),
     RoleCode.BUYER: frozenset({
-        PermissionCode.MARKETPLACE_VIEW, PermissionCode.ORDER_VIEW,
-        PermissionCode.ORDER_CREATE, PermissionCode.AVAILABILITY_ALERT_MANAGE,
+        P.MARKETPLACE_VIEW, P.ORDER_VIEW, P.ORDER_CREATE, P.AVAILABILITY_ALERT_MANAGE, P.DELIVERY_CONFIRM_OWN,
     }),
 }

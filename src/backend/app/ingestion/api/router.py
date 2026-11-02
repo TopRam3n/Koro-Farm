@@ -14,6 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from src.backend.app.assurance.application.exceptions import assess_lot_eligibility
+from src.backend.app.supply.application.capacity import CapacityError, CapacityForbidden, delivered_kg, record_capacity_report
+from src.backend.app.supply.domain.capacity import CapacityChannel
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context, require_permission
 from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
@@ -145,19 +148,42 @@ def _record(
     return record
 
 
-def _apply_observation(lot: ProductionLot, payload: dict) -> None:
+class _SecureLinkActor:
+    """Attribution for a farmer's one-time secure-link reply (no signed-in user)."""
+    role = None
+    permissions = frozenset()
+
+    def __init__(self, farmer_id: UUID, organization_id: UUID):
+        self.user_id = f"farmer:{farmer_id} via secure link"
+        self.organization_id = organization_id
+        self.farmer_id = farmer_id
+
+
+def _apply_observation(session: Session, lot: ProductionLot, payload: dict, *, actor, channel: CapacityChannel | None,
+                       original_source: str, attestation_method: str, evidence: str | None) -> None:
+    """Apply an observation through the one capacity-reporting service (P8).
+
+    A ready quantity becomes a capacity report of what can still be supplied (the quantity less what has already
+    been delivered), with the same rules, provenance, event and worker processing as WP2. Commitments are never
+    reduced by it. A changed harvest window is recorded and every affected order is re-checked (P7)."""
     if "available_quantity_kg" in payload:
-        quantity = Decimal(str(payload["available_quantity_kg"]))
-        if quantity < lot.reserved_quantity_kg:
-            raise ValueError("available quantity cannot be below already reserved quantity")
-        lot.available_quantity_kg = quantity
+        ready = Decimal(str(payload["available_quantity_kg"]))
+        still_to_supply = max(ready - delivered_kg(session, lot.id), Decimal("0"))
+        try:
+            record_capacity_report(session, actor, lot.id, still_to_supply, effective_at=None, original_source=original_source,
+                                   attestation_method=attestation_method, evidence_reference=evidence, key=None,
+                                   channel=channel, actor_type="farmer" if channel == CapacityChannel.FARMER_SECURE_LINK else "user")
+        except (CapacityError, CapacityForbidden) as exc:
+            raise ValueError(str(exc)) from exc
     if "harvest_start" in payload or "harvest_end" in payload:
         start = payload.get("harvest_start", lot.harvest_start)
         end = payload.get("harvest_end", lot.harvest_end)
         if end < start:
             raise ValueError("harvest window end must be on or after start")
         lot.harvest_start, lot.harvest_end = start, end
-    lot.last_verified_at = datetime.now(timezone.utc)
+        lot.last_verified_at = datetime.now(timezone.utc)
+        session.flush()
+        assess_lot_eligibility(session, lot.id)
     lot.version += 1
     lot.validate()
 
@@ -233,66 +259,12 @@ def report_farmer_supply(
         raise HTTPException(422, str(exc)) from exc
 
 
-@router.post("/farmer-production-lots/{lot_id}/availability",
-             dependencies=[Depends(require_permission(PermissionCode.FARMER_SUPPLY_REPORT))])
-def report_farmer_availability(
-    lot_id: UUID,
-    payload: FarmerAvailabilityReport,
-    context: AuthorizationContext = Depends(get_authorization_context),
-    session: Session = Depends(get_session),
-) -> dict:
-    if context.role != RoleCode.FARMER or context.farmer_id is None:
-        raise HTTPException(403, "a linked farmer membership is required")
-    lot = session.scalar(
-        select(ProductionLot)
-        .join(Farmer, Farmer.id == ProductionLot.farmer_id)
-        .where(
-            ProductionLot.id == lot_id,
-            ProductionLot.farmer_id == context.farmer_id,
-            Farmer.organization_id == context.organization_id,
-            Farmer.active.is_(True),
-        )
-        .with_for_update()
-    )
-    if lot is None:
-        raise HTTPException(404, "production lot not found")
-    if payload.available_quantity_kg > lot.expected_quantity_kg:
-        raise HTTPException(422, "ready quantity cannot exceed the reported expected harvest")
-    if payload.available_quantity_kg < lot.reserved_quantity_kg:
-        raise HTTPException(409, "ready quantity cannot be below already reserved stock")
-
-    lot.available_quantity_kg = payload.available_quantity_kg
-    lot.status = (ProductionLotStatus.AVAILABLE
-                  if payload.available_quantity_kg > lot.reserved_quantity_kg
-                  else ProductionLotStatus.UNAVAILABLE)
-    lot.last_verified_at = datetime.now(timezone.utc)
-    lot.version += 1
-    values = {
-        "available_quantity_kg": str(payload.available_quantity_kg),
-        "status": lot.status.value,
-    }
-    record = _record(
-        session,
-        organization_id=context.organization_id,
-        channel=SourceChannel.PORTAL,
-        external_reference=f"farmer-portal-availability:{uuid4()}",
-        actor_user_id=context.user_id,
-        farmer_id=context.farmer_id,
-        lot=lot,
-        payload=values,
-        verification=VerificationStatus.SELF_REPORTED,
-        effective_at=lot.last_verified_at,
-        evidence=None,
-        source_actor=f"farmer:{context.farmer_id};user:{context.user_id}",
-    )
-    session.commit()
-    return {
-        "production_lot_id": str(lot.id),
-        "ingestion_record_id": str(record.id),
-        "available_quantity_kg": str(lot.available_quantity_kg),
-        "status": lot.status.value,
-        "verification_status": VerificationStatus.SELF_REPORTED.value,
-    }
+@router.post("/farmer-production-lots/{lot_id}/availability", status_code=status.HTTP_410_GONE,
+             dependencies=[Depends(require_permission(PermissionCode.FARMER_SUPPLY_REPORT))], deprecated=True)
+def report_farmer_availability(lot_id: UUID) -> dict:
+    """Retired in R1 WP4 (P8). It changed availability outside the capacity-report rules and wrote no event."""
+    raise HTTPException(status.HTTP_410_GONE, "this endpoint is retired: report what you can still supply with "
+                                              "POST /production-lots/{lot_id}/capacity-reports (signed in as the farmer)")
 
 
 @router.post("/secure-links", status_code=status.HTTP_201_CREATED,
@@ -386,7 +358,10 @@ def execute_secure_action(token: str, payload: SecureActionResponse,
         values["declined"] = True
     try:
         if "declined" not in values:
-            _apply_observation(lot, values)
+            _apply_observation(session, lot, values, actor=_SecureLinkActor(link.farmer_id, link.organization_id),
+                               channel=CapacityChannel.FARMER_SECURE_LINK, original_source="farmer secure link",
+                               attestation_method=f"one-time secure link ({link.purpose.value.lower()})",
+                               evidence=payload.evidence_reference)
         record = _record(
             session, organization_id=link.organization_id, channel=SourceChannel.SECURE_LINK,
             external_reference=external_reference, actor_user_id=None,
@@ -431,7 +406,12 @@ def coordinator_observation(payload: CoordinatorObservation,
     verification = (VerificationStatus.COORDINATOR_CONFIRMED
                     if payload.confirmation_status == "FARMER_CONFIRMED" else VerificationStatus.UNVERIFIED)
     try:
-        _apply_observation(lot, values)
+        # Coordinator-supplied: always a relayed report, never the farmer's own confirmation (P8).
+        _apply_observation(session, lot, values, actor=context, channel=None,
+                           original_source=f"{payload.source_channel.value.lower()} with farmer",
+                           attestation_method=("farmer confirmed to coordinator" if payload.confirmation_status == "FARMER_CONFIRMED"
+                                               else "coordinator observation, not confirmed by the farmer"),
+                           evidence=payload.evidence_reference)
         record = _record(
             session, organization_id=context.organization_id, channel=payload.source_channel,
             external_reference=f"coordinator:{uuid4()}", actor_user_id=context.user_id,

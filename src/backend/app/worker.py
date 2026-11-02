@@ -10,8 +10,11 @@ Run it next to the API:  APP_ENV=... DATABASE_URL=... python -m src.backend.app.
   handle the same message. The handler runs in a savepoint: on failure its changes roll back, the attempt is
   recorded with a backoff, and after MAX_ATTEMPTS the message is marked DEAD. Handlers are idempotent
   (exceptions are de-duplicated by key), so a retried or replayed message cannot open duplicates.
-* Timers: response reminders (half-way), overdue responses (deadline) and standby expiry, one item per
-  transaction, each re-checked under a row lock.
+* Timers: response reminders (half-way), overdue responses (deadline), standby expiry, stale harvest windows
+  (re-verification) and passed viability dates (supply/application/lot_timers.py), one item per transaction,
+  each re-checked under a row lock.
+* Stock ledger: every LEDGER_CHECK_SECONDS (default 3600) the reservation invariant is checked for every lot;
+  mismatches are recorded as findings and degrade monitoring, never repaired (supply/application/ledger.py).
 * Recovery: exception events open or join the order's recovery task; due tasks are advanced one transaction each
   (agents/application/orchestrator.py). Approved proposals are executed by the gateway inside that step.
 * Heartbeat: every tick records this process's liveness (worker_heartbeats). GET /health/worker and
@@ -39,10 +42,15 @@ from src.backend.app.assurance.application.exceptions import (
 from src.backend.app.assurance.application.operations import operational_status, record_heartbeat
 from src.backend.app.assurance.domain.models import OutboxMessage
 from src.backend.app.infrastructure.database.session import create_session_factory
+from src.backend.app.supply.application.ledger import check_ledger
+from src.backend.app.supply.application.lot_timers import (
+    expire_viability, flag_stale_harvest, stale_harvest_candidates, viability_candidates,
+)
 from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
 
 log = logging.getLogger("korofarm.worker")
 MAX_ATTEMPTS = 5
+_ledger_checked_at: datetime | None = None
 
 
 def _handle(session: Session, message: OutboxMessage) -> None:
@@ -114,6 +122,8 @@ def run_timers(factory: sessionmaker[Session], now: datetime | None = None) -> d
             SupplyAllocation.status == AllocationStatus.STANDBY, SupplyAllocation.consent_status == ConsentStatus.RECORDED,
             SupplyAllocation.authorization_valid_until.is_not(None),
             SupplyAllocation.authorization_valid_until < now.date())).all()
+        stale = stale_harvest_candidates(session, now)
+        past_viability = viability_candidates(session, now)
 
     def due(value):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -125,7 +135,28 @@ def run_timers(factory: sessionmaker[Session], now: datetime | None = None) -> d
         "expired_requests": _each(factory, overdue, lambda s, i: expire_overdue_response(s, i, now) is not None),
         # Counts standby authorizations checked and expired this tick (recovery-impact exceptions are a subset).
         "standby_expired": _each(factory, expiring, lambda s, i: _expired(expire_standby, s, i, now)),
+        "lots_reverification_required": _each(factory, stale, lambda s, i: flag_stale_harvest(s, i, now)),
+        "lots_past_viability": _each(factory, past_viability, lambda s, i: expire_viability(s, i, now)),
+        "ledger_mismatches": run_ledger_check(factory, now),
     }
+
+
+def run_ledger_check(factory: sessionmaker[Session], now: datetime, force: bool = False) -> int:
+    """Check the reservation invariant at most every LEDGER_CHECK_SECONDS. Returns the number of mismatched lots."""
+    global _ledger_checked_at
+    interval = timedelta(seconds=int(os.getenv("LEDGER_CHECK_SECONDS", "3600")))
+    if not force and _ledger_checked_at is not None and abs(now - _ledger_checked_at) < interval:
+        return 0
+    try:
+        with factory() as session, session.begin():
+            found = check_ledger(session, now=now)
+    except Exception:  # a failed check is retried next tick; it never blocks other work
+        log.exception("stock ledger check failed")
+        return 0
+    _ledger_checked_at = now
+    for mismatch in found:
+        log.error("stock ledger mismatch: %s", mismatch)
+    return len(found)
 
 
 def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_messages: int = 500,

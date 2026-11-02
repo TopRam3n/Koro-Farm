@@ -152,7 +152,11 @@ def test_demo_day_seed_has_portfolio_and_operational_scenarios(session) -> None:
     assert session.query(ReceivedSublot).count() >= 2
     reconciled = session.get(Requirement, UUID("00000000-0000-0000-0000-000000000503"))
     assert reconciled.lifecycle_status == RequirementLifecycleStatus.RECONCILED
-    assert session.get(RequirementReconciliation, reconciled.id).buyer_confirmed is True
+    from src.backend.app.reconciliation.domain.models import BuyerConfirmation, ConfirmationChannel, ReconciliationRecord
+    record = session.query(ReconciliationRecord).filter_by(requirement_id=reconciled.id).one()
+    assert record.version == 1 and record.status == "EFFECTIVE" and record.figures["buyer_confirmed_kg"] == "400"
+    # The synthetic confirmation is labelled as relayed, never as the buyer's own.
+    assert session.query(BuyerConfirmation).filter_by(requirement_id=reconciled.id).one().channel == ConfirmationChannel.STAFF_RELAYED
     assert session.query(Shipment).filter(Shipment.requirement_id == reconciled.id,
                                           Shipment.status == ShipmentStatus.DELIVERED).count() == 1
     assert session.get(Requirement, hero_id).programme_id is not None

@@ -117,6 +117,11 @@ def create_order(
     session: Session = Depends(get_session),
     context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
+    # R1 pilot (P10): marketplace orders are off unless explicitly enabled outside production. The check is here, at
+    # the backend, so no client can reserve stock through this path while it is disabled.
+    from src.backend.app.core.config import marketplace_orders_enabled
+    if not marketplace_orders_enabled():
+        raise HTTPException(403, "marketplace orders are not available in this release")
     buyer = _buyer_scope(context, session, payload.buyer_id)
     if buyer is None:
         raise HTTPException(422, "buyer_id is required to attribute a platform administrator order")
@@ -139,6 +144,8 @@ def create_order(
         raise HTTPException(409, f"only {remaining} kg remains available")
 
     lot.reserved_quantity_kg += payload.quantity_kg
+    from src.backend.app.supply.application.capacity import refresh_lot_status
+    refresh_lot_status(lot)
     lot.version += 1
     order = MarketplaceOrder(
         organization_id=context.organization_id,

@@ -19,8 +19,10 @@ class RequirementLifecycleStatus(StrEnum):
     PLANNING = "PLANNING"
     ACTIVE = "ACTIVE"
     IN_FULFILMENT = "IN_FULFILMENT"
-    RECONCILED = "RECONCILED"
-    CLOSED = "CLOSED"
+    RECONCILED = "RECONCILED"              # a versioned reconciliation exists; not by itself success
+    COMPLETED = "COMPLETED"                # obligations met, confirmed, no blocking dispute; closed out
+    CLOSED_WITH_VARIANCE = "CLOSED_WITH_VARIANCE"  # an authorized person accepted a documented difference
+    CLOSED = "CLOSED"                      # legacy
     CANCELLED = "CANCELLED"
 
 
@@ -64,7 +66,7 @@ class Requirement(Base):
     delivery_window_start: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_window_end: Mapped[date] = mapped_column(Date, nullable=False)
     lifecycle_status: Mapped[RequirementLifecycleStatus] = mapped_column(
-        Enum(RequirementLifecycleStatus, native_enum=False), default=RequirementLifecycleStatus.DRAFT, nullable=False
+        Enum(RequirementLifecycleStatus, native_enum=False, length=30), default=RequirementLifecycleStatus.DRAFT, nullable=False
     )
     supply_health: Mapped[SupplyHealth] = mapped_column(
         Enum(SupplyHealth, native_enum=False), default=SupplyHealth.UNPLANNED, nullable=False

@@ -50,8 +50,26 @@ function actionLine(action: ProposalAction) {
       return `Activate ${kg(action.quantity_kg)} of standby that ${action.farmer_name} (${action.parish}) authorized${action.authorization_valid_until ? ` until ${action.authorization_valid_until}` : ''}`;
     case 'SOLICIT_SUPPLY':
       return `Ask ${action.farmer_name} (${action.parish}) for ${kg(action.quantity_kg)}, reply within ${action.respond_within_hours} hours. Not supply until they accept`;
+    case 'RELEASE_COMMITMENT':
+      return `Release ${kg(action.quantity_kg)} of ${action.farmer_name}'s undelivered commitment (${releaseCause(action.release_kind)}). Their agreed ${kg(action.commitment_kg)} stays on record${Number(action.received_kg) > 0 ? `; the ${kg(action.received_kg)} already received is kept` : ''}`;
+    case 'RELEASE_STANDBY':
+      return `Release ${kg(action.quantity_kg)} of standby ${action.farmer_name} authorized (${releaseCause(action.release_kind)})`;
+    case 'WITHDRAW_REQUEST':
+      return `Withdraw the open request to ${action.farmer_name} for ${kg(action.quantity_kg)}`;
+    case 'CANCEL_ORDER':
+      return action.mode === 'REMAINDER'
+        ? 'Cancel what has not been delivered. Received goods and their records stay for reconciliation, and the order closes with a recorded variance'
+        : 'Cancel the order';
   }
 }
+
+/** Who a release is attributed to. Buyer-caused releases never count against the farmer. */
+function releaseCause(kind?: string) {
+  return ({ cancellation: 'buyer cancellation, not the farmer\u2019s default', surplus: 'buyer reduced the order, not the farmer\u2019s default',
+    approved_partial: 'requested release before close-out' } as Record<string, string>)[kind ?? ''] ?? humanize(kind ?? 'release');
+}
+
+const PURPOSE_TITLE = { RECOVERY: 'Recovery proposal', RELEASE: 'Release proposal', CANCELLATION: 'Cancellation proposal' } as const;
 
 function ProposalCard({ proposal }: { proposal: Proposal }) {
   const [rejecting, setRejecting] = useState(false);
@@ -68,17 +86,23 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
     if (ok) setRejecting(false);
   }
 
-  return <section aria-label={`Recovery proposal ${proposal.version}`} data-proposal={proposal.status} className="mt-3 rounded-md border border-primary/30 p-4">
+  const title = PURPOSE_TITLE[c.purpose ?? 'RECOVERY'];
+  const release = c.schema === 'release-proposal-v1';
+  return <section aria-label={`${title} ${proposal.version}`} data-proposal={proposal.status} className="mt-3 rounded-md border border-primary/30 p-4">
     <div className="flex flex-wrap items-center gap-2">
-      <h3 className="text-sm font-semibold">Recovery proposal v{proposal.version}</h3>
+      <h3 className="text-sm font-semibold">{title} v{proposal.version}</h3>
       <Pill tone={proposal.status === 'EXECUTED' ? 'good' : proposal.status === 'PENDING' ? 'info' : proposal.status === 'PARTIAL' || proposal.status === 'STALE' ? 'warn' : 'neutral'}>{humanize(proposal.status)}</Pill>
       <Pill tone={proposal.tier === 'ELEVATED' ? 'warn' : 'neutral'} title={c.approval.required}>{proposal.tier === 'ELEVATED' ? 'Needs procurement manager or admin approval' : 'Coordinator approval'}</Pill>
     </div>
-    <p className="mt-2 text-xs text-muted-foreground">
+    {release && c.request && <p className="mt-2 text-xs text-muted-foreground">
+      Requested because: {c.request.reason}{c.request.buyer_instruction ? `. Buyer's instruction: ${c.request.buyer_instruction}` : ''}
+    </p>}
+    {release && c.commercial_terms && <p className="mt-1 text-xs text-warning">Commercial consequences: {c.commercial_terms}</p>}
+    {!release && <p className="mt-2 text-xs text-muted-foreground">
       Order needs {kg(c.basis.net_need_kg)}: {kg(c.basis.required_kg)} required, {kg(c.basis.assured_kg)} assured
       {Number(c.basis.exposed_kg) > 0 ? `, ${kg(c.basis.exposed_kg)} no longer backed by reported capacity` : ''}
       {Number(c.basis.in_flight_kg) > 0 ? `, ${kg(c.basis.in_flight_kg)} already requested` : ''}.
-    </p>
+    </p>}
     <ol className="mt-3 space-y-2 text-sm" aria-label="Proposed actions">
       {c.actions.map((action, index) => {
         const done = proposal.executions.find(e => e.action_index === index);
@@ -86,6 +110,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
           <span>{actionLine(action)}.</span>
           {done && <span className={`ml-2 text-xs ${done.outcome === 'APPLIED' ? 'text-success' : 'text-destructive'}`}>{done.outcome === 'APPLIED' ? 'Applied' : `Failed: ${String(done.detail.error ?? '')}`}</span>}
           {action.type === 'ACTIVATE_STANDBY' && action.activation_conditions && <span className="block text-xs text-muted-foreground">Supplier&apos;s condition: {action.activation_conditions}</span>}
+          {action.release_permitted_by && <span className="block text-xs text-muted-foreground">Allowed because {action.release_permitted_by}</span>}
           {action.type === 'SOLICIT_SUPPLY' && action.message && <blockquote className="mt-1 border-l border-white/[0.15] pl-2 text-xs text-muted-foreground">Request text shown in their farmer portal once approved: &ldquo;{action.message}&rdquo;</blockquote>}
         </li>;
       })}

@@ -7,6 +7,8 @@ import {
   useSolicit, useUpdateOrder, useWithdraw,
 } from '@/hooks/useTrade';
 import { ExceptionList } from '@/components/trade/ExceptionList';
+import { FulfilmentSection, outcomeLabel } from '@/components/trade/FulfilmentSection';
+import { useFulfilmentCommands } from '@/hooks/useFulfilment';
 import { RecoveryTasks } from '@/components/trade/RecoveryTasks';
 import { useRequestRecovery } from '@/hooks/useRecovery';
 import {
@@ -23,6 +25,7 @@ export function OrderDetail({ id }: { id: string }) {
       {order.data && <div className="space-y-6">
         <Terms order={order.data} />
         <Supply order={order.data} />
+        {order.data.plan_version > 0 && <FulfilmentSection orderId={id} />}
         <section aria-labelledby="order-exceptions" className="operational-panel p-5">
           <h2 id="order-exceptions" className="text-base font-semibold">Needs attention</h2>
           <ExceptionList requirementId={id} empty="No open supply exceptions for this order." />
@@ -52,7 +55,13 @@ function Terms({ order }: { order: Order }) {
   const [editing, setEditing] = useState(false);
   const update = useUpdateOrder(order.id);
   const cancel = useCancelOrder(order.id);
+  const { requestCancellation } = useFulfilmentCommands(order.id);
   const cancelled = order.lifecycle_status === 'CANCELLED';
+  const ended = ['CANCELLED', 'COMPLETED', 'CLOSED_WITH_VARIANCE', 'CLOSED'].includes(order.lifecycle_status);
+  // Before planning nothing binds a supplier, so the order is cancelled at once. Afterwards a coordinator only
+  // requests cancellation: the agent prepares it and a person approves it (P1).
+  const direct = order.plan_version === 0;
+  const [outcome, outcomeTone] = outcomeLabel[order.lifecycle_status] ?? [humanize(order.lifecycle_status), 'info'];
   const editable = !cancelled && order.plan_version === 0;
 
   async function onEdit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,7 +74,10 @@ function Terms({ order }: { order: Order }) {
 
   async function onCancel(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await cancel.mutateAsync({ reason: formValues(event.currentTarget).reason ?? '' }).catch(() => null);
+    const values = formValues(event.currentTarget);
+    if (direct) await cancel.mutateAsync({ reason: values.reason ?? '' }).catch(() => null);
+    else await requestCancellation.mutateAsync({ reason: values.reason ?? '', buyer_instruction: values.buyer_instruction ?? '',
+      commercial_consequences: values.commercial_consequences }).catch(() => null);
   }
 
   const rows: Array<[string, string]> = [
@@ -79,13 +91,13 @@ function Terms({ order }: { order: Order }) {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 id="terms" className="text-base font-semibold">Order terms</h2>
       <div className="flex flex-wrap items-center gap-2">
-        <Pill tone={cancelled ? 'neutral' : 'info'}>{cancelled ? 'Cancelled' : humanize(order.lifecycle_status)}</Pill>
+        <Pill tone={outcomeTone}>{outcome}</Pill>
         <span className="text-xs text-muted-foreground">Version {order.version}</span>
         {editable && !editing && <button type="button" className="min-h-11 rounded-md border border-white/[0.14] px-3 text-sm" onClick={() => setEditing(true)}>Edit terms</button>}
       </div>
     </div>
     {cancelled && <p className="mt-2 text-sm text-muted-foreground">Cancelled: {order.cancellation_reason}</p>}
-    {!editable && !cancelled && <p className="mt-2 text-xs text-muted-foreground">Supply planning has started, so terms are locked. Quantity changes go through a recorded buyer change.</p>}
+    {!editable && !ended && <p className="mt-2 text-xs text-muted-foreground">Supply planning has started, so terms are locked. Quantity changes go through a recorded buyer change.</p>}
     {!editing ? <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       {rows.map(([label, value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd>{value}</dd></div>)}
     </dl> : <form className="mt-3 grid gap-3 sm:grid-cols-2" onSubmit={onEdit} aria-label="Edit order terms">
@@ -102,13 +114,17 @@ function Terms({ order }: { order: Order }) {
       </div>
       <div className="sm:col-span-2"><ErrorNote error={update.error} /></div>
     </form>}
-    {!cancelled && <details className="mt-4">
-      <summary className="cursor-pointer text-sm text-muted-foreground">Cancel this order</summary>
-      <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={onCancel} aria-label="Cancel order">
+    {!ended && <details className="mt-4">
+      <summary className="cursor-pointer text-sm text-muted-foreground">{direct ? 'Cancel this order' : 'Request cancellation'}</summary>
+      {!direct && <p className="mt-2 text-xs text-muted-foreground">Suppliers have been asked or have agreed, so cancellation needs approval and each supplier&apos;s agreement to be released (unless your supplier terms grant that right). After goods are received only undelivered obligations are cancelled, with elevated approval. A buyer cancellation never counts against a farmer.</p>}
+      <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={onCancel} aria-label={direct ? 'Cancel order' : 'Request cancellation'}>
         <div className="min-w-[240px] flex-1"><Field label="Reason" name="reason" required minLength={3} /></div>
-        <SubmitButton busy={cancel.isPending} variant="danger">Cancel order</SubmitButton>
+        {!direct && <div className="min-w-[240px] flex-1"><Field label="Buyer's instruction or evidence" name="buyer_instruction" required minLength={3} placeholder="e.g. email from the buyer, 12 Oct" /></div>}
+        {!direct && <div className="min-w-[240px] flex-1"><Field label="Commercial consequences" name="commercial_consequences" placeholder="e.g. cancellation fee agreed with the buyer" /></div>}
+        <SubmitButton busy={cancel.isPending || requestCancellation.isPending} variant="danger">{direct ? 'Cancel order' : 'Submit cancellation request'}</SubmitButton>
       </form>
-      <ErrorNote error={cancel.error} />
+      {requestCancellation.isSuccess && <p role="status" className="mt-2 text-sm">Cancellation requested. A proposal will appear under Recovery for approval; supplier commitments stay until it is approved.</p>}
+      <ErrorNote error={cancel.error ?? requestCancellation.error} />
     </details>}
   </section>;
 }

@@ -112,6 +112,24 @@ def _org_of_recovery_proposal(proposal_id) -> Select:
     return select(RecoveryProposal.organization_id).where(RecoveryProposal.id == proposal_id)
 
 
+def _org_of_delivery(delivery_id) -> Select:
+    from src.backend.app.demand.domain.models import Buyer, Requirement
+    from src.backend.app.reconciliation.domain.models import Delivery, Shipment
+    return (select(Buyer.organization_id).join(Requirement, Requirement.buyer_id == Buyer.id)
+            .join(Shipment, Shipment.requirement_id == Requirement.id).join(Delivery, Delivery.shipment_id == Shipment.id)
+            .where(Delivery.id == delivery_id))
+
+
+def _org_of_dispute(dispute_id) -> Select:
+    from src.backend.app.reconciliation.domain.models import Dispute
+    return select(Dispute.organization_id).where(Dispute.id == dispute_id)
+
+
+def _org_of_reconciliation(record_id) -> Select:
+    from src.backend.app.reconciliation.domain.models import ReconciliationRecord
+    return select(ReconciliationRecord.organization_id).where(ReconciliationRecord.id == record_id)
+
+
 # Kind -> ownership query. Path parameters use the same names with an ``_id`` suffix.
 RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "buyer": _org_of_buyer,
@@ -131,6 +149,9 @@ RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "exception": _org_of_exception,
     "recovery_task": _org_of_recovery_task,
     "recovery_proposal": _org_of_recovery_proposal,
+    "delivery": _org_of_delivery,
+    "dispute": _org_of_dispute,
+    "reconciliation": _org_of_reconciliation,
 }
 
 

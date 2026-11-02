@@ -34,10 +34,12 @@ def current_policy(session: Session, organization_id: UUID) -> RecoveryApprovalP
 
 def policy_snapshot(policy: RecoveryApprovalPolicy | None) -> dict:
     if policy is None:
-        return {"policy_id": None, "version": 0, "max_cost_increase_jmd": None, "max_cost_increase_pct": None}
+        return {"policy_id": None, "version": 0, "max_cost_increase_jmd": None, "max_cost_increase_pct": None,
+                "commitment_release_without_supplier_consent": False}
     return {"policy_id": str(policy.id), "version": policy.version,
             "max_cost_increase_jmd": str(policy.max_cost_increase_jmd) if policy.max_cost_increase_jmd is not None else None,
-            "max_cost_increase_pct": str(policy.max_cost_increase_pct) if policy.max_cost_increase_pct is not None else None}
+            "max_cost_increase_pct": str(policy.max_cost_increase_pct) if policy.max_cost_increase_pct is not None else None,
+            "commitment_release_without_supplier_consent": bool(policy.commitment_release_without_supplier_consent)}
 
 
 def evaluate(cost: dict, policy: dict, has_actions: bool) -> tuple[ApprovalTier, list[str]]:

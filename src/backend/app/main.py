@@ -18,6 +18,8 @@ from src.backend.app.supply.api.farmers import router as farmers_router
 from src.backend.app.supply.api.router import router as production_lots_router
 from src.backend.app.supply.api.crops import router as crops_router
 from src.backend.app.fulfilment.api.router import router as fulfilment_router
+from src.backend.app.fulfilment.api.nodes import router as fulfilment_nodes_router
+from src.backend.app.reconciliation.api.router import buyer_router as buyer_deliveries_router
 from src.backend.app.reconciliation.api.router import router as reconciliation_router
 from src.backend.app.compliance.api.router import router as compliance_router
 from src.backend.app.trade_evidence.api.corridors import router as corridors_router
@@ -61,6 +63,11 @@ app.include_router(fulfilment_router, dependencies=staff_dependencies)
 # Any active member (farmers and buyers included) may read the crop catalogue; creation checks permissions.
 app.include_router(crops_router, dependencies=[Depends(get_current_user), Depends(enforce_path_scope)])
 app.include_router(reconciliation_router, dependencies=staff_dependencies)
+app.include_router(fulfilment_nodes_router, dependencies=staff_dependencies)
+# Buyers confirm or dispute only their own deliveries (reconciliation/application/services.py checks the buyer link).
+app.include_router(buyer_deliveries_router, dependencies=[
+    Depends(get_current_user), Depends(require_roles(RoleCode.BUYER, RoleCode.PLATFORM_ADMIN)), Depends(enforce_path_scope),
+])
 app.include_router(compliance_router, dependencies=staff_dependencies)
 app.include_router(corridors_router, dependencies=staff_dependencies)
 app.include_router(programmes_router, dependencies=staff_dependencies)

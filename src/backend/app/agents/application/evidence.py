@@ -83,6 +83,8 @@ class Release:
     lot: ProductionLot
     farmer: Farmer
     exposed_kg: Decimal
+    cause: str = "capacity"
+    detail: str = ""
 
 
 @dataclass
@@ -104,8 +106,41 @@ def _in_flight(session: Session, requirement_id: UUID) -> Decimal:
         SupplyAllocation.status == AllocationStatus.SOLICITED)) or ZERO
 
 
+@dataclass(frozen=True)
+class Exposure:
+    allocation: SupplyAllocation
+    exposed_kg: Decimal
+    cause: str  # "capacity" or "eligibility"
+    detail: str
+
+
+def ineligible_commitments(session: Session, requirement: Requirement) -> dict:
+    """Undelivered commitments on lots that no longer match the order or are withdrawn or past viability (P7, P9)."""
+    from src.backend.app.assurance.application.exceptions import eligibility_problems, unavailability
+    from src.backend.app.supply.application.release import received_kg
+    today = datetime.now(timezone.utc).date()
+    found = {}
+    for allocation in session.scalars(select(SupplyAllocation).where(
+            SupplyAllocation.requirement_id == requirement.id, SupplyAllocation.role == AllocationRole.COMMITTED,
+            SupplyAllocation.status == AllocationStatus.COMMITTED)).all():
+        lot = session.get(ProductionLot, allocation.production_lot_id)
+        problems = eligibility_problems(lot, requirement, today)
+        unusable = unavailability(lot, requirement, today)
+        if problems or unusable:
+            undelivered = max(allocation.obligation_kg - received_kg(session, allocation.id), ZERO)
+            if undelivered > 0:
+                found[allocation.id] = Exposure(allocation, undelivered, "eligibility", "; ".join(problems + ([unusable] if unusable else [])))
+    return found
+
+
 def basis_of(session: Session, requirement: Requirement) -> tuple[Basis, dict]:
-    exposed, by_allocation, _ = requirement_exposure(session, requirement.id)
+    """The order's position. Exposure combines capacity cuts (WP2) and commitments on lots no longer eligible."""
+    capacity_total, by_capacity, _ = requirement_exposure(session, requirement.id)
+    by_allocation = {k: Exposure(v.allocation, v.exposed_kg, "capacity", "capacity report") for k, v in by_capacity.items() if v.exposed_kg > 0}
+    for key, item in ineligible_commitments(session, requirement).items():
+        if key not in by_allocation or item.exposed_kg > by_allocation[key].exposed_kg:
+            by_allocation[key] = item
+    exposed = sum((item.exposed_kg for item in by_allocation.values()), ZERO)
     cover = _coverage(session, requirement.id)
     assured = cover - exposed
     gap = max(requirement.required_quantity_kg - assured, ZERO)
@@ -130,7 +165,7 @@ def gather(session: Session, requirement: Requirement, now: datetime | None = No
     for item in sorted(by_allocation.values(), key=lambda x: str(x.allocation.id)):
         if item.exposed_kg > 0:
             lot = session.get(ProductionLot, item.allocation.production_lot_id)
-            releases.append(Release(item.allocation, lot, session.get(Farmer, lot.farmer_id), item.exposed_kg))
+            releases.append(Release(item.allocation, lot, session.get(Farmer, lot.farmer_id), item.exposed_kg, item.cause, item.detail))
 
     standby: list[StandbyCandidate] = []
     rows = session.execute(select(SupplyAllocation, ProductionLot, Farmer)
@@ -142,9 +177,11 @@ def gather(session: Session, requirement: Requirement, now: datetime | None = No
                                      ProductionLot.id, SupplyAllocation.created_at)).all()
     exposures: dict[UUID, object] = {}
     for allocation, lot, farmer in rows:
+        if lot.reverification_required or lot.status == ProductionLotStatus.EXHAUSTED:
+            continue  # excluded from new commitments until capacity is re-verified (P2, P9)
         if lot.id not in exposures:
             exposures[lot.id] = lot_exposure(session, lot)
-        activatable = allocation.quantity_kg - exposures[lot.id].standby_uncovered.get(allocation.id, ZERO)
+        activatable = allocation.obligation_kg - exposures[lot.id].standby_uncovered.get(allocation.id, ZERO)
         if activatable <= 0:
             continue
         consent = session.get(SupplierConsent, allocation.consent_evidence_id) if allocation.consent_evidence_id else None
@@ -160,6 +197,7 @@ def gather(session: Session, requirement: Requirement, now: datetime | None = No
                                      AllocationStatus.DECLINED, AllocationStatus.WITHDRAWN]))).all())
     exposed_lots = {release.lot.id for release in releases}
     supply: list[SupplyCandidate] = []
+    # Lots needing re-verification are UNAVAILABLE (capacity.refresh_lot_status), so they are never offered here.
     lots = session.execute(select(ProductionLot, Farmer).join(Farmer, Farmer.id == ProductionLot.farmer_id).where(
         Farmer.organization_id == organization_id, ProductionLot.crop == requirement.crop,
         ProductionLot.quality_grade_estimate == requirement.grade, ProductionLot.status == ProductionLotStatus.AVAILABLE,
@@ -193,8 +231,9 @@ def _unit_cost(costs: LotCostInput | None) -> Decimal | None:
 def _release_action(r: Release, labels: dict) -> dict:
     return {"type": RELEASE_EXPOSED, "allocation_id": str(r.allocation.id), "production_lot_id": str(r.lot.id),
             "farmer_id": str(r.farmer.id), "farmer_name": r.farmer.name, "supplier_label": labels[r.farmer.id],
-            "parish": r.lot.parish, "quantity_kg": kg(r.exposed_kg),
-            "reason": "the supplier's latest capacity report no longer supports this part of the commitment"}
+            "parish": r.lot.parish, "quantity_kg": kg(r.exposed_kg), "cause": r.cause,
+            "reason": ("the supplier's latest capacity report no longer supports this part of the commitment" if r.cause == "capacity"
+                       else f"the lot no longer meets this order: {r.detail}")}
 
 
 def _standby_action(c: StandbyCandidate, quantity: Decimal, labels: dict) -> dict:

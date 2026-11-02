@@ -59,7 +59,11 @@ def test_valid_farmer_secure_response_preserves_provenance(client, session) -> N
     assert retry.status_code == 200
     assert retry.json() == response.json()
     session.refresh(lot)
-    assert lot.available_quantity_kg == Decimal("95.000")
+    # R1 WP4 (P8): the reply goes through the capacity-report service as the farmer's own secure-link report.
+    from src.backend.app.supply.domain.capacity import CapacityChannel, CapacityReport
+    report = session.query(CapacityReport).filter_by(production_lot_id=lot.id).one()
+    assert report.channel == CapacityChannel.FARMER_SECURE_LINK and report.verification_status.value == "SELF_REPORTED"
+    assert lot.reported_capacity_kg == Decimal("95.000") and report.recorded_by_user_id is None
     record = session.get(IngestionRecord, UUID(response.json()["ingestion_record_id"]))
     observation = session.query(OperationalObservation).filter_by(ingestion_record_id=record.id).one()
     assert record.channel == SourceChannel.SECURE_LINK
@@ -91,14 +95,18 @@ def test_secure_link_reuse_tamper_expiry_and_scope_are_blocked(client, session) 
     assert too_large.status_code == 422
 
 
-def test_secure_link_cannot_reduce_availability_below_reservation(client, session) -> None:
+def test_secure_link_report_below_reservation_preserves_commitments_and_exposes_the_shortfall(client, session) -> None:
+    """R1 WP4 (P8): a low reply is a truthful capacity report. It never cancels commitments or lowers planning
+    availability; the capacity ceiling constrains supply and the shortfall is reported as exposure."""
     farmer, lot = _lot(session)
+    reserved = lot.reserved_quantity_kg
     link = _create_link(client, farmer, lot)
-    response = client.post(f"/v1/secure-actions/{link['token']}", headers={"Idempotency-Key": "unsafe"},
+    response = client.post(f"/v1/secure-actions/{link['token']}", headers={"Idempotency-Key": "low"},
                            json={"available_quantity_kg": "10"})
-    assert response.status_code == 409
+    assert response.status_code == 200
     session.refresh(lot)
-    assert lot.available_quantity_kg == Decimal("120.000")
+    assert lot.available_quantity_kg == Decimal("120.000") and lot.reserved_quantity_kg == reserved
+    assert lot.reported_capacity_kg == Decimal("10.000")
 
 
 def test_coordinator_entry_attributes_recorder_and_source(client, session) -> None:

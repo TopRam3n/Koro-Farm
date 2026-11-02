@@ -12,8 +12,9 @@ Runs the R1 order workflow through the real UI against a live stack:
   check run unchanged; they point at the stand-in instead of a hosted Supabase project.
 
 The specs create every buyer, supplier, lot and order through the UI with run-unique names. The seed
-creates two organizations, four users and one supplier record: the farmer account (`farmer_a`) must be linked
-to the supplier it reports for.
+creates two organizations, six users, one supplier record and one buyer record: the farmer account (`farmer_a`)
+must be linked to the supplier it reports for, and the buyer account (`buyer_a`) to the buyer it confirms for.
+`warehouse_a` is a warehouse operator.
 
 | Spec | Covers |
 | --- | --- |
@@ -21,6 +22,7 @@ to the supplier it reports for.
 | `consent-and-boundaries.spec.ts` | decline and withdrawal, refused cancellation, cross-organization tokens, independent sessions |
 | `capacity-exceptions.spec.ts` (WP2) | `/health/worker` reports the running worker as operational and `/system/status` refuses an anonymous request; the header shows the real monitoring status; the farmer sees the request and its reply deadline in the portal and accepts it there (farmer navigation only); the farmer reports less in the portal; the coordinator's already-open order page shows the exposure and an open exception without a reload; acknowledge; manual resolve refused while exposed; restored capacity closes the exception by itself; other organization sees nothing. **Needs the worker running.** |
 | `recovery-approval.spec.ts` (WP3) | Supply is committed with authorized standby through recorded supplier decisions. A relayed capacity cut makes the worker's recovery agent propose: release 110 kg, activate 60 kg of standby, ask a supplier for 50 kg. Nothing changes until approval; another organization sees nothing. The coordinator approves the exact proposal; the gateway applies all three actions; the exception closes. The new supplier's recorded acceptance completes recovery; the timeline shows the agent, the approver and the gateway. **Needs the worker running.** |
+| `fulfilment-reconciliation.spec.ts` (WP4) | The spec section 6 story in independent sessions: 730 kg committed through the supplier's recorded decision; a fulfilment site added; the warehouse operator records 725 kg received, grades 705 kg accepted and 20 kg rejected, ships, dispatches and records 705 kg delivered; the buyer confirms 705 kg in their own account (no more than delivered); the coordinator reconciles and the order shows "Reconciled, not closed" with the blockers, never 730 kg delivered or completed; the coordinator cannot accept the variance; a procurement manager closes it with a documented reason; after reload and in a new session it stays "Closed with variance", with 5 kg released; another organization sees nothing. Plantain is used so no other spec's stock is planned. |
 | `workspaces.spec.ts` | route map, command palette, Scenario Lab is visibly non-persistent |
 
 ## Procedure (CI runs the same steps: `.github/workflows/competition-readiness.yml`)

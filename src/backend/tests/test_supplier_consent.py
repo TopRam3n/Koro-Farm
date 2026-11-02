@@ -171,6 +171,7 @@ def test_farmers_answer_only_their_own_requests_and_cannot_solicit(http, org) ->
     assert own.status_code == 200 and own.json()["channel"] == "FARMER_PORTAL"
 
 
+@pytest.mark.ledger_drift_expected  # simulates stock reserved outside KoroFarm by setting the lot directly
 def test_acceptance_is_refused_when_the_stock_has_gone_elsewhere(http, org, factory) -> None:
     proposal = next(a for a in _plan(http, org)["allocations"] if a["role"] == "COMMITTED")
     _solicit(http, org, proposal["id"])

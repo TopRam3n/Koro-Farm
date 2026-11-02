@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from threading import Barrier, Event
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -30,7 +30,7 @@ from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSub
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
 from src.backend.app.infrastructure.database.seed import SEED_CONTEXT
-from src.backend.app.reconciliation.api.router import AddSublot, add_sublot
+from src.backend.app.reconciliation.application.services import add_sublot
 from src.backend.app.reconciliation.domain.models import Shipment, ShipmentSublot
 from src.backend.app.supply.application import planner as planner_module
 from src.backend.app.supply.application.planner import PlannerConfig, finalize_plan
@@ -237,8 +237,9 @@ def test_two_shipments_cannot_consume_one_accepted_sublot(pg_factory):
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
         receipt = receive(s, allocation.id, node.id, Decimal("100"), datetime.now(timezone.utc), "r", "r"); grade(s, receipt["received_sublot_id"], Decimal("100"), Decimal("0"), Grade.A, None, "g", "g")
         first = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S1"); second = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S2"); s.add_all([first, second]); s.commit()
-    payload = AddSublot(received_sublot_id=receipt["received_sublot_id"])
-    results = concurrent(pg_factory, [lambda s: add_sublot(first.id, payload, "ship-a", s, SEED_CONTEXT), lambda s: add_sublot(second.id, payload, "ship-b", s, SEED_CONTEXT)])
+    sublot_id = UUID(receipt["received_sublot_id"])
+    results = concurrent(pg_factory, [lambda s: add_sublot(s, SEED_CONTEXT, first.id, sublot_id, "ship-a"),
+                                      lambda s: add_sublot(s, SEED_CONTEXT, second.id, sublot_id, "ship-b")])
     assert sum(result[0] == "ok" for result in results) == 1
     with pg_factory() as s: assert s.scalar(select(func.count()).select_from(ShipmentSublot)) == 1
     assert_inventory(pg_factory)

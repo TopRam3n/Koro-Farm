@@ -53,7 +53,7 @@ FRESH = {"populate_existing": True}
 WAKE_TOPICS = {
     "exception.updated", "exception.resolved", "supplier.accepted", "supplier.declined", "standby.authorized",
     "solicitation.expired", "solicitation.withdrawn", "standby.expired", "requirement.cancelled", "order.cancelled",
-    "sublot.received",
+    "sublot.received", "requirement.buyer_changed", "supplier.release_agreed", "production_lot.eligibility_changed",
 }
 
 
@@ -182,6 +182,75 @@ def request_recovery(session: Session, actor, requirement_id: UUID, note: str | 
     return task
 
 
+def request_task(session: Session, actor, requirement_id: UUID, purpose: str, request: dict) -> RecoveryTask:
+    """Open an approved-release (RELEASE) or cancellation (CANCELLATION) task. Planning is deterministic; a person
+    approves the exact proposal; the gateway executes it."""
+    requirement = session.scalar(select(Requirement).where(Requirement.id == requirement_id).with_for_update().execution_options(**FRESH))
+    if requirement is None:
+        raise RecoveryError("order not found")
+    if requirement.lifecycle_status in (RequirementLifecycleStatus.CANCELLED, RequirementLifecycleStatus.COMPLETED,
+                                        RequirementLifecycleStatus.CLOSED_WITH_VARIANCE, RequirementLifecycleStatus.CLOSED):
+        raise RecoveryError("this order has already ended")
+    existing = active_task(session, requirement_id)
+    if existing is not None:
+        if purpose == "CANCELLATION" and existing.purpose == "RECOVERY":
+            _supersede_pending(session, existing, "a cancellation was requested", ProposalStatus.SUPERSEDED)
+            _close(session, existing, TaskStatus.CANCELLED, "superseded by a cancellation request", str(actor.user_id))
+            session.flush()
+        else:
+            raise RecoveryError(f"this order already has an active {existing.purpose.lower()} task; finish or cancel it first")
+    now = datetime.now(timezone.utc)
+    task = RecoveryTask(organization_id=actor.organization_id, requirement_id=requirement_id, status=TaskStatus.QUEUED,
+                        purpose=purpose, request={**request, "requested_by": str(actor.user_id), "requested_role": actor.role.value},
+                        next_run_at=now, created_at=now, updated_at=now)
+    session.add(task)
+    session.flush()
+    add_step(session, task, StepKind.INCIDENT, str(actor.user_id), f"{purpose.title()} requested: {request.get('reason', '')}"[:1000], request)
+    agent_event(session, task, f"{purpose.lower()}.requested", {"request": request}, actor=str(actor.user_id))
+    return task
+
+
+def escalate_task(session: Session, task: RecoveryTask, reason: str) -> None:
+    """Hand a task to a person without touching the order's supply health (release and cancellation tasks)."""
+    if task.status == TaskStatus.ESCALATED and task.terminal_reason == reason[:500]:
+        return
+    task.status, task.next_run_at, task.terminal_reason = TaskStatus.ESCALATED, None, reason[:500]
+    add_step(session, task, StepKind.ESCALATE, AGENT, reason)
+    agent_event(session, task, "recovery.escalated", {"reason": reason})
+
+
+def close_tasks_for_order(session: Session, requirement_id: UUID, reason: str, actor: str) -> int:
+    """Close every active task of an order that has ended (close-out or cancellation)."""
+    closed = 0
+    for task in session.scalars(select(RecoveryTask).where(RecoveryTask.requirement_id == requirement_id,
+                                                           RecoveryTask.status.in_(ACTIVE_TASK_STATUSES))
+                                .with_for_update().execution_options(**FRESH)).all():
+        _supersede_pending(session, task, reason, ProposalStatus.SUPERSEDED)
+        _close(session, task, TaskStatus.CANCELLED, f"The order ended: {reason}", actor)
+        closed += 1
+    return closed
+
+
+def _plan_request(session: Session, task: RecoveryTask, requirement: Requirement, now: datetime) -> None:
+    """Planning for RELEASE and CANCELLATION tasks, after any execution or rejection."""
+    from src.backend.app.agents.application.releases import plan_cancellation, plan_release
+    proposal = current_proposal(session, task)
+    if proposal is not None and proposal.status == ProposalStatus.EXECUTED:
+        _close(session, task, TaskStatus.COMPLETED, "The approved release was applied" if task.purpose == "RELEASE"
+               else "The approved cancellation was applied")
+        return
+    if proposal is not None and proposal.status == ProposalStatus.PARTIAL:
+        escalate_task(session, task, "the approved proposal was only partly applied; see the execution record")
+        return
+    if proposal is not None and proposal.status == ProposalStatus.REJECTED:
+        _close(session, task, TaskStatus.CANCELLED, f"The reviewer rejected the request: {proposal.status_reason}")
+        return
+    if task.proposals_made >= 3:
+        escalate_task(session, task, "three proposals went stale without being applied")
+        return
+    (plan_release if task.purpose == "RELEASE" else plan_cancellation)(session, task, requirement, now)
+
+
 def cancel_task(session: Session, actor, task_id: UUID, reason: str) -> RecoveryTask:
     task = session.scalar(select(RecoveryTask).where(RecoveryTask.id == task_id).with_for_update().execution_options(**FRESH))
     if task is None or task.status not in ACTIVE_TASK_STATUSES:
@@ -208,6 +277,12 @@ def _supersede_pending(session: Session, task: RecoveryTask, reason: str, status
         add_step(session, task, StepKind.PLAN, AGENT, f"Proposal v{proposal.version} {status.value.lower()}: {reason}",
                  proposal_id=proposal.id)
         agent_event(session, task, "recovery.proposal_superseded", {"proposal_id": str(proposal.id), "reason": reason})
+
+
+def _open_kind(session: Session, requirement_id: UUID, kind: str) -> bool:
+    return session.scalar(select(SupplyException.id).where(SupplyException.requirement_id == requirement_id,
+                                                           SupplyException.status == ExceptionStatus.OPEN,
+                                                           SupplyException.kind == kind).limit(1)) is not None
 
 
 def _incidents(session: Session, task: RecoveryTask) -> list[dict]:
@@ -286,8 +361,19 @@ def _complete(session: Session, task: RecoveryTask, requirement: Requirement, ba
 def _plan(session: Session, task: RecoveryTask, requirement: Requirement, decider: Decider, now: datetime,
           decision=None, pending: PendingDecision | None = None) -> PendingDecision | None:
     """Plan from current facts. Returns a PendingDecision when an external decider must be asked first."""
+    if task.purpose != "RECOVERY":
+        _plan_request(session, task, requirement, now)
+        return None
     evidence = ev.gather(session, requirement, now)
     basis = evidence.basis
+    surplus = basis.assured_kg - basis.required_kg
+    if basis.net_need_kg <= 0 and surplus > 0 and _open_kind(session, requirement.id, "OVER_COMMITTED"):
+        from src.backend.app.agents.application.releases import plan_surplus
+        if task.proposals_made >= MAX_PROPOSALS:
+            escalate_task(session, task, f"{MAX_PROPOSALS} proposals made without settling the surplus")
+            return None
+        if plan_surplus(session, task, requirement, surplus, now):
+            return None
     if basis.net_need_kg <= 0:
         if basis.in_flight_kg > 0:
             if task.status != TaskStatus.AWAITING_SUPPLIER:
@@ -406,6 +492,9 @@ def advance_task(session: Session, task: RecoveryTask, decider: Decider, now: da
     if task.status == TaskStatus.AWAITING_APPROVAL and proposal is not None and proposal.status == ProposalStatus.PENDING:
         if _aware(proposal.expires_at) <= now:
             _supersede_pending(session, task, "the approval window expired", ProposalStatus.SUPERSEDED)
+        elif proposal.content.get("schema") == "release-proposal-v1":
+            task.next_run_at = proposal.expires_at  # re-checked in full by the gateway at execution
+            return None
         else:
             problems = still_feasible(ev.gather(session, requirement, now), proposal.content)
             if not problems:

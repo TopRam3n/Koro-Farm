@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiFetch } from '@/lib/api';
 
 export type MonitoringReason = 'worker_not_running' | 'worker_never_started' | 'processing_overdue' | 'deadlines_overdue' | 'dead_letters'
-  | 'recovery_overdue' | 'recovery_failed';
+  | 'recovery_overdue' | 'recovery_failed' | 'stock_ledger_mismatch';
 
 export interface SystemStatus {
   status: 'OPERATIONAL' | 'DEGRADED';
@@ -22,6 +22,7 @@ export const reasonText: Record<MonitoringReason, string> = {
   dead_letters: 'Some supplier updates could not be processed and need investigation.',
   recovery_overdue: 'Recovery planning or approved actions are waiting longer than expected.',
   recovery_failed: 'A recovery task stopped after repeated errors; its incident needs a coordinator.',
+  stock_ledger_mismatch: 'Reserved stock on some lots does not match their commitments. Free stock may be wrong until this is investigated.',
 };
 
 /** Whether exception detection and deadline enforcement are actually running. Staff only. */

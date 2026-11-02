@@ -1,3 +1,4 @@
+import pytest
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -52,6 +53,21 @@ def _lot(session, farmer: Farmer, *, quantity: Decimal = Decimal("20")) -> Produ
     return lot
 
 
+@pytest.fixture(autouse=True)
+def _marketplace_enabled(monkeypatch):
+    """These tests exercise the marketplace itself, which R1 disables by default (P10)."""
+    monkeypatch.setenv("MARKETPLACE_ORDERS_ENABLED", "true")
+
+
+def test_marketplace_orders_fail_closed_unless_explicitly_enabled(client, session, monkeypatch) -> None:
+    from src.backend.app.core.config import marketplace_orders_enabled
+    monkeypatch.delenv("MARKETPLACE_ORDERS_ENABLED")
+    assert marketplace_orders_enabled() is False
+    refused = client.post("/marketplace/orders", json={"production_lot_id": str(uuid4()), "quantity_kg": "1", "buyer_id": str(uuid4())})
+    assert refused.status_code == 403 and "not available in this release" in refused.text
+    assert marketplace_orders_enabled({"MARKETPLACE_ORDERS_ENABLED": "true", "APP_ENV": "production"}) is False
+
+
 def test_farmer_report_creates_only_linked_supply_and_provenance(client, session) -> None:
     own_farmer = Farmer(organization_id=ORG_ID, name="Own Farm", parish="Manchester")
     other_farmer = Farmer(organization_id=ORG_ID, name="Other Farm", parish="Clarendon")
@@ -82,21 +98,22 @@ def test_farmer_report_creates_only_linked_supply_and_provenance(client, session
     assert record.farmer_id == own_farmer.id
     assert session.query(OperationalObservation).filter_by(target_entity_id=lot.id).count() == 6
 
-    ready = client.post(f"/v1/ingestion/farmer-production-lots/{lot.id}/availability", headers=headers,
-                        json={"available_quantity_kg": "20"})
-    assert ready.status_code == 200
+    # R1 WP4 (P8): the legacy availability endpoint is retired with guidance; the farmer reports what they can still
+    # supply through the one capacity-reporting service instead.
+    retired = client.post(f"/v1/ingestion/farmer-production-lots/{lot.id}/availability", headers=headers,
+                          json={"available_quantity_kg": "20"})
+    assert retired.status_code == 410 and "capacity-reports" in retired.text
+    ready = client.post(f"/production-lots/{lot.id}/capacity-reports", headers=headers, json={"reported_capacity_kg": "20"})
+    assert ready.status_code == 201, ready.text
+    assert ready.json()["channel"] == "FARMER_PORTAL"
     session.refresh(lot)
-    assert lot.available_quantity_kg == Decimal("20")
-    assert lot.status == ProductionLotStatus.AVAILABLE
+    assert lot.reported_capacity_kg == Decimal("20")
     assert other_farmer.id != lot.farmer_id
-
-    too_much = client.post(f"/v1/ingestion/farmer-production-lots/{lot.id}/availability", headers=headers,
-                           json={"available_quantity_kg": "36"})
+    too_much = client.post(f"/production-lots/{lot.id}/capacity-reports", headers=headers, json={"reported_capacity_kg": "36"})
     assert too_much.status_code == 422
-
     other_user = _identity(session, RoleCode.FARMER, farmer_id=other_farmer.id)
-    assert client.post(f"/v1/ingestion/farmer-production-lots/{lot.id}/availability",
-                       headers=_authenticate(other_user), json={"available_quantity_kg": "10"}).status_code == 404
+    assert client.post(f"/production-lots/{lot.id}/capacity-reports", headers=_authenticate(other_user),
+                       json={"reported_capacity_kg": "10"}).status_code in (403, 404)
 
 
 def test_buyer_can_watch_availability_and_order_without_overselling(client, session) -> None:

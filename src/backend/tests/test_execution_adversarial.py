@@ -68,21 +68,26 @@ def test_execution_traceability_reconciliation_and_passport_are_evidence_gated(c
     assert dispatched.json()["status"] == "DISPATCHED"
     assert client.post(f"/shipments/{shipment_id}/dispatch", headers=dispatch_headers, json={"evidence_reference": "dispatch-001"}).json() == dispatched.json()
     delivery_headers = {"Idempotency-Key": "delivery"}
-    delivered = client.post(f"/shipments/{shipment_id}/delivery", headers=delivery_headers, json={
-        "delivered_quantity_kg": "100", "delivered_at": "2026-09-12T12:00:00Z",
-        "delivery_evidence_reference": "pod-001", "buyer_confirmed": True,
-        "buyer_confirmation_evidence": "buyer-signoff-001",
-    })
-    assert delivered.status_code == 200
-    assert client.post(f"/shipments/{shipment_id}/delivery", headers=delivery_headers, json={
-        "delivered_quantity_kg": "100", "delivered_at": "2026-09-12T12:00:00Z",
-        "delivery_evidence_reference": "pod-001", "buyer_confirmed": True,
-        "buyer_confirmation_evidence": "buyer-signoff-001",
-    }).json() == delivered.json()
+    body = {"delivered_quantity_kg": "100", "delivered_at": "2026-09-12T12:00:00Z", "delivery_evidence_reference": "pod-001"}
+    delivered = client.post(f"/shipments/{shipment_id}/delivery", headers=delivery_headers, json=body)
+    assert delivered.status_code == 200 and delivered.json()["buyer_confirmation"] == "not yet confirmed"
+    assert client.post(f"/shipments/{shipment_id}/delivery", headers=delivery_headers, json=body).json() == delivered.json()
+    # WP4: the old yes/no flag is refused; the buyer's confirmation is its own quantified record.
+    legacy = client.post(f"/shipments/{shipment_id}/delivery", headers={"Idempotency-Key": "legacy"},
+                         json={**body, "buyer_confirmed": True, "buyer_confirmation_evidence": "x"})
+    assert legacy.status_code == 422
+    delivery_id = delivered.json()["delivery_id"]
+    relayed = {"confirmed_quantity_kg": "100", "buyer_representative": "Receiving clerk", "communication_channel": "signed delivery note",
+               "attestation": "signed note held on file", "stated_at": "2026-09-12T13:00:00Z", "evidence_reference": "buyer-signoff-001"}
+    assert client.post(f"/deliveries/{delivery_id}/confirmations", headers={"Idempotency-Key": "c1"},
+                       json={**relayed, "confirmed_quantity_kg": "101"}).status_code == 409  # never more than delivered
+    confirmed = client.post(f"/deliveries/{delivery_id}/confirmations", headers={"Idempotency-Key": "c2"}, json=relayed)
+    assert confirmed.status_code == 200 and confirmed.json()["channel"] == "STAFF_RELAYED"
     recon_headers = {"Idempotency-Key": "reconcile"}
     reconciled = client.post(f"/requirements/{req.id}/reconcile", headers=recon_headers,
                              json={"verification_evidence_reference": "coordinator-check-001"})
-    assert reconciled.status_code == 200 and reconciled.json()["verification_status"] == "verified"
+    assert reconciled.status_code == 200 and reconciled.json()["status"] == "EFFECTIVE" and reconciled.json()["version"] == 1
+    assert reconciled.json()["completion"]["can_complete"] is True
     assert client.post(f"/requirements/{req.id}/reconcile", headers=recon_headers,
                        json={"verification_evidence_reference": "coordinator-check-001"}).json() == reconciled.json()
     passport = client.get(f"/farmers/{farmer.id}/trade-performance-passport").json()
@@ -93,7 +98,7 @@ def test_execution_traceability_reconciliation_and_passport_are_evidence_gated(c
     assert client.get(f"/production-lots/{lot.id}/shipments").json()["shipments"][0]["shipment_id"] == shipment_id
 
 
-def test_reconciliation_refuses_missing_buyer_confirmation(client, session):
+def test_unconfirmed_delivery_is_reconciled_but_never_completed(client, session):
     req, node, _, _, allocation = execution_state(session)
     received = client.post("/sublots/receive", headers={"Idempotency-Key": "r2"}, json={
         "allocation_id": str(allocation.id), "fulfilment_node_id": str(node.id), "received_quantity_kg": "100",
@@ -103,9 +108,14 @@ def test_reconciliation_refuses_missing_buyer_confirmation(client, session):
     shipment = client.post(f"/requirements/{req.id}/shipments", headers={"Idempotency-Key": "sc2"}, json={"fulfilment_node_id": str(node.id), "reference": "SHIP-002"}).json()
     client.post(f"/shipments/{shipment['shipment_id']}/sublots", headers={"Idempotency-Key": "sa2"}, json={"received_sublot_id": received["received_sublot_id"]})
     client.post(f"/shipments/{shipment['shipment_id']}/dispatch", headers={"Idempotency-Key": "sd2"}, json={"evidence_reference": "dispatch"})
-    client.post(f"/shipments/{shipment['shipment_id']}/delivery", headers={"Idempotency-Key": "del2"}, json={"delivered_quantity_kg": "100", "delivered_at": "2026-09-12T12:00:00Z", "delivery_evidence_reference": "pod", "buyer_confirmed": False})
+    client.post(f"/shipments/{shipment['shipment_id']}/delivery", headers={"Idempotency-Key": "del2"}, json={"delivered_quantity_kg": "100", "delivered_at": "2026-09-12T12:00:00Z", "delivery_evidence_reference": "pod"})
+    # P6: an unconfirmed delivery can be reconciled, but the order cannot be presented as completed.
     response = client.post(f"/requirements/{req.id}/reconcile", headers={"Idempotency-Key": "rec2"}, json={"verification_evidence_reference": "check"})
-    assert response.status_code == 409
+    assert response.status_code == 200
+    assert response.json()["completion"]["can_complete"] is False
+    assert any("without the buyer's confirmation" in b for b in response.json()["completion"]["blockers"])
+    closed = client.post(f"/requirements/{req.id}/close", headers={"Idempotency-Key": "close2"}, json={})
+    assert closed.status_code == 409 and "cannot be completed" in closed.json()["detail"]
 
 
 def test_compliance_filters_unverified_expired_future_and_wrong_context(client, session):

@@ -101,7 +101,8 @@ def open_incident_exception(session: Session, requirement: Requirement, kind: st
 
 # Incidents a recovery closes once the order's shortfall is covered. Capacity shortfalls close only when exposure does.
 RECOVERABLE_KINDS = (ExceptionKind.SUPPLIER_DROPOUT, ExceptionKind.QUALITY_REJECTION, ExceptionKind.RESPONSE_OVERDUE,
-                     ExceptionKind.STANDBY_EXPIRED)
+                     ExceptionKind.STANDBY_EXPIRED, ExceptionKind.DEMAND_INCREASE, ExceptionKind.OVER_COMMITTED,
+                     ExceptionKind.ELIGIBILITY_CHANGED, ExceptionKind.LOT_UNAVAILABLE)
 
 
 def resolve_recovered(session: Session, requirement: Requirement, resolved_by: str, resolution: str) -> int:
@@ -181,13 +182,9 @@ def reevaluate_lot(session: Session, lot_id: UUID, source_event_id: UUID | None 
     return list(requirement_ids)
 
 
-def _release(session: Session, allocation: SupplyAllocation) -> None:
-    if not allocation.holds_reservation:
-        return
-    lot = session.scalar(select(ProductionLot).where(ProductionLot.id == allocation.production_lot_id).with_for_update().execution_options(**FRESH))
-    lot.reserved_quantity_kg -= allocation.quantity_kg
-    allocation.holds_reservation = False
-    lot.status = ProductionLotStatus.AVAILABLE if free_kg(lot) > 0 else ProductionLotStatus.UNAVAILABLE
+def _release(session: Session, allocation: SupplyAllocation, kind: str, reason: str) -> None:
+    from src.backend.app.supply.application.release import release_remaining
+    release_remaining(session, allocation, kind=kind, reason=reason, actor_id=SYSTEM_ACTOR)
 
 
 def _lock_allocation(session: Session, allocation_id: UUID) -> SupplyAllocation | None:
@@ -219,7 +216,7 @@ def expire_overdue_response(session: Session, allocation_id: UUID, now: datetime
     if due is None or due > now:
         return None
     requirement = _lock_requirement(session, allocation.requirement_id)
-    _release(session, allocation)
+    _release(session, allocation, "request_expired", "no supplier response before the deadline")
     allocation.status = AllocationStatus.EXPIRED
     organization_id = _organization_of(session, requirement)
     event = record_system_event(session, organization_id, "solicitation.expired", "requirement", requirement.id, {
@@ -247,10 +244,11 @@ def expire_standby(session: Session, allocation_id: UUID, today: date) -> Supply
             or allocation.authorization_valid_until >= today):
         return None
     requirement = _lock_requirement(session, allocation.requirement_id)
-    _release(session, allocation)
+    _release(session, allocation, "standby_expired", "standby authorization reached its end date")
     allocation.status = AllocationStatus.EXPIRED
     session.flush()
-    remaining = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+    from src.backend.app.supply.domain.planning_models import obligation_sql
+    remaining = session.scalar(select(func.coalesce(func.sum(obligation_sql()), 0)).where(
         SupplyAllocation.requirement_id == requirement.id, *authorized_standby())) or ZERO
     organization_id = _organization_of(session, requirement)
     event = record_system_event(session, organization_id, "standby.expired", "requirement", requirement.id, {
@@ -299,3 +297,96 @@ def resolve_manually(session: Session, actor, exception_id: UUID, resolution: st
     session.flush()
     _restore_health_if_clear(session, requirement, None)
     return row
+
+
+# --- Buyer changes and lot eligibility (R1 WP4: M6, P7, P9) ----------------------------------------------------------
+
+def _sync_kind(session: Session, requirement: Requirement, kind: ExceptionKind, key: str, quantity: Decimal, summary: str,
+               details: dict, actor: str, resolution: str) -> SupplyException | None:
+    current = _open(session, key)
+    if quantity > 0:
+        row, created = _open_exception(session, requirement, kind, key, quantity, summary, details, None)
+        if not created and (row.shortfall_kg != quantity or row.summary != summary):
+            row.shortfall_kg, row.summary, row.details, row.updated_at = quantity, summary, details, datetime.now(timezone.utc)
+            record_system_event(session, row.organization_id, "exception.updated", "requirement", requirement.id,
+                                {"exception_id": str(row.id), "shortfall_kg": str(quantity)})
+        return row
+    if current is not None:
+        _resolve(session, current, requirement, actor, resolution)
+    return None
+
+
+def sync_demand_exceptions(session: Session, requirement: Requirement) -> dict:
+    """After a buyer change: a shortfall opens DEMAND_INCREASE, committed cover above the order opens OVER_COMMITTED.
+    Nothing is released or requested here; the recovery agent proposes and a person approves."""
+    from src.backend.app.agents.application.evidence import basis_of
+    session.flush()
+    basis, _ = basis_of(session, requirement)
+    surplus = max(basis.assured_kg - basis.required_kg, ZERO)
+    gap = basis.gap_kg
+    _sync_kind(session, requirement, ExceptionKind.DEMAND_INCREASE, f"demand:{requirement.id}", gap,
+               f"The buyer's quantity leaves {gap} kg without committed cover", {"required_kg": str(basis.required_kg),
+               "assured_kg": str(basis.assured_kg)}, SYSTEM_ACTOR, "Committed cover again meets the order quantity")
+    _sync_kind(session, requirement, ExceptionKind.OVER_COMMITTED, f"over-committed:{requirement.id}", surplus,
+               f"Commitments exceed the buyer's quantity by {surplus} kg", {"required_kg": str(basis.required_kg),
+               "assured_kg": str(basis.assured_kg)}, SYSTEM_ACTOR, "Commitments no longer exceed the order quantity")
+    if gap > 0 and requirement.supply_health in (SupplyHealth.COVERED, SupplyHealth.UNPLANNED):
+        requirement.supply_health = SupplyHealth.AT_RISK
+    elif gap <= 0 and requirement.supply_health == SupplyHealth.AT_RISK and not _open_count(session, requirement.id):
+        requirement.supply_health = SupplyHealth.COVERED
+    return {"gap_kg": str(gap), "surplus_kg": str(surplus)}
+
+
+def eligibility_problems(lot: ProductionLot, requirement: Requirement, today: date) -> list[str]:
+    problems = []
+    if lot.crop != requirement.crop:
+        problems.append("crop differs from the order")
+    if lot.quality_grade_estimate != requirement.grade:
+        problems.append(f"lot is now declared Grade {lot.quality_grade_estimate.value}; the order needs Grade {requirement.grade.value}")
+    if lot.harvest_start > requirement.delivery_window_end or lot.harvest_end < requirement.delivery_window_start:
+        problems.append("harvest window no longer overlaps the delivery window")
+    return problems
+
+
+def unavailability(lot: ProductionLot, requirement: Requirement, today: date) -> str | None:
+    if lot.withdrawn_at is not None:
+        return f"the lot was withdrawn: {lot.withdrawal_reason}"
+    if lot.viable_until is not None and lot.viable_until < max(today, requirement.delivery_window_start):
+        return f"the produce is viable only until {lot.viable_until.isoformat()}"
+    return None
+
+
+def assess_lot_eligibility(session: Session, lot_id: UUID, source_event_id: UUID | None = None) -> list[UUID]:
+    """Re-check every order with live allocations on a lot after its declaration changed (P7, P9).
+
+    Opens ELIGIBILITY_CHANGED when grade, crop or harvest window no longer match, LOT_UNAVAILABLE when verified
+    withdrawal or expiry affects undelivered commitments, and resolves either when it no longer applies. Agreed
+    commitments are never changed here; recovery stays approval-controlled."""
+    from src.backend.app.supply.application.release import received_kg
+    lot = session.get(ProductionLot, lot_id)
+    today = datetime.now(timezone.utc).date()
+    live = (AllocationStatus.COMMITTED, AllocationStatus.STANDBY, AllocationStatus.SOLICITED, AllocationStatus.PROPOSED)
+    rows = session.scalars(select(SupplyAllocation).where(SupplyAllocation.production_lot_id == lot_id,
+                                                          SupplyAllocation.status.in_(live))).all()
+    by_requirement: dict[UUID, list[SupplyAllocation]] = {}
+    for allocation in rows:
+        by_requirement.setdefault(allocation.requirement_id, []).append(allocation)
+    for requirement_id in sorted(by_requirement, key=str):
+        requirement = _lock_requirement(session, requirement_id)
+        allocations = by_requirement[requirement_id]
+        undelivered = sum((max(a.obligation_kg - received_kg(session, a.id), ZERO) for a in allocations
+                           if a.status == AllocationStatus.COMMITTED), ZERO)
+        problems = eligibility_problems(lot, requirement, today)
+        quantity = sum((a.obligation_kg for a in allocations), ZERO) if problems else ZERO
+        _sync_kind(session, requirement, ExceptionKind.ELIGIBILITY_CHANGED, f"eligibility:{requirement.id}:{lot.id}", quantity,
+                   f"Lot no longer matches this order: {'; '.join(problems)}" if problems else "",
+                   {"production_lot_id": str(lot.id), "problems": problems,
+                    "allocations": [str(a.id) for a in allocations]}, SYSTEM_ACTOR, "The lot matches the order again")
+        reason = unavailability(lot, requirement, today)
+        _sync_kind(session, requirement, ExceptionKind.LOT_UNAVAILABLE, f"lot-unavailable:{requirement.id}:{lot.id}",
+                   undelivered if reason else ZERO, f"{undelivered} kg of undelivered commitments are affected: {reason}" if reason else "",
+                   {"production_lot_id": str(lot.id), "reason": reason}, SYSTEM_ACTOR, "The lot is available again")
+        if (problems or reason) and requirement.supply_health in (SupplyHealth.COVERED, SupplyHealth.RECOVERING):
+            requirement.supply_health = SupplyHealth.AT_RISK
+    session.flush()
+    return list(by_requirement)

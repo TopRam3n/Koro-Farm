@@ -3,7 +3,7 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, DateWindow, Grade, QuantityKg
@@ -83,6 +83,15 @@ class ProductionLot(Base):
     # reduction never silently cancels commitments; NULL means no capacity report has been received.
     reported_capacity_kg: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
     capacity_reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Excluded from new planning until usable capacity is confirmed again (after a release, or a harvest window
+    # that ended without a current confirmation). Cleared by a capacity report or a new declaration.
+    reverification_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+    reverification_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    reverification_required_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Verified physical limits: produce not usable after viable_until; withdrawn stock is never planned again.
+    viable_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    withdrawal_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

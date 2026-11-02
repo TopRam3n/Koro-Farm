@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.backend.app.demand.domain.models import Requirement
 from src.backend.app.domain.common import Grade
-from src.backend.app.fulfilment.application.services import grade, receive
+from src.backend.app.fulfilment.application.services import adjust_receipt, grade, receive
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.identity.application.tenancy import require_owned
@@ -46,12 +46,37 @@ def post_grade(sublot_id: UUID, payload: GradeCommand, idempotency_key: str | No
         return result
     except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 
+class ReceiptCorrection(BaseModel):
+    received_delta_kg: Decimal = Decimal("0")
+    accepted_delta_kg: Decimal = Decimal("0")
+    rejected_delta_kg: Decimal = Decimal("0")
+    reason: str
+    evidence_reference: str | None = None
+
+
+@router.post("/sublots/{sublot_id}/adjustments", dependencies=[Depends(require_permission(PermissionCode.RECEIVING_RECORD))])
+def post_receipt_correction(sublot_id: UUID, payload: ReceiptCorrection, session: Session = Depends(get_session),
+                            context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Correct a receipt or its grading with an attributable adjustment record; the original is never edited."""
+    if (payload.accepted_delta_kg or payload.rejected_delta_kg) and PermissionCode.GRADING_RECORD not in context.permissions:
+        raise HTTPException(403, "correcting a grade requires grading permission")
+    try:
+        result = adjust_receipt(session, context, sublot_id, received_delta=payload.received_delta_kg,
+                                accepted_delta=payload.accepted_delta_kg, rejected_delta=payload.rejected_delta_kg,
+                                reason=payload.reason, evidence=payload.evidence_reference)
+        session.commit()
+        return result
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.get("/requirements/{requirement_id}/fulfilment")
 def fulfilment_summary(requirement_id: UUID, session: Session = Depends(get_session)) -> dict:
     requirement = session.get(Requirement, requirement_id)
     if requirement is None: raise HTTPException(404, "requirement not found")
     rows = session.execute(select(ReceivedSublot).join(SupplyAllocation).where(SupplyAllocation.requirement_id == requirement_id)).scalars().all()
-    committed = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED, SupplyAllocation.consent_status == ConsentStatus.RECORDED)) or Decimal("0")
+    from src.backend.app.supply.domain.planning_models import obligation_sql
+    committed = session.scalar(select(func.coalesce(func.sum(obligation_sql()), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED, SupplyAllocation.consent_status == ConsentStatus.RECORDED)) or Decimal("0")
     received = sum((x.received_quantity_kg for x in rows), Decimal("0")); accepted = sum((x.accepted_quantity_kg for x in rows), Decimal("0")); rejected = sum((x.rejected_quantity_kg for x in rows), Decimal("0"))
     return {"required_kg": str(requirement.required_quantity_kg), "committed_kg": str(committed), "received_kg": str(received), "accepted_kg": str(accepted), "rejected_kg": str(rejected), "accepted_shortfall_kg": str(max(requirement.required_quantity_kg - accepted, Decimal("0")))}
 

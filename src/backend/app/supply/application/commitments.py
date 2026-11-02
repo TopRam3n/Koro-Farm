@@ -28,7 +28,7 @@ from src.backend.app.supply.domain.planning_models import (
     SupplierConsent,
     SupplyAllocation,
 )
-from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql, refresh_lot_status
 
 OPEN_STATES = {AllocationStatus.PROPOSED, AllocationStatus.SOLICITED}
 
@@ -172,8 +172,9 @@ def withdraw(session: Session, actor: AuthorizationContext, allocation_id: UUID,
         if allocation.status not in OPEN_STATES:
             raise CommitmentError(f"only a proposed or solicited allocation can be withdrawn (it is {allocation.status.value})")
         if allocation.holds_reservation:
-            lot.reserved_quantity_kg -= allocation.quantity_kg
-            allocation.holds_reservation = False
+            from src.backend.app.supply.application.release import release_remaining
+            release_remaining(session, allocation, kind="request_withdrawn", reason=reason, actor_id=str(actor.user_id),
+                              actor_type="user", organization_id=actor.organization_id)
         allocation.status = AllocationStatus.WITHDRAWN
         record_event(session, actor, "solicitation.withdrawn", "requirement", requirement.id,
                      {"allocation_id": str(allocation.id), "reason": reason}, idempotency_key=key)
@@ -223,8 +224,9 @@ def respond(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
 
         if response.decision == ConsentDecision.DECLINED:
             if allocation.holds_reservation:
-                lot.reserved_quantity_kg -= allocation.quantity_kg
-                allocation.holds_reservation = False
+                from src.backend.app.supply.application.release import release_remaining
+                release_remaining(session, allocation, kind="request_declined", reason="the supplier declined",
+                                  actor_id=str(actor.user_id), actor_type="user", organization_id=actor.organization_id)
             consent = SupplierConsent(
                 organization_id=actor.organization_id, allocation_id=allocation.id, farmer_id=lot.farmer_id,
                 production_lot_id=lot.id, consent_type=consent_type, decision=ConsentDecision.DECLINED, channel=channel,
@@ -258,8 +260,7 @@ def respond(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
                 raise CommitmentError(f"the lot no longer has {quantity} kg free (free now: {max(free, Decimal('0'))} kg); re-plan this allocation")
             lot.reserved_quantity_kg += quantity
             allocation.holds_reservation = True
-        if lot.available_quantity_kg <= lot.reserved_quantity_kg:
-            lot.status = ProductionLotStatus.UNAVAILABLE
+        refresh_lot_status(lot)
         proposed = allocation.quantity_kg
         allocation.quantity_kg = quantity
         consent = SupplierConsent(

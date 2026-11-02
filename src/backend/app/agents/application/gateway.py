@@ -22,7 +22,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.backend.app.agents.application import evidence as ev
@@ -37,7 +37,7 @@ from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
 from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.identity.domain.models import MembershipStatus, OrganizationMembership, UserAccount
 from src.backend.app.identity.domain.permissions import ROLE_PERMISSIONS, PermissionCode
-from src.backend.app.supply.application.capacity import free_kg, lot_exposure
+from src.backend.app.supply.application.capacity import free_kg, lot_exposure, refresh_lot_status
 from src.backend.app.supply.application.commitments import solicit
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.planning_models import (
@@ -113,7 +113,7 @@ def verify(session: Session, proposal: RecoveryProposal, requirement: Requiremen
 
 
 def _lock_rows(session: Session, actions: list[dict]):
-    lot_ids = sorted({UUID(a["production_lot_id"]) for a in actions}, key=str)
+    lot_ids = sorted({UUID(a["production_lot_id"]) for a in actions if a.get("production_lot_id")}, key=str)
     allocation_ids = sorted({UUID(a["allocation_id"]) for a in actions if a.get("allocation_id")}, key=str)
     lots = {lot.id: lot for lot in session.scalars(select(ProductionLot).where(ProductionLot.id.in_(lot_ids))
                                                    .order_by(ProductionLot.id).with_for_update().execution_options(**FRESH))}
@@ -126,14 +126,43 @@ def check_preconditions(session: Session, proposal: RecoveryProposal, requiremen
                         allocations: dict, today: date) -> list[str]:
     content, problems = proposal.content, []
     basis, by_allocation = ev.basis_of(session, requirement)
-    replacement = sum((Decimal(a["quantity_kg"]) for a in content["actions"] if a["type"] != ev.RELEASE_EXPOSED), Decimal("0"))
+    replacement = sum((Decimal(a["quantity_kg"]) for a in content["actions"]
+                       if a["type"] in (ev.ACTIVATE_STANDBY, ev.SOLICIT_SUPPLY)), Decimal("0"))
     if replacement > basis.net_need_kg:
         problems.append(f"the order now needs {ev.kg(basis.net_need_kg)} kg, less than the {ev.kg(replacement)} kg proposed")
     exposures: dict[UUID, object] = {}
+    from src.backend.app.agents.application import releases as rel
+    from src.backend.app.supply.application.release import releasable_kg
+    policy = policy_snapshot(current_policy(session, proposal.organization_id))
     for action in content["actions"]:
         quantity = Decimal(action["quantity_kg"])
-        lot = lots.get(UUID(action["production_lot_id"]))
         who = action["farmer_name"]
+        if action["type"] == rel.CANCEL_ORDER:
+            from src.backend.app.fulfilment.domain.models import ReceivedSublot
+            ids = select(SupplyAllocation.id).where(SupplyAllocation.requirement_id == requirement.id)
+            received_any = session.scalar(select(func.count(ReceivedSublot.id)).where(ReceivedSublot.allocation_id.in_(ids))) or 0
+            if requirement.lifecycle_status in (RequirementLifecycleStatus.CANCELLED, RequirementLifecycleStatus.COMPLETED,
+                                                RequirementLifecycleStatus.CLOSED_WITH_VARIANCE):
+                problems.append("the order has already ended")
+            elif (action["mode"] == "FULL") != (received_any == 0):
+                problems.append("goods were received since the proposal was made; it must be re-planned")
+            continue
+        if action["type"] in (rel.RELEASE_COMMITMENT, rel.RELEASE_STANDBY, rel.WITHDRAW_REQUEST):
+            allocation = allocations.get(UUID(action["allocation_id"]))
+            expected = {rel.RELEASE_COMMITMENT: (AllocationStatus.COMMITTED,), rel.RELEASE_STANDBY: (AllocationStatus.STANDBY,),
+                        rel.WITHDRAW_REQUEST: (AllocationStatus.PROPOSED, AllocationStatus.SOLICITED)}[action["type"]]
+            if allocation is None or allocation.requirement_id != requirement.id or allocation.status not in expected:
+                problems.append(f"{who}'s allocation changed state")
+                continue
+            if action["type"] != rel.WITHDRAW_REQUEST and releasable_kg(session, allocation) < quantity:
+                problems.append(f"{who}'s undelivered reservation is now {ev.kg(releasable_kg(session, allocation))} kg, not {action['quantity_kg']} kg")
+            if action["type"] == rel.RELEASE_COMMITMENT:
+                # Re-checked under the current policy and agreements: a withdrawn right or agreement makes it stale.
+                allowed, why = rel.release_permitted(session, allocation, quantity, policy)
+                if not allowed:
+                    problems.append(f"releasing {who}'s commitment is no longer permitted: {why}")
+            continue
+        lot = lots.get(UUID(action["production_lot_id"]))
         if lot is None:
             problems.append(f"{who}'s lot no longer exists")
             continue
@@ -149,9 +178,11 @@ def check_preconditions(session: Session, proposal: RecoveryProposal, requiremen
             current = allocation.authorization_valid_until.isoformat() if allocation.authorization_valid_until else None
             if current != bound or (allocation.authorization_valid_until is not None and allocation.authorization_valid_until < today):
                 problems.append(f"{who}'s standby authorization period changed or ended")
+            if lot.reverification_required or lot.status == ProductionLotStatus.EXHAUSTED:
+                problems.append(f"{who}'s lot is excluded from new commitments until its capacity is re-verified")
             if lot.id not in exposures:
                 exposures[lot.id] = lot_exposure(session, lot)
-            supported = allocation.quantity_kg - exposures[lot.id].standby_uncovered.get(allocation.id, Decimal("0"))
+            supported = allocation.obligation_kg - exposures[lot.id].standby_uncovered.get(allocation.id, Decimal("0"))
             if supported < quantity:
                 problems.append(f"{who}'s standby now supports {ev.kg(max(supported, Decimal('0')))} kg, not {action['quantity_kg']} kg")
         elif action["type"] == ev.SOLICIT_SUPPLY:
@@ -166,6 +197,8 @@ def check_preconditions(session: Session, proposal: RecoveryProposal, requiremen
                 problems.append(f"{who}'s lot is no longer eligible for this order")
             elif free_kg(lot) < quantity:
                 problems.append(f"{who}'s lot now has {ev.kg(free_kg(lot))} kg free, not {action['quantity_kg']} kg")
+            elif lot.reverification_required:
+                problems.append(f"{who}'s lot needs its capacity re-verified before it is offered again")
             elif open_request is not None:
                 problems.append(f"{who} already has an open request for this order")
         elif action["type"] == ev.RELEASE_EXPOSED:
@@ -193,8 +226,9 @@ def _activate_standby(session: Session, authority: Authority, index: int, action
     _require(authority, action)
     standby = allocations[UUID(action["allocation_id"])]
     quantity = Decimal(action["quantity_kg"])
-    if quantity == standby.quantity_kg:
-        standby.status, standby.activated_at = AllocationStatus.ACTIVATED, now
+    # The lot holds one reservation: it moves from the standby row to the new commitment row, never both.
+    if quantity == standby.obligation_kg:
+        standby.status, standby.activated_at, standby.holds_reservation = AllocationStatus.ACTIVATED, now, False
     else:
         standby.quantity_kg -= quantity
     committed = SupplyAllocation(requirement_id=requirement.id, supply_plan_id=standby.supply_plan_id,
@@ -230,29 +264,75 @@ def _solicit_supply(session: Session, authority: Authority, index: int, action: 
 
 def _release_exposed(session: Session, authority: Authority, index: int, action: dict, requirement: Requirement,
                      lots: dict, allocations: dict, now: datetime) -> dict:
+    """Release the part of a commitment the supplier can no longer supply (capacity cut or changed eligibility).
+    The agreed quantity stays on record; only the reservation is released."""
+    from src.backend.app.supply.application.release import release, received_kg
     _require(authority, action)
     allocation = allocations[UUID(action["allocation_id"])]
-    lot = lots[allocation.production_lot_id]
     quantity = Decimal(action["quantity_kg"])
-    if quantity == allocation.quantity_kg:
-        allocation.status, allocation.lost_at, allocation.holds_reservation = AllocationStatus.LOST, now, False
-        record_id = allocation.id
-    else:
-        allocation.quantity_kg -= quantity
-        record = SupplyAllocation(requirement_id=requirement.id, supply_plan_id=allocation.supply_plan_id,
-                                  production_lot_id=allocation.production_lot_id, role=AllocationRole.COMMITTED,
-                                  status=AllocationStatus.LOST, quantity_kg=quantity, consent_evidence_id=allocation.consent_evidence_id,
-                                  consent_status=allocation.consent_status, holds_reservation=False,
-                                  plan_version=allocation.plan_version, lost_at=now)
-        session.add(record)
-        session.flush()
-        record_id = record.id
-    lot.reserved_quantity_kg -= quantity
-    lot.status = ProductionLotStatus.AVAILABLE if free_kg(lot) > 0 else ProductionLotStatus.UNAVAILABLE
+    kind = "ineligible" if action.get("cause") == "eligibility" else "capacity_exposure"
+    release(session, allocation, quantity, kind=kind, reason=action["reason"], actor_id=GATEWAY, actor_type="agent",
+            organization_id=authority.proposal.organization_id, correlation_id=authority.proposal.id,
+            detail=_provenance(authority, index))
+    if allocation.obligation_kg <= 0 and received_kg(session, allocation.id) == 0:
+        allocation.status, allocation.lost_at = AllocationStatus.LOST, now
     _event(session, "allocation.capacity_released", requirement.id, authority.proposal.id,
-           {"allocation_id": str(allocation.id), "lost_record_id": str(record_id), "quantity_kg": action["quantity_kg"],
-            "reason": action["reason"], **_provenance(authority, index)})
+           {"allocation_id": str(allocation.id), "quantity_kg": action["quantity_kg"], "reason": action["reason"],
+            **_provenance(authority, index)})
     return {"allocation_id": str(allocation.id), "released_kg": action["quantity_kg"]}
+
+
+def _release_commitment(session: Session, authority: Authority, index: int, action: dict, allocations: dict, now: datetime) -> dict:
+    from src.backend.app.supply.application.release import release
+    _require(authority, action)
+    allocation = allocations[UUID(action["allocation_id"])]
+    release(session, allocation, Decimal(action["quantity_kg"]), kind=action["release_kind"], reason=action["reason"],
+            actor_id=GATEWAY, actor_type="agent", organization_id=authority.proposal.organization_id,
+            correlation_id=authority.proposal.id, detail={**_provenance(authority, index), "permitted_by": action["release_permitted_by"]})
+    if allocation.obligation_kg <= 0:
+        allocation.status = AllocationStatus.RELEASED
+    return {"allocation_id": str(allocation.id), "released_kg": action["quantity_kg"]}
+
+
+def _release_standby(session: Session, authority: Authority, index: int, action: dict, allocations: dict) -> dict:
+    from src.backend.app.supply.application.release import release
+    _require(authority, action)
+    allocation = allocations[UUID(action["allocation_id"])]
+    kind = "standby_unused" if action["release_kind"] == "cancellation" else "approved_partial"
+    release(session, allocation, Decimal(action["quantity_kg"]), kind=kind, reason=action["reason"], actor_id=GATEWAY,
+            actor_type="agent", organization_id=authority.proposal.organization_id, correlation_id=authority.proposal.id,
+            detail=_provenance(authority, index))
+    if allocation.obligation_kg <= 0:
+        allocation.status = AllocationStatus.RELEASED
+    return {"allocation_id": str(allocation.id), "released_kg": action["quantity_kg"]}
+
+
+def _withdraw_request(session: Session, authority: Authority, index: int, action: dict, allocations: dict) -> dict:
+    from src.backend.app.supply.application.release import release_remaining
+    _require(authority, action)
+    allocation = allocations[UUID(action["allocation_id"])]
+    release_remaining(session, allocation, kind="request_withdrawn", reason=action["reason"], actor_id=GATEWAY,
+                      actor_type="agent", organization_id=authority.proposal.organization_id, correlation_id=authority.proposal.id)
+    allocation.status = AllocationStatus.WITHDRAWN
+    return {"allocation_id": str(allocation.id), "status": "WITHDRAWN"}
+
+
+def _cancel_order(session: Session, authority: Authority, index: int, action: dict, requirement: Requirement, now: datetime) -> dict:
+    from src.backend.app.agents.application.orchestrator import close_tasks_for_order
+    _require(authority, action)
+    payload = {"mode": action["mode"], "reason": action["reason"], "buyer_instruction": action.get("buyer_instruction"),
+               "requested_by": action.get("requested_by"), "attribution": "BUYER_CANCELLATION", **_provenance(authority, index)}
+    if action["mode"] == "FULL":
+        requirement.lifecycle_status = RequirementLifecycleStatus.CANCELLED
+        requirement.cancelled_at, requirement.cancellation_reason = now, action["reason"][:500]
+        requirement.version += 1
+        _event(session, "requirement.cancelled", requirement.id, authority.proposal.id, payload)
+    else:
+        # Goods were received: only undelivered obligations end here. The order stays open for reconciliation,
+        # dispute or return handling, and closes with an accepted variance (reconciliation/application/services.py).
+        _event(session, "order.remainder_cancelled", requirement.id, authority.proposal.id, payload)
+    close_tasks_for_order(session, requirement.id, "the approved cancellation was applied", GATEWAY)
+    return {"requirement_id": str(requirement.id), "mode": action["mode"]}
 
 
 # --- Execution ------------------------------------------------------------------------------------------------
@@ -313,6 +393,14 @@ def execute(session: Session, task: RecoveryTask, proposal: RecoveryProposal, re
                     detail = _solicit_supply(session, authority, index, action, requirement, now)
                 elif action["type"] == ev.RELEASE_EXPOSED:
                     detail = _release_exposed(session, authority, index, action, requirement, lots, allocations, now)
+                elif action["type"] == "RELEASE_COMMITMENT":
+                    detail = _release_commitment(session, authority, index, action, allocations, now)
+                elif action["type"] == "RELEASE_STANDBY":
+                    detail = _release_standby(session, authority, index, action, allocations)
+                elif action["type"] == "WITHDRAW_REQUEST":
+                    detail = _withdraw_request(session, authority, index, action, allocations)
+                elif action["type"] == "CANCEL_ORDER":
+                    detail = _cancel_order(session, authority, index, action, requirement, now)
                 else:
                     raise ValueError(f"unknown action type {action['type']}")
                 session.add(RecoveryExecution(proposal_id=proposal.id, organization_id=proposal.organization_id,

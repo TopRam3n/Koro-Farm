@@ -66,6 +66,19 @@ def worlds(factory, http):
                          json={"fulfilment_node_id": str(a["node"]), "reference": "ALPHA-1"})
     assert shipment.status_code == 200, shipment.text
     a["shipment"] = UUID(shipment.json()["shipment_id"])
+    # WP4: a delivered shipment, a dispute and a reconciliation owned by organization A, for the route sweep.
+    assert http.post(f"/shipments/{a['shipment']}/sublots", headers=_h(a, "sub-a"), json={"received_sublot_id": str(a["sublot"])}).status_code == 200
+    assert http.post(f"/shipments/{a['shipment']}/dispatch", headers=_h(a, "dis-a"), json={}).status_code == 200
+    delivered = http.post(f"/shipments/{a['shipment']}/delivery", headers=_h(a, "del-a"), json={
+        "delivered_quantity_kg": "10", "delivered_at": "2026-10-30T10:00:00Z"})
+    assert delivered.status_code == 200, delivered.text
+    a["delivery"] = UUID(delivered.json()["delivery_id"])
+    disputed = http.post(f"/requirements/{a['requirement']}/disputes", headers=_h(a), json={"description": "short by a crate"})
+    assert disputed.status_code == 200, disputed.text
+    a["dispute"] = UUID(disputed.json()["dispute_id"])
+    reconciled = http.post(f"/requirements/{a['requirement']}/reconcile", headers=_h(a, "rec-a"), json={})
+    assert reconciled.status_code == 200, reconciled.text
+    a["reconciliation"] = UUID(reconciled.json()["reconciliation_id"])
     # Dropping the committed allocation creates a recovery case owned by organization A.
     dropped = http.post(f"/allocations/{a['allocation']}/dropout", headers=_h(a, "drop-a"), json={"reason": "test", "defer_recovery": True})
     assert dropped.status_code == 200, dropped.text
@@ -78,6 +91,11 @@ def worlds(factory, http):
                                     dedupe_key=f"capacity:{a['requirement']}", shortfall_kg=Decimal("10"), summary="test", details={})
         session.add(exception); session.commit()
         a["exception"] = exception.id
+    # The dropout released the lost reservation and flagged the lot for re-verification (R1 WP4, P2/P3); a fresh
+    # relayed capacity report confirms usable stock again, so the recovery agent can propose from it.
+    reverified = http.post(f"/production-lots/{a['lot']}/capacity-reports", headers=_h(a, "reverify-a"), json={
+        "reported_capacity_kg": "900", "original_source": "phone call with farmer", "attestation_method": "verbal"})
+    assert reverified.status_code == 201, reverified.text
     # The recovery agent turns the dropout into a task and a proposal owned by organization A.
     from src.backend.app import worker
     from src.backend.app.agents.domain.models import RecoveryProposal, RecoveryTask
@@ -233,7 +251,9 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
     ids = {"requirement_id": a["requirement"], "allocation_id": a["allocation"], "sublot_id": a["sublot"],
            "shipment_id": a["shipment"], "lot_id": a["lot"], "farmer_id": a["farmer"], "programme_id": a["programme"],
            "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"], "exception_id": a["exception"],
-           "recovery_task_id": a["recovery_task"], "recovery_proposal_id": a["recovery_proposal"]}
+           "recovery_task_id": a["recovery_task"], "recovery_proposal_id": a["recovery_proposal"],
+           "delivery_id": a["delivery"], "dispute_id": a["dispute"], "reconciliation_id": a["reconciliation"],
+           "fulfilment_node_id": a["node"]}
     checked, problems = 0, []
     for path, operations in app.openapi()["paths"].items():
         params = [part[1:-1] for part in path.split("/") if part.startswith("{") and part.endswith("}")]

@@ -20,13 +20,19 @@ Derived:
 * free stock         = max(0, effective capacity - reserved)      (used by every path that reserves stock)
 * exposure           = undelivered committed quantity the ceiling no longer covers
 
+Lot status (`refresh_lot_status`, the only code that sets it): EXHAUSTED when withdrawn or past a verified
+viable-until date; UNAVAILABLE when re-verification is required or no stock is free; otherwise AVAILABLE. Only
+AVAILABLE lots are planned, requested or activated. Re-verification is required after reserved stock is released
+(released stock is not offered again until usable capacity is confirmed) and when a harvest window ended without a
+current confirmation; an applied capacity report or a new declaration clears it.
+
 A supplier reports what they can still supply, so delivered stock is never counted twice and never offered again.
 Commitments are never modified by a report. Delivered quantity is always covered; the rest of the ceiling covers
 the undelivered part of commitments, earliest accepted first ("first agreed, first protected"), then authorized
 standby, earliest authorized first. Reports, acceptances and receipts on a lot serialize on the lot's row lock.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -37,7 +43,7 @@ from src.backend.app.identity.application.authorization import AuthorizationCont
 from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 from src.backend.app.supply.domain.capacity import CapacityChannel, CapacityReport, CapacityVerification
 from src.backend.app.supply.domain.models import ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationStatus, ConsentStatus, SupplyAllocation, obligation_sql
 
 ZERO = Decimal("0")
 
@@ -76,6 +82,32 @@ def effective_capacity_sql():
 
 def has_free_stock_sql():
     return effective_capacity_sql() > ProductionLot.reserved_quantity_kg
+
+
+def refresh_lot_status(lot: ProductionLot, today: date | None = None) -> ProductionLotStatus:
+    """The single rule for a lot's status. Call after any change to its quantities or flags."""
+    today = today or datetime.now(timezone.utc).date()
+    if lot.withdrawn_at is not None or (lot.viable_until is not None and lot.viable_until < today):
+        lot.status = ProductionLotStatus.EXHAUSTED
+    elif lot.reverification_required or free_kg(lot) <= 0:
+        lot.status = ProductionLotStatus.UNAVAILABLE
+    else:
+        lot.status = ProductionLotStatus.AVAILABLE
+    return lot.status
+
+
+def require_reverification(lot: ProductionLot, reason: str, now: datetime | None = None) -> None:
+    """Exclude the lot from new planning until usable capacity is confirmed again."""
+    if not lot.reverification_required:
+        lot.reverification_required = True
+        lot.reverification_required_at = now or datetime.now(timezone.utc)
+    lot.reverification_reason = reason[:300]
+    refresh_lot_status(lot)
+
+
+def clear_reverification(lot: ProductionLot) -> None:
+    lot.reverification_required, lot.reverification_reason, lot.reverification_required_at = False, None, None
+    refresh_lot_status(lot)
 
 
 def free_kg_sql():
@@ -139,21 +171,21 @@ def lot_exposure(session: Session, lot: ProductionLot) -> LotExposure:
     ).order_by(*_earliest_first())).all()
     result = LotExposure(lot=lot)
     if lot.reported_capacity_kg is None:  # no report: everything is covered
-        result.commitments = [AllocationExposure(a, a.quantity_kg, ZERO) for a in commitments]
+        result.commitments = [AllocationExposure(a, a.obligation_kg, ZERO) for a in commitments]
         result.standby_uncovered = {a.id: ZERO for a in standby}
         return result
     delivered = delivered_by_allocation(session, lot.id)
     budget = max(lot.reported_capacity_kg - sum(delivered.values(), ZERO), ZERO)  # what is still to be supplied
     for allocation in commitments:  # earliest accepted first: they keep their cover
-        done = min(delivered.get(allocation.id, ZERO), allocation.quantity_kg)
-        outstanding = allocation.quantity_kg - done
+        done = min(delivered.get(allocation.id, ZERO), allocation.obligation_kg)
+        outstanding = allocation.obligation_kg - done
         covered = min(outstanding, budget)
         budget -= covered
         result.commitments.append(AllocationExposure(allocation, done + covered, outstanding - covered))
     for allocation in standby:  # earliest authorized first
-        covered = min(allocation.quantity_kg, budget)
+        covered = min(allocation.obligation_kg, budget)
         budget -= covered
-        result.standby_uncovered[allocation.id] = allocation.quantity_kg - covered
+        result.standby_uncovered[allocation.id] = allocation.obligation_kg - covered
     return result
 
 
@@ -182,7 +214,7 @@ def requirement_exposure(session: Session, requirement_id: UUID) -> tuple[Decima
 
 
 def _committed_on_lot(session: Session, lot_id: UUID) -> Decimal:
-    return session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+    return session.scalar(select(func.coalesce(func.sum(obligation_sql()), 0)).where(
         SupplyAllocation.production_lot_id == lot_id,
         SupplyAllocation.status == AllocationStatus.COMMITTED,
         SupplyAllocation.consent_status == ConsentStatus.RECORDED,
@@ -191,8 +223,13 @@ def _committed_on_lot(session: Session, lot_id: UUID) -> Decimal:
 
 def record_capacity_report(session: Session, actor: AuthorizationContext, lot_id: UUID, reported_kg: Decimal,
                            *, effective_at: datetime | None, original_source: str | None, attestation_method: str | None,
-                           evidence_reference: str | None, key: str | None) -> dict:
+                           evidence_reference: str | None, key: str | None, channel: CapacityChannel | None = None,
+                           actor_type: str = "user") -> dict:
     """Store an immutable capacity report and, unless it is stale, apply it to the lot.
+
+    This is the one capacity-reporting service (P8): the API, farmer secure-link replies and coordinator
+    observations all use it. `channel=FARMER_SECURE_LINK` is passed only by the secure-link handler after it has
+    verified the one-time token; it is self-reported by the farmer, never coordinator-supplied.
 
     Exception detection is not done here: the report's event is written to the outbox in this transaction and
     the worker (app/worker.py) opens or resolves exceptions from it.
@@ -217,7 +254,11 @@ def record_capacity_report(session: Session, actor: AuthorizationContext, lot_id
             raise CapacityError("production lot not found", 404)
         if (done := replay_or_none(session, command, key)) is not None:
             return done
-        if actor.role == RoleCode.FARMER:
+        if channel == CapacityChannel.FARMER_SECURE_LINK:
+            verification = CapacityVerification.SELF_REPORTED
+            original_source = (original_source or "farmer secure link").strip()
+            attestation_method = (attestation_method or "one-time secure link sent to the farmer").strip()
+        elif actor.role == RoleCode.FARMER:
             if actor.farmer_id is None or actor.farmer_id != lot.farmer_id:
                 raise CapacityForbidden("farmers may report capacity only for their own production lots")
             channel, verification = CapacityChannel.FARMER_PORTAL, CapacityVerification.SELF_REPORTED
@@ -249,7 +290,8 @@ def record_capacity_report(session: Session, actor: AuthorizationContext, lot_id
             reported_capacity_kg=reported_kg, previous_reported_kg=previous, committed_at_report_kg=committed,
             effective_at=effective_at, channel=channel, original_source=original_source,
             attestation_method=attestation_method, evidence_reference=evidence_reference,
-            verification_status=verification, applied=not stale, recorded_by_user_id=actor.user_id,
+            verification_status=verification, applied=not stale,
+            recorded_by_user_id=actor.user_id if isinstance(actor.user_id, UUID) else None,
             delivered_at_report_kg=delivered)
         session.add(report)
         availability_raised_from = None
@@ -258,10 +300,11 @@ def record_capacity_report(session: Session, actor: AuthorizationContext, lot_id
             lot.capacity_reported_at = effective_at
             # Only the farmer's own report can offer more than planning availability; a relayed report constrains
             # but never restores stock a declaration removed. No report lowers availability: the ceiling does that.
-            if channel == CapacityChannel.FARMER_PORTAL and ceiling > lot.available_quantity_kg:
+            if channel in (CapacityChannel.FARMER_PORTAL, CapacityChannel.FARMER_SECURE_LINK) and ceiling > lot.available_quantity_kg:
                 availability_raised_from = lot.available_quantity_kg
                 lot.available_quantity_kg = ceiling
-            lot.status = ProductionLotStatus.AVAILABLE if free_kg(lot) > 0 else ProductionLotStatus.UNAVAILABLE
+            lot.last_verified_at = effective_at
+            clear_reverification(lot)  # a current report is fresh evidence of usable capacity
             lot.version += 1
         session.flush()
         exposed = lot_exposure(session, lot).exposed_kg if not stale else ZERO
@@ -274,7 +317,7 @@ def record_capacity_report(session: Session, actor: AuthorizationContext, lot_id
             "channel": channel.value, "verification_status": verification.value,
             "effective_at": effective_at.isoformat(), "original_source": original_source,
             "attestation_method": attestation_method, "evidence_reference": evidence_reference,
-        }, idempotency_key=key)
+        }, idempotency_key=key, actor_type=actor_type)
         result = {"capacity_report_id": str(report.id), "production_lot_id": str(lot.id), "applied": not stale,
                   "reported_capacity_kg": str(reported_kg), "delivered_kg": str(delivered), "capacity_ceiling_kg": str(ceiling),
                   "committed_kg": str(committed), "exposed_kg": str(exposed),

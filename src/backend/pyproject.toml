@@ -37,6 +37,9 @@ anthropic = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "ledger_drift_expected: the test deliberately sets a lot's reserved quantity outside the ledger",
+]
 
 [tool.ruff]
 line-length = 100

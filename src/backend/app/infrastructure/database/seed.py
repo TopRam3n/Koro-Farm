@@ -24,18 +24,7 @@ SEED_CONTEXT = AuthorizationContext(
     membership_id=UUID("00000000-0000-0000-0000-00000000f002"), role=RoleCode.PLATFORM_ADMIN,
     permissions=frozenset(PermissionCode),
 )
-from src.backend.app.reconciliation.api.router import (
-    AddSublot,
-    DeliveryCommand,
-    DispatchCommand,
-    ReconcileCommand,
-    ShipmentCreate,
-    add_sublot,
-    create_shipment,
-    deliver,
-    dispatch,
-    reconcile,
-)
+from src.backend.app.reconciliation.application import services as trade
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentChannel, ConsentDecision, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.application.planner import finalize_plan
@@ -283,40 +272,23 @@ def seed_competition_demo(session: Session) -> UUID:
         )
         accepted_sublot_ids.append(UUID(graded["received_sublot_id"]))
     session.commit()
-    shipment_result = create_shipment(
-        completed_requirement_id,
-        ShipmentCreate(fulfilment_node_id=DEMO_NODE_ID, reference="SYN-DEMO-503"),
-        idempotency_key="demo-completed-shipment",
-        session=session, context=SEED_CONTEXT,
-    )
-    shipment_id = UUID(shipment_result["shipment_id"])
+    # Synthetic demo only: the buyer confirmation is a labelled staff relay, never shown as the buyer's own.
+    shipment_id = UUID(trade.create_shipment(session, SEED_CONTEXT, completed_requirement_id, DEMO_NODE_ID, "SYN-DEMO-503",
+                                             "demo-completed-shipment")["shipment_id"])
     for index, sublot_id in enumerate(accepted_sublot_ids, start=1):
-        add_sublot(
-            shipment_id, AddSublot(received_sublot_id=sublot_id),
-            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session, context=SEED_CONTEXT,
-        )
-    dispatch(
-        shipment_id, DispatchCommand(evidence_reference="synthetic://dispatch/demo-completed-503"),
-        idempotency_key="demo-completed-dispatch", session=session,
-    )
-    deliver(
-        shipment_id,
-        DeliveryCommand(
-            delivered_quantity_kg=Decimal("400"),
-            delivered_at=datetime(2026, 10, 8, 15, 0, tzinfo=timezone.utc),
-            delivery_evidence_reference="synthetic://delivery/demo-completed-503",
-            buyer_confirmed=True,
-            buyer_confirmation_evidence="synthetic://buyer-confirmation/demo-completed-503",
-        ),
-        idempotency_key="demo-completed-delivery",
-        session=session,
-    )
-    reconcile(
-        completed_requirement_id,
-        ReconcileCommand(verification_evidence_reference="synthetic://verification/demo-completed-503"),
-        idempotency_key="demo-completed-reconciliation",
-        session=session,
-    )
+        trade.add_sublot(session, SEED_CONTEXT, shipment_id, sublot_id, f"demo-completed-shipment-sublot-{index}")
+    trade.dispatch(session, SEED_CONTEXT, shipment_id, "synthetic://dispatch/demo-completed-503", "demo-completed-dispatch")
+    delivery = trade.record_delivery(session, SEED_CONTEXT, shipment_id, Decimal("400"),
+                                     datetime(2026, 10, 8, 15, 0, tzinfo=timezone.utc),
+                                     "synthetic://delivery/demo-completed-503", "demo-completed-delivery")
+    trade.confirm_delivery(session, SEED_CONTEXT, UUID(delivery["delivery_id"]), Decimal("400"),
+                           evidence_reference="synthetic://buyer-confirmation/demo-completed-503",
+                           buyer_representative="Synthetic buyer representative", communication_channel="synthetic demo",
+                           attestation="synthetic demo data", stated_at=datetime(2026, 10, 8, 16, 0, tzinfo=timezone.utc),
+                           key="demo-completed-confirmation")
+    trade.reconcile(session, SEED_CONTEXT, completed_requirement_id, None, "synthetic://verification/demo-completed-503",
+                    "demo-completed-reconciliation")
+    session.commit()
 
     # A partial rejection proves physical receiving, quality attribution, and
     # non-punitive recovery. Evidence references are explicitly synthetic.

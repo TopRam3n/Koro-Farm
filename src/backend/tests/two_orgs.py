@@ -49,6 +49,13 @@ def factory(request):
         ensure_shared_crops(setup)
         setup.commit()
     yield made
+    # Stock ledger invariant (R1 WP4, M8): every test ends with each lot's reserved total equal to what holds
+    # reservations on it. A test that deliberately creates drift marks itself `ledger_drift_expected`.
+    if not request.node.get_closest_marker("ledger_drift_expected"):
+        from src.backend.app.supply.application.ledger import mismatches
+        with made() as check:
+            drift = mismatches(check)
+        assert drift == [], f"stock ledger drift after the test: {drift}"
     if request.param == "sqlite":
         Base.metadata.drop_all(engine)
     engine.dispose()
