@@ -115,4 +115,4 @@ Recorded in [R1_WP4_DECISIONS.md](R1_WP4_DECISIONS.md).
 - the browser spec states a departure time;
 - the tenant-isolation fixture no longer dates a receipt in the future.
 
-**Results (local, before push):** backend 446 passed, 3 skipped (SQLite and PostgreSQL); Vitest 50 passed; `tsc` and `eslint` clean; browser E2E 27 passed (production build from a worktree, disposable database). CI: see below.
+**Results (local, before push):** backend 446 passed, 3 skipped (SQLite and PostgreSQL); Vitest 50 passed; `tsc` and `eslint` clean; browser E2E 27 passed (production build from a worktree, disposable database). **CI green** on `1951adf`: run [41671496065](https://github.com/TopRam3n/Koro-Farm/actions/runs/41671496065), every step passed, browser E2E included.
