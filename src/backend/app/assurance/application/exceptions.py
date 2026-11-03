@@ -88,6 +88,16 @@ def _resolve(session: Session, row: SupplyException, requirement: Requirement, r
         causation_id=source_event_id, actor_id=resolved_by)
 
 
+def resolve_for_ended_order(session: Session, requirement: Requirement, resolved_by: str, outcome: str) -> int:
+    """An order that ended (closed or cancelled) needs no further supply action. Its open exceptions are resolved with
+    the outcome; the exception records and their history stay."""
+    rows = session.scalars(select(SupplyException).where(SupplyException.requirement_id == requirement.id,
+                                                         SupplyException.status == ExceptionStatus.OPEN)).all()
+    for row in rows:
+        _resolve(session, row, requirement, resolved_by, f"order ended ({outcome}); no further supply action")
+    return len(rows)
+
+
 def open_incident_exception(session: Session, requirement: Requirement, kind: str, dedupe_key: str, shortfall: Decimal,
                             summary: str, details: dict) -> SupplyException:
     """A dropout or quality rejection, recorded in the caller's transaction as an actionable exception.

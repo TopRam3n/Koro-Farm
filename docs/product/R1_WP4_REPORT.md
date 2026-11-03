@@ -81,6 +81,7 @@ Every older path now goes through it:
   - unused standby: `standby_unused`, and the allocation becomes RELEASED;
   - open requests are withdrawn.
 - Reconciliation alone releases nothing.
+- Closing (or an approved FULL cancellation) also ends the order's recovery task and resolves its open exceptions with the outcome ("order ended (closed with variance)"); the exception records stay. The order page then shows "Order ended" instead of a supply-health call to action.
 - Earlier partial releases use `POST /allocations/{id}/release-requests`, which goes through an approved proposal. Elevated approval is needed once goods are received.
 
 ### P3 Dropout

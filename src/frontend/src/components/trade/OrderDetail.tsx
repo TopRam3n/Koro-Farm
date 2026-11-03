@@ -133,6 +133,8 @@ function Supply({ order }: { order: Order }) {
   const supply = useOrderSupply(order.id);
   const plan = usePlanOrder(order.id);
   const cancelled = order.lifecycle_status === 'CANCELLED';
+  // Once an order has ended its supply health is history, not a call to action.
+  const ended = ['CANCELLED', 'COMPLETED', 'CLOSED_WITH_VARIANCE', 'CLOSED'].includes(order.lifecycle_status);
   const s = supply.data;
   const figures: Array<[string, string | undefined, string]> = s ? [
     ['Committed', s.committed_quantity_kg, 'Supplier acceptance recorded. Stays recorded even if the supplier later reports less.'],
@@ -148,7 +150,8 @@ function Supply({ order }: { order: Order }) {
   return <section aria-labelledby="supply" className="operational-panel p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 id="supply" className="text-base font-semibold">Supply</h2>
-      {s && <Pill tone={s.supply_health === 'COVERED' ? 'good' : s.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{healthLabel(s.supply_health, order.plan_version)}</Pill>}
+      {s && !ended && <Pill tone={s.supply_health === 'COVERED' ? 'good' : s.supply_health === 'UNPLANNED' ? 'info' : 'warn'}>{healthLabel(s.supply_health, order.plan_version)}</Pill>}
+      {s && ended && <Pill tone="neutral">Order ended</Pill>}
     </div>
     <LoadState query={supply}>
       {s && <>

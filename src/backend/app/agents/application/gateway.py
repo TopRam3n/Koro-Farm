@@ -327,6 +327,8 @@ def _cancel_order(session: Session, authority: Authority, index: int, action: di
         requirement.cancelled_at, requirement.cancellation_reason = now, action["reason"][:500]
         requirement.version += 1
         _event(session, "requirement.cancelled", requirement.id, authority.proposal.id, payload)
+        from src.backend.app.assurance.application.exceptions import resolve_for_ended_order
+        resolve_for_ended_order(session, requirement, GATEWAY, "cancelled at the buyer's instruction")
     else:
         # Goods were received: only undelivered obligations end here. The order stays open for reconciliation,
         # dispute or return handling, and closes with an accepted variance (reconciliation/application/services.py).

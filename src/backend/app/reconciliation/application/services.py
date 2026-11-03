@@ -579,6 +579,8 @@ def close_order(session: Session, actor: AuthorizationContext, requirement_id: U
             released += release_remaining(session, allocation, kind="request_withdrawn", reason="order closed", **common)
             allocation.status = AllocationStatus.WITHDRAWN
     close_tasks_for_order(session, requirement.id, f"order {outcome.value.lower()}", str(actor.user_id))
+    from src.backend.app.assurance.application.exceptions import resolve_for_ended_order
+    resolve_for_ended_order(session, requirement, str(actor.user_id), outcome.value.lower().replace("_", " "))
     requirement.lifecycle_status = outcome
     result = {"requirement_id": str(requirement.id), "outcome": outcome.value, "reconciliation_version": effective.version,
               "figures": figures, "variances": variances, "released_kg": format(released.normalize(), "f"),

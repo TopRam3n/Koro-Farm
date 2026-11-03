@@ -111,7 +111,7 @@ test.describe.serial('R1 consent, invalid transitions and boundaries', () => {
     await page.screenshot({ path: `${shots}/06-decline-and-withdraw.png`, fullPage: true });
   });
 
-  test('an order with accepted supply cannot be cancelled; the refusal is shown and nothing changes', async ({ page }) => {
+  test('an order with accepted supply is not cancelled directly; a request needs the supplier’s agreement and nothing changes', async ({ page }) => {
     await signIn(page, users.coordinator_a);
     await page.goto(orderPath);
     const table = allocationsTable(page);
@@ -124,12 +124,19 @@ test.describe.serial('R1 consent, invalid transitions and boundaries', () => {
     await form.getByRole('button', { name: 'Save supplier response' }).click();
     await expect(figure(page, 'Committed')).not.toHaveText('0 kg');
 
-    await page.getByText('Cancel this order').click();
-    await page.getByRole('form', { name: 'Cancel order' }).getByLabel('Reason').fill('buyer withdrew');
-    await page.getByRole('button', { name: 'Cancel order' }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'release them before cancelling' })).toBeVisible();
+    // R1 WP4 (P1): with supplier commitments a coordinator can only request cancellation.
+    await expect(page.getByRole('form', { name: 'Cancel order' })).toHaveCount(0);
+    await page.getByText('Request cancellation').click();
+    const request = page.getByRole('form', { name: 'Request cancellation' });
+    await request.getByLabel('Reason').fill('buyer withdrew');
+    await request.getByLabel("Buyer's instruction or evidence").fill('email from the buyer');
+    await request.getByRole('button', { name: 'Submit cancellation request' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Cancellation requested' })).toBeVisible();
+    // No supplier has agreed to be released, so the agent escalates instead of proposing.
+    await expect(page.getByRole('region', { name: 'Recovery', exact: true })).toContainText('needs supplier agreement first', { timeout: 30_000 });
     await page.reload();
     await expect(page.getByRole('region', { name: 'Order terms' })).not.toContainText('Cancelled:');
+    await expect(figure(page, 'Committed')).not.toHaveText('0 kg');
     await page.screenshot({ path: `${shots}/07-cancel-refused-with-commitments.png`, fullPage: true });
   });
 

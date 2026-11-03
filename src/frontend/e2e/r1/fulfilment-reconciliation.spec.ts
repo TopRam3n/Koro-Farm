@@ -30,7 +30,12 @@ async function freshSession(browser: Browser, user: TestUser) {
   return { context, page };
 }
 
-const figure = (page: Page, label: string) => page.getByLabel('Fulfilment quantities').locator(`dd[data-figure="${label}"]`);
+// Physical events are recorded as already happened: the API refuses receipts and deliveries in the future.
+const hoursAgo = (hours: number) => {
+  const at = new Date(Date.now() - hours * 3_600_000);
+  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const figure = (page: Page, label: string) => page.getByLabel('Fulfilment quantities').locator(`dd[data-fulfilment-figure="${label}"]`);
 
 test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
   const farmer = `Marcia Campbell ${run}`;
@@ -41,6 +46,7 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
   test('a 730 kg order is committed through the supplier’s recorded decision', async ({ page }) => {
     await signIn(page, users.coordinator_a);
     await page.goto('/suppliers');
+    await expect(page.getByText('Loading…')).toHaveCount(0);
     await page.getByLabel('Farmer name').fill(farmer);
     await page.getByLabel('Parish').fill('St. Catherine');
     await page.getByRole('button', { name: 'Add supplier' }).click();
@@ -59,6 +65,7 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await expect(page.getByRole('status')).toContainText(`for ${farmer} as declared`);
 
     await page.goto('/fulfilment/sites');
+    await expect(page.getByText('Loading…')).toHaveCount(0);
     const add = page.getByRole('form', { name: 'Add a site' });
     await add.getByLabel('Name').fill(site);
     await add.getByLabel('Type').fill('packhouse');
@@ -67,6 +74,7 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await expect(page.getByRole('list', { name: 'Fulfilment sites' })).toContainText(site);
 
     await page.goto('/orders/new');
+    await expect(page.getByText('Loading…')).toHaveCount(0);
     await page.getByLabel('Buyer').selectOption({ label: users.buyer_a.buyer_name! });
     await page.getByLabel('Crop').selectOption({ label: 'Plantain' });
     await page.getByLabel('Grade').selectOption('A');
@@ -97,7 +105,7 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await receipt.getByLabel('Supplier commitment').selectOption({ index: 1 });
     await receipt.getByLabel('Fulfilment site').selectOption({ label: `${site}, St. Catherine` });
     await receipt.getByLabel('Received (kg)').fill('725');
-    await receipt.getByLabel('Received at').fill('2026-12-02T08:30');
+    await receipt.getByLabel('Received at').fill(hoursAgo(3));
     await receipt.getByLabel('Receipt evidence').fill(`weighbridge ticket ${run}`);
     await receipt.getByRole('button', { name: 'Save receipt' }).click();
     await expect(figure(page, 'Received')).toHaveText('725 kg');
@@ -124,7 +132,7 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await shipment.getByRole('button', { name: 'Record delivery' }).click();
     const delivery = page.getByRole('form', { name: `Delivery for ${reference}` });
     await delivery.getByLabel('Delivered (kg)').fill('705');
-    await delivery.getByLabel('Delivered at').fill('2026-12-03T11:00');
+    await delivery.getByLabel('Delivered at').fill(hoursAgo(0));
     await delivery.getByRole('button', { name: 'Save delivery' }).click();
     await expect(figure(page, 'Delivered')).toHaveText('705 kg');
     await expect(figure(page, 'Buyer-confirmed')).toHaveText('0 kg');
@@ -174,6 +182,9 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await close.getByRole('button', { name: 'Close with variance' }).click();
     await expect(manager.page.getByLabel('Order outcome')).toContainText('Closed with variance');
     await expect(manager.page.getByRole('note')).toContainText('25 kg short of the order');
+    // Nothing is left asking for action on an ended order.
+    await expect(manager.page.getByRole('region', { name: 'Needs attention' })).toContainText('No open supply exceptions for this order.');
+    await expect(manager.page.getByRole('region', { name: 'Supply' })).toContainText('Order ended');
     await manager.page.reload();
     await expect(manager.page.getByLabel('Order outcome')).toContainText('Closed with variance');
     await expect(figure(manager.page, 'Delivered')).toHaveText('705 kg');

@@ -55,7 +55,7 @@ function Body({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
     </p>}
     <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5" aria-label="Fulfilment quantities">
       {figures.map(([name, value, hint]) => <div key={name} className="rounded-md border border-white/[0.07] p-3" title={hint}>
-        <dt className="text-xs text-muted-foreground">{name}</dt><dd className="mt-1 text-lg font-semibold" data-figure={name}>{kg(value)}</dd>
+        <dt className="text-xs text-muted-foreground">{name}</dt><dd className="mt-1 text-lg font-semibold" data-fulfilment-figure={name}>{kg(value)}</dd>
       </div>)}
     </dl>
     {!ended && <Receiving orderId={orderId} r={r} />}

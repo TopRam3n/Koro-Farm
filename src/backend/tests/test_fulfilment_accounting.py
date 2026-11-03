@@ -221,6 +221,13 @@ def test_730_ordered_725_received_705_accepted_is_never_shown_as_730_delivered(h
     # Only the 5 kg never received is released; received, rejected and delivered stock is never offered again.
     lot = lot_row(factory, lot_id)
     assert lot.reserved_quantity_kg == 725 and lot.reverification_required
+    # An ended order asks for nothing more: its open exceptions (here the 20 kg quality rejection) are resolved with
+    # the outcome, and their records stay.
+    assert open_exceptions(factory, order["id"]) == []
+    with factory() as session:
+        from src.backend.app.assurance.domain.exceptions import SupplyException
+        resolved = session.scalars(select(SupplyException).where(SupplyException.requirement_id == UUID(order["id"]))).all()
+        assert resolved and all("order ended (closed with variance)" in e.resolution for e in resolved)
 
     # The same figures survive a refresh, another person's independent session and the order's history.
     for who in ("auditor", "second_coordinator"):

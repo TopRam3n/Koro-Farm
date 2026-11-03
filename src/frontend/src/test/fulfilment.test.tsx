@@ -53,7 +53,7 @@ describe('order fulfilment', () => {
     serve({ '/fulfilment-record': record(), '/fulfilment-nodes': [] });
     renderWith(<FulfilmentSection orderId="req-1" />);
     const quantities = await screen.findByLabelText('Fulfilment quantities');
-    const value = (name: string) => within(quantities).getByText((_, el) => el?.getAttribute('data-figure') === name).textContent;
+    const value = (name: string) => within(quantities).getByText((_, el) => el?.getAttribute('data-fulfilment-figure') === name).textContent;
     expect([value('Required'), value('Received'), value('Accepted'), value('Rejected'), value('Delivered'), value('Buyer-confirmed')])
       .toEqual(['730 kg', '725 kg', '705 kg', '20 kg', '705 kg', '0 kg']);
     expect(screen.getByText('Reconciled, not closed')).toBeInTheDocument();
