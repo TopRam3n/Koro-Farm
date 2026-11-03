@@ -1,6 +1,6 @@
 # R1 deferred technical-debt register
 
-**Kept since:** WP3 (31 October 2026); updated for WP4 (1 November 2026). This register is updated at the end of each work package.
+**Kept since:** WP3 (31 October 2026); updated for WP4 (1 November 2026) and the WP4 decisions (3 November 2026). This register is updated at the end of each work package.
 **Rule:** an item is fixed inside a work package only when the approved workflow or safety needs it. Everything else waits here with its owner, impact and intended work package.
 
 **Owner** means who decides or carries the work:
@@ -40,16 +40,23 @@ Line numbers in items 1–16 refer to branch `feat/r1-wp3-agent-orchestration`; 
 
 | # | Item | Where (source) | Impact today | Owner | Intended work package |
 |---|---|---|---|---|---|
-| 17 | Harvest re-verification period is one setting for every crop | `src/backend/app/supply/application/lot_timers.py` (`HARVEST_REVERIFY_DAYS`, default 7) | P9 asks for a per-crop policy eventually. Every crop uses 7 days. | Product owner (periods per crop), then engineering | WP5 |
+| 17 | Harvest re-verification period is one setting for every crop | `src/backend/app/supply/application/lot_timers.py` (`HARVEST_REVERIFY_DAYS`, default 7) | **Decided (WP4 decision 3):** 7 days for all crops in the pilot; exclusion from new planning only, never an expiry. Per-crop periods only on documented crop handling requirements or verified pilot evidence. | Product owner, then engineering | WP5 |
 | 18 | Grade A only, and fixed response windows (items 3 and 5) are still open | `supply/application/planner.py`, `supply/application/commitments.py` | Unchanged by WP4: not needed for the fulfilment workflow. | Product owner | WP5 |
 | 19 | The retired availability endpoint still answers 410 | `src/backend/app/ingestion/api/router.py` (`report_farmer_availability`) | Kept for one release so unknown callers get guidance. | Engineering | Remove in the release after R1 |
 | 20 | Warehouse operators see refusal notes on parts of the order page | `components/trade/OrderDetail.tsx` (`ExceptionList`, `RecoveryTasks`), whose APIs need `recovery.view` | The fulfilment section works; the recovery and exceptions panels show the server's 403 message instead of hiding. | Engineering | WP5 (role-aware order workspace) |
 | 21 | On SQLite the old global shipment-reference unique constraint stays | `alembic/versions/0024_fulfilment_accounting.py` (SQLite cannot drop the unnamed constraint by name) | Development databases only: references stay globally unique there, which is stricter. PostgreSQL drops it and enforces uniqueness per site. | Engineering | None unless SQLite is used for anything shared |
 | 22 | Downgrading past 0024 is refused while receipt adjustments exist | `0024_fulfilment_accounting.py` (`downgrade`) | Deliberate: the older schema cannot represent corrections, and deleting physical evidence is not allowed. `lifecycle_status` stays 30 characters wide after downgrade. | Operations | None |
 | 23 | A planner concurrency test on a SQLite file is load-sensitive | `src/backend/tests/test_planner.py` (`test_concurrent_planning_attempts_create_only_one_plan`) | Failed once in a full local run (both threads hit "database is locked"); passed 8 of 8 when repeated alone. PostgreSQL concurrency is covered separately and passed. | Engineering | Low priority: make it PostgreSQL-only or retry the lock |
-| 24 | The release audit has not been run on any shared database | `src/backend/scripts/release_audit.py` | Pre-WP4 data may still hold reservations on closed or cancelled orders. Needs a backup, the dry-run report and your approval before `--apply`. | Product owner (approval), operations (backup and run) | Before the pilot database is used with WP4 |
+| 24 | The release audit has not been run on the pilot database | `src/backend/scripts/release_audit.py`; procedure in `R1_PILOT_READINESS_CHECKLIST.md` section 5 | **Decided (WP4 decision 1):** backup and read-only dry run authorized; `--apply` not authorized. The script is hardened: read-only dry run, full report detail, ambiguous lots set aside, locked and fingerprint-checked apply. The pilot database is not reachable from the engineering workstation, so the dry run waits for whoever holds access. | Operations runs; product owner approves | Pilot-readiness blocker |
 | 25 | Close-out releases what was never received but does not re-plan other orders | `reconciliation/application/services.py` (`close_order`) | Released stock waits for re-verification (P2); no order is offered it automatically. | Product owner | Working as authorized; revisit after the pilot |
-| 26 | Dispatch time is when staff pressed Dispatch, not when goods left | `reconciliation/application/services.py` (`dispatch` sets `dispatched_at` to now; `record_delivery` takes a stated `delivered_at`) | A delivery entered afterwards can show an earlier time than its dispatch (seen in the WP4 browser run). Quantities are unaffected. Refusing such deliveries would block legitimate back-entry, so it is not enforced. | Engineering | WP5: let dispatch record the physical departure time, then enforce the order |
+| 26 | ~~Dispatch time is when staff pressed Dispatch, not when goods left~~ | **Resolved (WP4 decision, migration `0025`):** stated `dispatched_at` with `dispatch_time_basis` (STATED, RECORDED, LEGACY), system `dispatch_recorded_at` and author; delivery `recorded_at`; receipts cannot be dated in the future; impossible sequences flagged and reviewed (`sequence_findings`, `POST /requirements/{id}/sequence-reviews`); close refused until reviewed. Legacy times are labelled, never rewritten | — | — | — |
+
+## Items found after the WP4 decisions
+
+| # | Item | Where (source) | Impact today | Owner | Intended work package |
+|---|---|---|---|---|---|
+| 27 | Sequence checks cover dispatch, delivery and receipt only | `reconciliation/application/services.py` (`sequence_findings`) | Grading time is a system time (`graded_at`), so "graded before received" is not checked; a delivery correction does not carry its own physical time. | Engineering | WP5 |
+| 28 | The disposable test PostgreSQL on the engineering workstation is slow | Local only (its checkpoints write tens of thousands of files) | Full local runs can take far longer than CI. It stopped once when the machine restarted and was started again with its documented command. No effect on the product. | Engineering | None; CI is the reference |
 
 ## Not debt: decisions kept on purpose
 

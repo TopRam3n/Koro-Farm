@@ -4,6 +4,7 @@ SQLite tests build the schema with create_all and do not enforce VARCHAR lengths
 catch migration defects. Skipped unless POSTGRES_TEST_DATABASE_URL is set.
 """
 import os
+from datetime import datetime, timezone
 import pathlib
 from uuid import uuid4
 
@@ -159,7 +160,8 @@ def test_fulfilment_accounting_backfill_preserves_legacy_records_and_round_trips
         c.execute(text("insert into received_sublots (id, allocation_id, fulfilment_node_id, received_quantity_kg, accepted_quantity_kg, "
                        "rejected_quantity_kg, inspection_status, received_at, version) values (:i, :a, :n, 100, 95, 5, 'GRADED', now(), 1)"),
                   {"i": sublot, "a": allocation, "n": node})
-        c.execute(text("insert into shipments (id, requirement_id, fulfilment_node_id, reference, status) values (:i, :r, :n, 'LEGACY-1', 'DELIVERED')"),
+        c.execute(text("insert into shipments (id, requirement_id, fulfilment_node_id, reference, status, dispatched_at) "
+                       "values (:i, :r, :n, 'LEGACY-1', 'DELIVERED', '2026-09-05T10:00:00+00:00')"),
                   {"i": shipment, "r": requirement, "n": node})
         c.execute(text("insert into deliveries (id, shipment_id, delivered_quantity_kg, delivered_at, buyer_confirmed, buyer_confirmation_evidence) "
                        "values (:i, :s, 95, now(), true, 'email-001')"), {"i": delivery, "s": shipment})
@@ -182,6 +184,11 @@ def test_fulfilment_accounting_backfill_preserves_legacy_records_and_round_trips
         allocation_row = c.execute(text("select quantity_kg, released_quantity_kg from supply_allocations where id = :a"), {"a": allocation}).one()
         assert allocation_row.quantity_kg == 100 and allocation_row.released_quantity_kg == 0
         assert c.execute(text("select entry_type from received_sublots where id = :s"), {"s": sublot}).scalar() == "RECEIPT"
+        # 0025: the old dispatch time is labelled as a recording time, never rewritten or guessed.
+        legacy = c.execute(text("select dispatched_at, dispatch_time_basis, dispatch_recorded_at from shipments where id = :s"), {"s": shipment}).one()
+        assert legacy.dispatch_time_basis == "LEGACY" and legacy.dispatch_recorded_at is None
+        assert legacy.dispatched_at == datetime(2026, 9, 5, 10, 0, tzinfo=timezone.utc)
+        assert c.execute(text("select recorded_at from deliveries where id = :d"), {"d": delivery}).scalar() is None
         # References are unique per site, not across tenants.
         other_node = uuid4()
         c.execute(text("insert into fulfilment_nodes (id, organization_id, name, node_type, parish, active) values (:i, :o, 'Other', 'PACKHOUSE', 'Clarendon', true)"),

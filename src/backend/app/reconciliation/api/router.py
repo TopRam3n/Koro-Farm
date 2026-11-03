@@ -46,6 +46,13 @@ class Reason(BaseModel):
 
 class DispatchCommand(BaseModel):
     evidence_reference: str | None = Field(default=None, max_length=500)
+    dispatched_at: datetime | None = Field(default=None, description="When the goods physically left; may be in the past. "
+                                                                     "Omitted: the recording time is used and labelled as such")
+
+
+class SequenceReviewCommand(BaseModel):
+    finding_key: str = Field(min_length=3, max_length=120)
+    note: str = Field(min_length=3, max_length=1000)
 
 
 class DeliveryCommand(BaseModel):
@@ -154,7 +161,14 @@ def post_shipment_cancel(shipment_id: UUID, payload: Reason, session: Session = 
 def post_dispatch(shipment_id: UUID, payload: DispatchCommand, idempotency_key: str | None = Depends(tenant_idempotency_key),
                   session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     key = _key(idempotency_key)
-    return _run(session, lambda: trade.dispatch(session, context, shipment_id, payload.evidence_reference, key))
+    return _run(session, lambda: trade.dispatch(session, context, shipment_id, payload.evidence_reference, key, payload.dispatched_at))
+
+
+@router.post("/requirements/{requirement_id}/sequence-reviews")
+def post_sequence_review(requirement_id: UUID, payload: SequenceReviewCommand, session: Session = Depends(get_session),
+                         context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Record the review of a flagged physical event sequence. The records it concerns are not changed."""
+    return _run(session, lambda: trade.review_sequence(session, context, requirement_id, payload.finding_key, payload.note))
 
 
 @router.post("/shipments/{shipment_id}/delivery")
@@ -293,6 +307,7 @@ def get_fulfilment_record(requirement_id: UUID, session: Session = Depends(get_s
                       "corrections": len(session.scalars(select(ReceivedSublot.id).where(ReceivedSublot.adjusts_sublot_id == r.id)).all()),
                       "shipment_id": str(shipped[r.id]) if r.id in shipped else None} for r in receipts],
         "shipments": [{"id": str(s.id), "reference": s.reference, "status": s.status.value, "dispatched_at": s.dispatched_at,
+                       "dispatch_time_basis": s.dispatch_time_basis, "dispatch_recorded_at": s.dispatch_recorded_at,
                        "cancellation_reason": s.cancellation_reason,
                        "delivery": _delivery_view(session, deliveries[s.id]) if s.id in deliveries else None} for s in shipments],
         "disputes": [{"id": str(d.id), "delivery_id": str(d.delivery_id) if d.delivery_id else None, "party": d.raised_by_party,
@@ -306,6 +321,7 @@ def get_fulfilment_record(requirement_id: UUID, session: Session = Depends(get_s
                              "created_at": r.created_at} for r in records],
         "effective_reconciliation_version": effective.version if effective else None,
         "unconfirmed_deliveries": basis["unconfirmed_deliveries"],
+        "sequence_flags": trade.sequence_findings(session, requirement_id),
     }
 
 

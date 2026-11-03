@@ -9,7 +9,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -46,6 +46,9 @@ class CancelCommand(BaseModel):
 
 
 class PolicyCommand(BaseModel):
+    # Unknown fields are refused, so `commitment_release_without_supplier_consent` cannot be set here: an operational
+    # role is not contractual authority. Product-owner decision, R1 WP4 (docs/product/R1_WP4_DECISIONS.md).
+    model_config = ConfigDict(extra="forbid")
     max_cost_increase_jmd: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     max_cost_increase_pct: Decimal | None = Field(default=None, ge=0, le=10, max_digits=6, decimal_places=4,
                                                   description="As a fraction: 0.05 is 5%")

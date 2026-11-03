@@ -61,6 +61,7 @@ function Body({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
     {!ended && <Receiving orderId={orderId} r={r} />}
     <Receipts orderId={orderId} receipts={r.receipts} locked={ended} />
     <Shipments orderId={orderId} r={r} locked={ended} />
+    <SequenceFlags orderId={orderId} r={r} locked={ended} />
     <Disputes orderId={orderId} r={r} locked={ended} />
     <Reconciliations orderId={orderId} r={r} locked={ended} />
     {!ended && <Close orderId={orderId} r={r} />}
@@ -157,14 +158,14 @@ function Shipments({ orderId, r, locked }: { orderId: string; r: FulfilmentRecor
 
 function ShipmentItem({ orderId, shipment, unshipped, locked }: { orderId: string; shipment: Shipment; unshipped: Receipt[]; locked: boolean }) {
   const c = useFulfilmentCommands(orderId);
-  const [panel, setPanel] = useState<'none' | 'deliver' | 'cancel' | 'confirm'>('none');
+  const [panel, setPanel] = useState<'none' | 'deliver' | 'cancel' | 'confirm' | 'dispatch'>('none');
   const d = shipment.delivery;
   const error = c.addToShipment.error ?? c.dispatch.error ?? c.deliver.error ?? c.cancelShipment.error ?? c.relayConfirmation.error;
   const done = () => setPanel('none');
   return <li data-shipment={shipment.status} className="rounded-md border border-white/[0.1] p-3 text-sm">
     <div className="flex flex-wrap items-center gap-2">
       <span className="font-medium">{shipment.reference}</span><Pill tone={shipment.status === 'DELIVERED' ? 'good' : shipment.status === 'CANCELLED' ? 'neutral' : 'info'}>{humanize(shipment.status)}</Pill>
-      {shipment.dispatched_at && <span className="text-xs text-muted-foreground">Dispatched {when(shipment.dispatched_at)}</span>}
+      {shipment.dispatched_at && <span className="text-xs text-muted-foreground" data-dispatch-basis={shipment.dispatch_time_basis ?? ''}>{dispatchLine(shipment)}</span>}
     </div>
     {shipment.cancellation_reason && <p className="mt-1 text-xs text-muted-foreground">Cancelled: {shipment.cancellation_reason}</p>}
     {d && <div className="mt-2 space-y-1">
@@ -177,11 +178,21 @@ function ShipmentItem({ orderId, shipment, unshipped, locked }: { orderId: strin
     {!locked && <div className="mt-2 flex flex-wrap gap-2">
       {shipment.status === 'OPEN' && unshipped.map(x => <button key={x.id} type="button" disabled={c.addToShipment.isPending} onClick={() => c.addToShipment.mutate({ shipmentId: shipment.id, received_sublot_id: x.id })}
         className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Add {x.farmer_name} {kg(x.accepted_kg)}</button>)}
-      {shipment.status === 'OPEN' && <button type="button" disabled={c.dispatch.isPending} onClick={() => c.dispatch.mutate({ shipmentId: shipment.id })} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Dispatch</button>}
+      {shipment.status === 'OPEN' && <button type="button" onClick={() => setPanel('dispatch')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Dispatch</button>}
       {shipment.status === 'OPEN' && <button type="button" onClick={() => setPanel('cancel')} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground">Cancel shipment</button>}
       {shipment.status === 'DISPATCHED' && <button type="button" onClick={() => setPanel('deliver')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Record delivery</button>}
       {d && <button type="button" onClick={() => setPanel('confirm')} className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Record buyer&apos;s confirmation</button>}
     </div>}
+    {panel === 'dispatch' && <form aria-label={`Dispatch ${shipment.reference}`} className="mt-2 grid gap-3 sm:grid-cols-3" onSubmit={async event => {
+      event.preventDefault();
+      const v = formValues(event.currentTarget);
+      await c.dispatch.mutateAsync({ shipmentId: shipment.id, evidence_reference: v.evidence_reference,
+        dispatched_at: v.dispatched_at ? localToIso(v.dispatched_at) : undefined }).then(done, () => null);
+    }}>
+      <Field label="Time the goods left" name="dispatched_at" type="datetime-local" hint="Leave blank to use now. You can enter an earlier time if you are recording this afterwards." />
+      <Field label="Dispatch evidence" name="evidence_reference" placeholder="e.g. manifest number" />
+      <div className="self-end"><SubmitButton busy={c.dispatch.isPending}>Record dispatch</SubmitButton></div>
+    </form>}
     {panel === 'cancel' && <ReasonForm label="Why is this shipment cancelled?" busy={c.cancelShipment.isPending} submit="Cancel shipment"
       onSubmit={reason => c.cancelShipment.mutateAsync({ shipmentId: shipment.id, reason }).then(done, () => null)} />}
     {panel === 'deliver' && <form aria-label={`Delivery for ${shipment.reference}`} className="mt-2 grid gap-3 sm:grid-cols-3" onSubmit={async event => {
@@ -211,6 +222,30 @@ function ShipmentItem({ orderId, shipment, unshipped, locked }: { orderId: strin
     </form>}
     <ErrorNote error={error} />
   </li>;
+}
+
+/** Says what a dispatch time is: the stated departure, or only when someone recorded it. */
+export function dispatchLine(s: Shipment) {
+  if (s.dispatch_time_basis === 'STATED') return `Left ${when(s.dispatched_at)} (stated; recorded ${when(s.dispatch_recorded_at ?? null)})`;
+  if (s.dispatch_time_basis === 'RECORDED') return `Dispatch recorded ${when(s.dispatched_at)} (no departure time stated)`;
+  return `Dispatch recorded ${when(s.dispatched_at)} (before departure times were captured)`;
+}
+
+function SequenceFlags({ orderId, r, locked }: { orderId: string; r: FulfilmentRecord; locked: boolean }) {
+  const { reviewSequence } = useFulfilmentCommands(orderId);
+  const flags = r.sequence_flags ?? [];
+  if (flags.length === 0) return null;
+  return <div>
+    <h3 className="text-sm font-semibold">Event times to review</h3>
+    <p className="mt-1 text-xs text-muted-foreground">These recorded times cannot all be right. Nothing has been changed: review each one and record what you found. The order cannot be closed until every one is reviewed.</p>
+    <ul className="mt-2 space-y-2 text-sm" aria-label="Event times to review">{flags.map(f => <li key={f.key} data-sequence-flag={f.reviewed ? 'reviewed' : 'open'} className="rounded-md border border-warning/40 p-3">
+      <div className="flex flex-wrap items-center gap-2"><Pill tone={f.reviewed ? 'neutral' : 'warn'}>{f.reviewed ? 'Reviewed' : 'Needs review'}</Pill><span>{f.message}</span></div>
+      {f.review_note && <p className="mt-1 text-xs text-muted-foreground">Review: {f.review_note}</p>}
+      {!f.reviewed && !locked && <ReasonForm label="What did you find?" submit="Record review" busy={reviewSequence.isPending}
+        onSubmit={note => reviewSequence.mutate({ finding_key: f.key, note })} />}
+    </li>)}</ul>
+    <ErrorNote error={reviewSequence.error} />
+  </div>;
 }
 
 function ReasonForm({ label, submit, busy, onSubmit }: { label: string; submit: string; busy: boolean; onSubmit: (reason: string) => unknown }) {

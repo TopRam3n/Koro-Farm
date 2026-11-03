@@ -81,6 +81,21 @@ describe('order fulfilment', () => {
   });
 });
 
+describe('physical event times', () => {
+  it('says how a dispatch time was recorded and lists impossible sequences for review without hiding them', async () => {
+    const stated = { ...record().shipments[0], dispatch_time_basis: 'STATED' as const, dispatched_at: '2026-10-31T08:00:00Z', dispatch_recorded_at: '2026-11-01T09:00:00Z' };
+    const flags = [{ key: 'delivered_before_dispatch:del-1', kind: 'DELIVERED_BEFORE_DISPATCH' as const, message: 'shipment SHIP-1 is stated to have arrived before it left',
+      delivery_id: 'del-1', reviewed: false, review_note: null, reviewed_by_user_id: null }];
+    serve({ '/fulfilment-record': record({ shipments: [stated], sequence_flags: flags }) });
+    renderWith(<FulfilmentSection orderId="req-1" />);
+    expect(await screen.findByText(/\(stated; recorded/)).toBeInTheDocument();
+    const list = screen.getByRole('list', { name: 'Event times to review' });
+    expect(list).toHaveTextContent('Needs review');
+    expect(list).toHaveTextContent('stated to have arrived before it left');
+    expect(within(list).getByRole('form', { name: 'What did you find?' })).toBeInTheDocument();
+  });
+});
+
 describe('buyer deliveries', () => {
   it('lets the buyer confirm part of a delivery and report the difference, never more than delivered', async () => {
     const mine: BuyerDelivery = { ...delivery, order: 'SCOTCH BONNET, 730 kg', requirement_id: 'req-1', shipment_reference: 'SHIP-1' };

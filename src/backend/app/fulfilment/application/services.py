@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -41,6 +41,8 @@ def receive(session: Session, allocation_id: UUID, node_id: UUID, quantity: Deci
         if node is None: raise ValueError("fulfilment node not found")
         if not node.active: raise ValueError("this fulfilment site is deactivated")
         if quantity <= 0: raise ValueError("received quantity must be positive")
+        stated = received_at if received_at.tzinfo else received_at.replace(tzinfo=timezone.utc)
+        if stated > datetime.now(timezone.utc) + timedelta(minutes=5): raise ValueError("a receipt cannot be recorded in the future")
         received = session.scalar(select(func.coalesce(func.sum(ReceivedSublot.received_quantity_kg), 0)).where(ReceivedSublot.allocation_id == allocation_id)) or Decimal("0")
         if received + quantity > allocation.obligation_kg: raise ValueError("received quantity exceeds what the supplier committed")
         if requirement.lifecycle_status in (RequirementLifecycleStatus.PLANNING, RequirementLifecycleStatus.ACTIVE):

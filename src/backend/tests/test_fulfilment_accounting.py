@@ -599,6 +599,13 @@ def test_release_audit_is_dry_run_first_and_applies_only_the_reviewed_report(htt
         session.rollback()
     assert [r["allocation_id"] for r in report["releasable"]] == [commitment["id"]]
     assert report["releasable"][0]["kind"] == "close_out"
+    item = report["releasable"][0]
+    assert item["organization_name"] == "Exception Exports" and item["reason"].startswith("order closed before WP4")
+    assert item["farmer_name"] and D(item["undelivered_reserved_kg"]) == D(commitment["quantity_kg"]) and item["received_kg"] == "0"
+    [effect] = report["expected_lot_effects"]
+    assert D(effect["reserved_before_kg"]) - D(effect["reserved_after_kg"]) == D(commitment["quantity_kg"])
+    assert effect["offered_to_new_orders"].startswith("not until")
+    assert report["summary_by_organization"][str(team["org"])]["allocations"] == 1 and report["totals"]["stock_ledger_mismatches"] == 0
     with factory() as session:  # nothing was changed by the dry run
         assert session.get(SupplyAllocation, UUID(commitment["id"])).released_quantity_kg == 0
         with pytest.raises(SystemExit):
@@ -630,7 +637,7 @@ def _race(factory, functions):
             value = fn(session)
             session.commit()
             return ("ok", value)
-        except Exception as exc:  # the loser's error is the expected outcome
+        except (Exception, SystemExit) as exc:  # the loser's error (or the audit's refusal) is the expected outcome
             session.rollback()
             return ("error", exc)
         finally:
@@ -699,3 +706,141 @@ def test_two_simultaneous_reconciliations_produce_one_version(http, team, factor
     with factory() as session:
         versions = session.scalars(select(ReconciliationRecord.version).where(ReconciliationRecord.requirement_id == UUID(order["id"]))).all()
         assert versions == [1]
+
+
+# --- Physical event times and flagged sequences (technical-debt item 26) -------------------------------------------
+
+def _same_instant(value, iso):
+    expected = datetime.fromisoformat(iso)
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)) == expected
+
+
+def test_stated_event_times_are_kept_apart_from_recording_and_impossible_sequences_need_review(http, team, factory) -> None:
+    order = make_order(http, team, "100")
+    commit_all(http, team, order)
+    rows = committed(http, team, order)
+    sublots = [receive(http, team, a["id"], a["quantity_kg"], f"r{i}", accepted=a["quantity_kg"]) for i, a in enumerate(rows)]
+    shipment = http.post(f"/requirements/{order['id']}/shipments", headers=H(team, "warehouse", "sh"),
+                         json={"fulfilment_node_id": team["node"], "reference": "SEQ-1"}).json()["shipment_id"]
+    for sublot in sublots:
+        assert http.post(f"/shipments/{shipment}/sublots", headers=H(team, "warehouse", f"a-{sublot}"), json={"received_sublot_id": sublot}).status_code == 200
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert http.post(f"/shipments/{shipment}/dispatch", headers=H(team, "warehouse", "d0"), json={"dispatched_at": future}).status_code == 422
+    left = "2026-10-31T08:00:00+00:00"
+    dispatched = http.post(f"/shipments/{shipment}/dispatch", headers=H(team, "warehouse", "d1"), json={"dispatched_at": left})
+    assert dispatched.status_code == 200 and dispatched.json()["dispatch_time_basis"] == "STATED"
+    # Entered afterwards with an arrival time before the stated departure: accepted, attributed and flagged.
+    delivered = http.post(f"/shipments/{shipment}/delivery", headers=H(team, "warehouse", "dl"),
+                          json={"delivered_quantity_kg": "100", "delivered_at": "2026-10-31T07:00:00+00:00"})
+    assert delivered.status_code == 200, delivered.text
+    delivery_id = delivered.json()["delivery_id"]
+    assert http.post(f"/deliveries/{delivery_id}/confirmations", headers=H(team, key="c"),
+                     json={"confirmed_quantity_kg": "100", **CONFIRM_RELAY}).status_code == 200
+    view = record(http, team, order)
+    [flag] = view["sequence_flags"]
+    assert flag["kind"] == "DELIVERED_BEFORE_DISPATCH" and flag["reviewed"] is False
+    assert view["figures"]["unreviewed_sequence_flags"] == 1
+    shipment_view = view["shipments"][0]
+    assert shipment_view["dispatch_time_basis"] == "STATED" and shipment_view["dispatch_recorded_at"] is not None
+    assert http.post(f"/requirements/{order['id']}/reconcile", headers=H(team, key="rc"), json={}).status_code == 200
+    assert any("flagged event sequence" in b for b in record(http, team, order)["completion"]["blockers"])
+    refused = http.post(f"/requirements/{order['id']}/close", headers=H(team, key="c1"), json={})
+    assert refused.status_code == 409 and "flagged event sequences" in refused.json()["detail"]
+
+    review = f"/requirements/{order['id']}/sequence-reviews"
+    assert http.post(review, headers=H(team, "warehouse"), json={"finding_key": flag["key"], "note": "looks fine"}).status_code == 403
+    assert http.post(review, headers=H(team), json={"finding_key": "delivered_before_dispatch:nope", "note": "x y z"}).status_code == 404
+    reviewed = http.post(review, headers=H(team), json={"finding_key": flag["key"], "note": "departure time was typed as 08:00; driver log shows 06:00"})
+    assert reviewed.status_code == 200, reviewed.text
+    assert http.post(review, headers=H(team), json={"finding_key": flag["key"], "note": "again"}).status_code == 409
+    view = record(http, team, order)
+    assert view["sequence_flags"][0]["reviewed"] and view["figures"]["unreviewed_sequence_flags"] == 0
+    # Nothing was rewritten: the stated times are exactly as entered.
+    with factory() as session:
+        from src.backend.app.reconciliation.domain.models import Delivery, Shipment
+        assert _same_instant(session.get(Shipment, UUID(shipment)).dispatched_at, "2026-10-31T08:00:00+00:00")
+        assert _same_instant(session.get(Delivery, UUID(delivery_id)).delivered_at, "2026-10-31T07:00:00+00:00")
+        assert session.get(Delivery, UUID(delivery_id)).recorded_at is not None
+    closed = http.post(f"/requirements/{order['id']}/close", headers=H(team, key="c2"), json={})
+    assert closed.status_code == 200 and closed.json()["outcome"] == "COMPLETED", closed.text
+
+
+def test_back_entered_deliveries_are_not_flagged_and_receipts_cannot_be_dated_in_the_future(http, team, factory) -> None:
+    order = make_order(http, team, "100")
+    commit_all(http, team, order)
+    allocation = committed(http, team, order)[0]
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert http.post("/sublots/receive", headers=H(team, "warehouse", "f"), json={
+        "allocation_id": allocation["id"], "fulfilment_node_id": team["node"], "received_quantity_kg": "10", "received_at": future}).status_code == 409
+    sublot = receive(http, team, allocation["id"], 40, "r", accepted=40)
+    # Dispatch pressed now without a stated time, delivery dated earlier (entered afterwards): legitimate, no flag.
+    ship(http, team, order, [sublot], 40, "back")
+    view = record(http, team, order)
+    assert view["shipments"][0]["dispatch_time_basis"] == "RECORDED" and view["sequence_flags"] == []
+
+
+def test_release_without_supplier_consent_cannot_be_granted_through_the_policy_api(http, team, factory) -> None:
+    """Product-owner decision (WP4): no blanket unilateral release right; an operational role is not contractual authority."""
+    refused = http.post("/recovery-approval-policy", headers=H(team, "admin"),
+                        json={"reason": "we think we may", "commitment_release_without_supplier_consent": True})
+    assert refused.status_code == 422
+    accepted = http.post("/recovery-approval-policy", headers=H(team, "admin"), json={"reason": "cost tolerance", "max_cost_increase_pct": "0.05"})
+    assert accepted.status_code == 201, accepted.text
+    with factory() as session:
+        from src.backend.app.agents.domain.models import RecoveryApprovalPolicy
+        assert all(p.commitment_release_without_supplier_consent is False for p in session.scalars(select(RecoveryApprovalPolicy)))
+
+
+@pytest.mark.ledger_drift_expected
+def test_release_audit_sets_aside_releases_on_lots_whose_ledger_does_not_balance(http, team, factory) -> None:
+    """An ambiguous correction is never applied: a lot already known to be wrong is investigated first."""
+    audit = _release_audit()
+    order = make_order(http, team, "100")
+    commit_all(http, team, order)
+    commitment = committed(http, team, order)[0]
+    with factory() as session:
+        session.get(Requirement, UUID(order["id"])).lifecycle_status = RequirementLifecycleStatus.CANCELLED
+        session.get(ProductionLot, UUID(commitment["production_lot_id"])).reserved_quantity_kg += D("3")
+        session.commit()
+    with factory() as session:
+        report = audit.dry_run(session)
+        session.rollback()
+    assert report["releasable"] == [] and report["expected_lot_effects"] == []
+    assert [r["allocation_id"] for r in report["review"]] == [commitment["id"]] and "does not balance" in report["review"][0]["issue"]
+    [mismatch] = report["stock_ledger_mismatches"]
+    assert D(mismatch["difference_kg"]) == 3 and mismatch["organization_name"] == "Exception Exports"
+
+
+def test_release_audit_dry_run_cannot_write_and_apply_never_releases_twice(http, team, factory) -> None:
+    if factory.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("PostgreSQL only")
+    from sqlalchemy.exc import DBAPIError
+    audit = _release_audit()
+    order = make_order(http, team, "100")
+    commit_all(http, team, order)
+    commitment = committed(http, team, order)[0]
+    with factory() as session:
+        session.get(Requirement, UUID(order["id"])).lifecycle_status = RequirementLifecycleStatus.CLOSED
+        session.commit()
+    with factory() as session:
+        report = audit.dry_run(session)
+        session.get(ProductionLot, UUID(commitment["production_lot_id"])).reserved_quantity_kg += D("1")
+        with pytest.raises(DBAPIError):  # READ ONLY transaction
+            session.flush()
+        session.rollback()
+
+    def other_release(s):
+        allocation = s.get(SupplyAllocation, UUID(commitment["id"]))
+        return release_remaining(s, allocation, kind="close_out", reason="concurrent close-out", actor_id="test")
+
+    def audited(s):
+        return audit.apply(s, json.loads(json.dumps(report)), reason="legacy close-out", approval_reference="PO-2", backup_reference="bk-2")
+
+    results = _race(factory, [audited, other_release])
+    with factory() as session:
+        allocation = session.get(SupplyAllocation, UUID(commitment["id"]))
+        assert allocation.released_quantity_kg == allocation.quantity_kg  # released exactly once, by one of them
+        events = session.scalars(select(DomainEvent).where(DomainEvent.event_type == "allocation.reservation_released")).all()
+        assert sum(D(e.payload["quantity_kg"]) for e in events) == allocation.quantity_kg
+    if results[0][0] == "error":  # the other release came first: the audit saw changed findings and applied nothing
+        assert isinstance(results[0][1], SystemExit)

@@ -10,6 +10,12 @@ export interface FulfilmentFigures {
   required_kg: string; committed_kg: string; received_kg: string; accepted_kg: string; rejected_kg: string; ungraded_receipts: number;
   dispatched_kg: string; delivered_kg: string; buyer_confirmed_kg: string; legacy_unquantified_confirmation_kg: string;
   unconfirmed_deliveries: number; deliveries_with_discrepancy: number; open_disputes: number; disputed_kg: string; released_kg: string;
+  unreviewed_sequence_flags?: number;
+}
+/** A physical event sequence that cannot have happened as recorded. Flagged for review; the records are never rewritten. */
+export interface SequenceFlag {
+  key: string; kind: 'DELIVERED_BEFORE_DISPATCH' | 'DISPATCHED_BEFORE_RECEIPT' | 'DELIVERED_BEFORE_RECEIPT'; message: string;
+  shipment_id?: string; delivery_id?: string; reviewed: boolean; review_note: string | null; reviewed_by_user_id: string | null;
 }
 export interface Confirmation {
   id: string; confirmed_quantity_kg: string; outcome: 'CONFIRMED' | 'DISCREPANCY'; channel: 'BUYER_ACCOUNT' | 'STAFF_RELAYED' | 'LEGACY_UNQUANTIFIED';
@@ -25,6 +31,7 @@ export interface Receipt {
 }
 export interface Shipment {
   id: string; reference: string; status: 'OPEN' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'; dispatched_at: string | null;
+  dispatch_time_basis?: 'STATED' | 'RECORDED' | 'LEGACY' | null; dispatch_recorded_at?: string | null;
   cancellation_reason: string | null; delivery: DeliveryView | null;
 }
 export interface Dispute {
@@ -41,7 +48,7 @@ export interface FulfilmentRecord {
   completion: { can_complete: boolean; blockers: string[] };
   receivable_allocations: Array<{ allocation_id: string; farmer_name: string; parish: string; obligation_kg: string }>;
   receipts: Receipt[]; shipments: Shipment[]; disputes: Dispute[]; reconciliations: Reconciliation[];
-  effective_reconciliation_version: number | null; unconfirmed_deliveries: string[];
+  effective_reconciliation_version: number | null; unconfirmed_deliveries: string[]; sequence_flags?: SequenceFlag[];
 }
 export interface FulfilmentSite { id: string; name: string; node_type: string; parish: string; active: boolean; created_at: string }
 export interface BuyerDelivery extends DeliveryView { order: string; requirement_id: string; shipment_reference: string }
@@ -83,7 +90,8 @@ export function useFulfilmentCommands(orderId: string) {
     createShipment: useCommand<{ fulfilment_node_id: string; reference: string }>((b, key) => post(`/requirements/${orderId}/shipments`, b, key), 'shipment', keys),
     addToShipment: useCommand<{ shipmentId: string; received_sublot_id: string }>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/sublots`, b, key), 'ship-add', keys),
     cancelShipment: useCommand<{ shipmentId: string; reason: string }>(({ shipmentId, ...b }) => post(`/shipments/${shipmentId}/cancel`, b), 'ship-cancel', keys),
-    dispatch: useCommand<{ shipmentId: string; evidence_reference?: string }>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/dispatch`, b, key), 'dispatch', keys),
+    reviewSequence: useCommand<{ finding_key: string; note: string }>(b => post(`/requirements/${orderId}/sequence-reviews`, b), 'sequence-review', keys),
+    dispatch: useCommand<{ shipmentId: string; evidence_reference?: string; dispatched_at?: string }>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/dispatch`, b, key), 'dispatch', keys),
     deliver: useCommand<{ shipmentId: string } & Record<string, string>>(({ shipmentId, ...b }, key) => post(`/shipments/${shipmentId}/delivery`, b, key), 'deliver', keys),
     relayConfirmation: useCommand<{ deliveryId: string } & Record<string, string | boolean>>(({ deliveryId, ...b }, key) => post(`/deliveries/${deliveryId}/confirmations`, b, key), 'relay', keys),
     raiseDispute: useCommand<Record<string, string>>(b => post(`/requirements/${orderId}/disputes`, b), 'dispute', keys),

@@ -25,7 +25,12 @@ class Shipment(Base):
     fulfilment_node_id: Mapped[UUID] = mapped_column(ForeignKey("fulfilment_nodes.id"), nullable=False)
     reference: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[ShipmentStatus] = mapped_column(Enum(ShipmentStatus, native_enum=False), nullable=False, default=ShipmentStatus.OPEN)
+    # Physical departure time. Its basis says what it is: STATED (the operator gave the time the goods left),
+    # RECORDED (no time given; it is when dispatch was recorded) or LEGACY (before 0025, always the recording time).
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dispatch_time_basis: Mapped[str | None] = mapped_column(String(20))
+    dispatch_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # system time
+    dispatch_recorded_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
     dispatch_evidence_reference: Mapped[str | None] = mapped_column(String(500))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancellation_reason: Mapped[str | None] = mapped_column(String(500))
@@ -53,6 +58,8 @@ class Delivery(Base):
     buyer_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     buyer_confirmation_evidence: Mapped[str | None] = mapped_column(String(500))
     recorded_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    # When the delivery was entered (system time); delivered_at is the stated physical arrival. NULL before 0025.
+    recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DeliveryAdjustment(Base):
@@ -181,6 +188,23 @@ class AuditFlag(Base):
     subject: Mapped[str] = mapped_column(String(200), nullable=False)
     note: Mapped[str] = mapped_column(String(1000), nullable=False)
     raised_by_user_id: Mapped[UUID] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SequenceReview(Base):
+    """A person's review of a flagged physical event sequence (for example a delivery stated before its dispatch).
+
+    Findings are computed from the records every time (reconciliation/application/services.py: sequence_findings);
+    nothing is rewritten. A review records who looked at a finding and what they concluded, once per finding."""
+    __tablename__ = "fulfilment_sequence_reviews"
+    __table_args__ = (UniqueConstraint("requirement_id", "finding_key", name="uq_sequence_review_finding"),)
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    requirement_id: Mapped[UUID] = mapped_column(ForeignKey("requirements.id"), nullable=False, index=True)
+    finding_key: Mapped[str] = mapped_column(String(120), nullable=False)
+    finding: Mapped[dict] = mapped_column(JSON, nullable=False)  # the finding as it was when reviewed
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    reviewed_by_user_id: Mapped[UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

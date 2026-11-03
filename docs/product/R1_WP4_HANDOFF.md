@@ -80,3 +80,39 @@ The first CI run on `743bebe` failed in `npm run test:e2e`. Run locally against 
 | Worker supervision and uptime monitoring | Deployment configuration |
 | Real-model validation | Open; production model access stays disabled |
 | Branch review and merge order | WP1, WP2, WP3, model providers, then WP4. Nothing merged |
+
+## Follow-up after the product owner's WP4 decisions (3 November 2026)
+
+Recorded in [R1_WP4_DECISIONS.md](R1_WP4_DECISIONS.md).
+
+**Changes:**
+- **Debt item 26 resolved.** Migration `0025_physical_event_times`:
+  - stated physical dispatch time kept apart from the system's recording time, with author and basis;
+  - legacy times labelled LEGACY, never rewritten;
+  - delivery `recorded_at`;
+  - receipts cannot be dated in the future;
+  - impossible sequences flagged, reviewed once by a reconciler, and blocking close-out until reviewed.
+- **Release audit hardened:**
+  - read-only dry run;
+  - full report detail;
+  - lots with ledger discrepancies set aside;
+  - locked, fingerprint-checked, all-or-nothing apply.
+- **Supplier consent:** the approval-policy API refuses `commitment_release_without_supplier_consent`.
+- **New documents:** [R1_PILOT_READINESS_CHECKLIST.md](R1_PILOT_READINESS_CHECKLIST.md) and [R1_WP5_PROPOSAL.md](R1_WP5_PROPOSAL.md), the latter for review with no implementation. Debt register items 17, 24 and 26 updated; items 27 and 28 added.
+- **Release audit status:** not run against the pilot database, which is not reachable from the engineering workstation. `--apply` remains unauthorized.
+
+**New tests:**
+- the item 26 flow;
+- back-entry without false flags;
+- future receipts refused;
+- the policy flag refused;
+- audit report detail;
+- an unbalanced lot set aside;
+- a read-only dry run and a race between apply and another release (PostgreSQL);
+- the 0025 legacy labelling in the migration test.
+
+**Changed tests:**
+- the browser spec states a departure time;
+- the tenant-isolation fixture no longer dates a receipt in the future.
+
+**Results (local, before push):** backend 446 passed, 3 skipped (SQLite and PostgreSQL); Vitest 50 passed; `tsc` and `eslint` clean; browser E2E 27 passed (production build from a worktree, disposable database). CI: see below.

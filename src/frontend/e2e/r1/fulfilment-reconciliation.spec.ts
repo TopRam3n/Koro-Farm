@@ -128,7 +128,12 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     const shipment = page.locator('[data-shipment]').filter({ hasText: reference });
     await shipment.getByRole('button', { name: `Add ${farmer} 705 kg` }).click();
     await shipment.getByRole('button', { name: 'Dispatch' }).click();
+    // The departure time is stated (entered afterwards, an hour ago); the system keeps its own recording time beside it.
+    const dispatch = page.getByRole('form', { name: `Dispatch ${reference}` });
+    await dispatch.getByLabel('Time the goods left').fill(hoursAgo(1));
+    await dispatch.getByRole('button', { name: 'Record dispatch' }).click();
     await expect(shipment).toHaveAttribute('data-shipment', 'DISPATCHED');
+    await expect(shipment).toContainText('(stated; recorded');
     await shipment.getByRole('button', { name: 'Record delivery' }).click();
     const delivery = page.getByRole('form', { name: `Delivery for ${reference}` });
     await delivery.getByLabel('Delivered (kg)').fill('705');

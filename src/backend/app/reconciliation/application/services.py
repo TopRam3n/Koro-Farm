@@ -12,6 +12,10 @@ plus released (reservations given back) and disputed.
 * Reconciled is not completed. Completion requires confirmed delivery of the required quantity, every delivery
   confirmed, and no open dispute; otherwise an order ends only through an authorized variance acceptance.
 * Close-out releases only undelivered reservations, unused standby and open requests (supply/application/release.py).
+* Physical event times (received_at, dispatched_at, delivered_at) are what people state happened; the system's
+  recording times are kept beside them. Stated times may be entered afterwards. A sequence that cannot have
+  happened (delivered before dispatch, dispatched or delivered before receipt) is flagged for review, never
+  rewritten; an order cannot be closed until each flag has been reviewed (`sequence_findings`).
 
 Every function works inside the caller's transaction; callers commit. Arithmetic here is deterministic.
 """
@@ -31,7 +35,7 @@ from src.backend.app.identity.application.authorization import AuthorizationCont
 from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
 from src.backend.app.reconciliation.domain.models import (
     AuditFlag, BuyerConfirmation, ConfirmationChannel, ConfirmationOutcome, Delivery, DeliveryAdjustment, Dispute,
-    DisputeResolution, ReconciliationRecord, Shipment, ShipmentStatus, ShipmentSublot,
+    DisputeResolution, ReconciliationRecord, SequenceReview, Shipment, ShipmentStatus, ShipmentSublot,
 )
 from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
 
@@ -40,6 +44,7 @@ FRESH = {"populate_existing": True}
 ENDED = (RequirementLifecycleStatus.CANCELLED, RequirementLifecycleStatus.COMPLETED,
          RequirementLifecycleStatus.CLOSED_WITH_VARIANCE, RequirementLifecycleStatus.CLOSED)
 MATERIAL_FIGURES = ("received_kg", "accepted_kg", "rejected_kg", "delivered_kg", "buyer_confirmed_kg", "committed_kg")
+CLOCK_SKEW = timedelta(minutes=5)
 
 
 class TradeError(ValueError):
@@ -150,6 +155,7 @@ def order_figures(session: Session, requirement: Requirement) -> tuple[dict, dic
         if statement.outcome == ConfirmationOutcome.DISCREPANCY:
             discrepancies.append(str(delivery.id))
     disputes = open_disputes(session, requirement.id)
+    flags = sequence_findings(session, requirement.id)
     released = sum(((a.released_quantity_kg or ZERO) for a in allocations), ZERO)
     figures = {
         "required_kg": requirement.required_quantity_kg, "committed_kg": committed, "received_kg": received,
@@ -158,6 +164,7 @@ def order_figures(session: Session, requirement: Requirement) -> tuple[dict, dic
         "unconfirmed_deliveries": len(unconfirmed), "deliveries_with_discrepancy": len(discrepancies),
         "open_disputes": len(disputes), "disputed_kg": sum((d.quantity_kg or ZERO for d in disputes), ZERO),
         "released_kg": released,
+        "unreviewed_sequence_flags": sum(1 for f in flags if not f["reviewed"]),
     }
     variances = {
         "required_minus_committed_kg": requirement.required_quantity_kg - committed,
@@ -256,8 +263,14 @@ def cancel_shipment(session: Session, actor: AuthorizationContext, shipment_id: 
     return {"shipment_id": str(shipment.id), "status": shipment.status.value}
 
 
-def dispatch(session: Session, actor: AuthorizationContext, shipment_id: UUID, evidence_reference: str | None, key: str | None) -> dict:
+def dispatch(session: Session, actor: AuthorizationContext, shipment_id: UUID, evidence_reference: str | None, key: str | None,
+             dispatched_at: datetime | None = None) -> dict:
+    """Record that a shipment left. `dispatched_at` is when the goods physically left, if stated; it may be in the past
+    (entered afterwards) but not in the future. Without it, the recording time is used and labelled as such."""
     _require(actor, PermissionCode.SHIPMENT_DISPATCH, "dispatching a shipment")
+    now = datetime.now(timezone.utc)
+    if dispatched_at is not None and _aware(dispatched_at) > now + CLOCK_SKEW:
+        raise TradeError("a dispatch cannot be recorded in the future", 422)
     if (done := _replay(session, "shipment.dispatch", key)) is not None:
         return done
     shipment = session.scalar(select(Shipment).where(Shipment.id == shipment_id).with_for_update())
@@ -268,8 +281,13 @@ def dispatch(session: Session, actor: AuthorizationContext, shipment_id: UUID, e
     quantity = session.scalar(select(func.coalesce(func.sum(ShipmentSublot.accepted_quantity_kg), 0)).where(ShipmentSublot.shipment_id == shipment.id)) or ZERO
     if quantity <= 0:
         raise TradeError("shipment contains no accepted sublots")
-    shipment.status, shipment.dispatched_at, shipment.dispatch_evidence_reference = ShipmentStatus.DISPATCHED, datetime.now(timezone.utc), evidence_reference
-    result = {"shipment_id": str(shipment.id), "status": shipment.status.value, "dispatched_quantity_kg": str(quantity)}
+    shipment.status, shipment.dispatch_evidence_reference = ShipmentStatus.DISPATCHED, evidence_reference
+    shipment.dispatched_at = dispatched_at or now
+    shipment.dispatch_time_basis = "STATED" if dispatched_at is not None else "RECORDED"
+    shipment.dispatch_recorded_at = now
+    shipment.dispatch_recorded_by_user_id = actor.user_id if isinstance(actor.user_id, UUID) else None
+    result = {"shipment_id": str(shipment.id), "status": shipment.status.value, "dispatched_quantity_kg": str(quantity),
+              "dispatched_at": shipment.dispatched_at.isoformat(), "dispatch_time_basis": shipment.dispatch_time_basis}
     record_event(session, actor, "shipment.dispatched", "requirement", shipment.requirement_id,
                  {**result, "evidence_reference": evidence_reference, "evidence_verified": False}, idempotency_key=key)
     return _remember(session, "shipment.dispatch", key, result)
@@ -292,7 +310,7 @@ def record_delivery(session: Session, actor: AuthorizationContext, shipment_id: 
     if quantity < 0 or quantity > dispatched:
         raise TradeError(f"delivered quantity must be between 0 and the {dispatched} kg dispatched")
     delivery = Delivery(shipment_id=shipment.id, delivered_quantity_kg=quantity, delivered_at=delivered_at,
-                        delivery_evidence_reference=evidence_reference, buyer_confirmed=False,
+                        delivery_evidence_reference=evidence_reference, buyer_confirmed=False, recorded_at=datetime.now(timezone.utc),
                         recorded_by_user_id=actor.user_id if isinstance(actor.user_id, UUID) else None)
     session.add(delivery)
     session.flush()
@@ -443,6 +461,69 @@ def flag_for_audit(session: Session, actor: AuthorizationContext, subject: str, 
     return {"audit_flag_id": str(flag.id)}
 
 
+# --- Physical event sequence (technical-debt item 26) ----------------------------------------------------------------
+
+def sequence_findings(session: Session, requirement_id: UUID) -> list[dict]:
+    """Physical event sequences that cannot have happened, computed from the records. Deterministic; changes nothing.
+
+    Only stated times are compared: a dispatch whose time is the recording time (RECORDED, LEGACY) is not compared,
+    because back-entered deliveries legitimately precede when someone pressed Dispatch."""
+    reviews = {r.finding_key: r for r in session.scalars(select(SequenceReview).where(SequenceReview.requirement_id == requirement_id))}
+    findings = []
+
+    def flag(key: str, kind: str, message: str, **detail):
+        review = reviews.get(key)
+        findings.append({"key": key, "kind": kind, "message": message, **detail, "reviewed": review is not None,
+                         "review_note": review.note if review else None,
+                         "reviewed_by_user_id": str(review.reviewed_by_user_id) if review else None})
+
+    for shipment in session.scalars(select(Shipment).where(Shipment.requirement_id == requirement_id).order_by(Shipment.created_at, Shipment.id)):
+        received = [_aware(t) for t in session.scalars(
+            select(ReceivedSublot.received_at).join(ShipmentSublot, ShipmentSublot.received_sublot_id == ReceivedSublot.id)
+            .where(ShipmentSublot.shipment_id == shipment.id))]
+        last_receipt = max(received) if received else None
+        stated = shipment.dispatch_time_basis == "STATED" and shipment.dispatched_at is not None
+        if stated and last_receipt is not None and _aware(shipment.dispatched_at) < last_receipt:
+            flag(f"dispatched_before_receipt:{shipment.id}", "DISPATCHED_BEFORE_RECEIPT",
+                 f"shipment {shipment.reference} is stated to have left at {_aware(shipment.dispatched_at).isoformat()}, before produce in it was received ({last_receipt.isoformat()})",
+                 shipment_id=str(shipment.id))
+        delivery = session.scalar(select(Delivery).where(Delivery.shipment_id == shipment.id))
+        if delivery is None:
+            continue
+        if stated and _aware(delivery.delivered_at) < _aware(shipment.dispatched_at):
+            flag(f"delivered_before_dispatch:{delivery.id}", "DELIVERED_BEFORE_DISPATCH",
+                 f"shipment {shipment.reference} is stated to have arrived at {_aware(delivery.delivered_at).isoformat()}, before it left ({_aware(shipment.dispatched_at).isoformat()})",
+                 shipment_id=str(shipment.id), delivery_id=str(delivery.id))
+        if last_receipt is not None and _aware(delivery.delivered_at) < last_receipt:
+            flag(f"delivered_before_receipt:{delivery.id}", "DELIVERED_BEFORE_RECEIPT",
+                 f"shipment {shipment.reference} is stated to have arrived at {_aware(delivery.delivered_at).isoformat()}, before produce in it was received ({last_receipt.isoformat()})",
+                 shipment_id=str(shipment.id), delivery_id=str(delivery.id))
+    return findings
+
+
+def review_sequence(session: Session, actor: AuthorizationContext, requirement_id: UUID, finding_key: str, note: str) -> dict:
+    """A reconciler records what they found about a flagged sequence (for example, a typing error in the time, to be
+    corrected through the records, or a confirmed back-entry). The records themselves are not changed."""
+    _require(actor, PermissionCode.TRADE_RECONCILE, "reviewing a flagged event sequence")
+    requirement = _lock_requirement(session, requirement_id)
+    current = {f["key"]: f for f in sequence_findings(session, requirement.id)}
+    finding = current.get(finding_key)
+    if finding is None:
+        raise TradeError("no such flagged sequence on this order", 404)
+    if finding["reviewed"]:
+        raise TradeError("this flagged sequence has already been reviewed")
+    if len((note or "").strip()) < 3:
+        raise TradeError("say what the review found", 422)
+    stored = {k: v for k, v in finding.items() if k not in ("reviewed", "review_note", "reviewed_by_user_id")}
+    review = SequenceReview(organization_id=_organization(session, requirement), requirement_id=requirement.id, finding_key=finding_key,
+                            finding=stored, note=note.strip(), reviewed_by_user_id=actor.user_id)
+    session.add(review)
+    session.flush()
+    record_event(session, actor, "fulfilment.sequence_reviewed", "requirement", requirement.id,
+                 {"finding_key": finding_key, "kind": finding["kind"], "note": review.note})
+    return {"review_id": str(review.id), "finding_key": finding_key, "reviewed": True}
+
+
 # --- Reconciliation -------------------------------------------------------------------------------------------------
 
 def effective_reconciliation(session: Session, requirement_id: UUID) -> ReconciliationRecord | None:
@@ -532,6 +613,8 @@ def completion_check(session: Session, requirement: Requirement, figures: dict |
         blockers.append(f"{figures['deliveries_with_discrepancy']} delivery(ies) with a reported discrepancy")
     if figures["open_disputes"]:
         blockers.append(f"{figures['open_disputes']} open dispute(s)")
+    if figures.get("unreviewed_sequence_flags"):
+        blockers.append(f"{figures['unreviewed_sequence_flags']} flagged event sequence(s) not yet reviewed")
     return {"can_complete": not blockers, "blockers": blockers}
 
 
@@ -554,6 +637,8 @@ def close_order(session: Session, actor: AuthorizationContext, requirement_id: U
         raise TradeError("records changed since the effective reconciliation; reconcile again before closing")
     if figures["open_disputes"]:
         raise TradeError("resolve or withdraw open disputes before closing")
+    if figures["unreviewed_sequence_flags"]:
+        raise TradeError("review the flagged event sequences before closing")
     check = completion_check(session, requirement, figures)
     if check["can_complete"] and not accept_variance:
         outcome = RequirementLifecycleStatus.COMPLETED

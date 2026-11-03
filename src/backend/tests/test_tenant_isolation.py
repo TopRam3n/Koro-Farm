@@ -57,7 +57,7 @@ def worlds(factory, http):
         a["allocation"] = allocation.id
     receipt = http.post("/sublots/receive", headers=_h(a, "receive-a"), json={
         "allocation_id": str(a["allocation"]), "fulfilment_node_id": str(a["node"]), "received_quantity_kg": "10",
-        "received_at": "2026-12-11T10:00:00Z"})
+        "received_at": "2026-10-30T09:00:00Z"})
     assert receipt.status_code == 200, receipt.text
     a["sublot"] = UUID(receipt.json()["received_sublot_id"])
     assert http.post(f"/sublots/{a['sublot']}/grade", headers=_h(a, "grade-a"),
@@ -166,7 +166,7 @@ def test_identifiers_in_request_bodies_are_checked_against_the_caller(http, worl
     before = _state(factory, a)
     attempts = [
         ("/sublots/receive", {"allocation_id": str(a["allocation"]), "fulfilment_node_id": str(b["node"]),
-                              "received_quantity_kg": "1", "received_at": "2026-12-11T10:00:00Z"}),
+                              "received_quantity_kg": "1", "received_at": "2026-10-30T09:00:00Z"}),
         (f"/requirements/{b['requirement']}/shipments", {"fulfilment_node_id": str(a["node"]), "reference": "MIXED-1"}),
         ("/programmes", {"buyer_id": str(a["buyer"]), "name": "Hijack", "start_date": "2026-01-01", "end_date": "2026-12-31"}),
     ]
