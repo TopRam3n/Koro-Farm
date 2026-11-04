@@ -1,0 +1,116 @@
+# KoroFarm staging stack for a single Linux host (VPS): Caddy (HTTPS) -> frontend + API; worker alongside.
+# The database and authentication are the hosted Supabase project; nothing here stores data except Caddy's
+# certificates. Not deployed until separately authorized. Procedure: docs/product/R1_INFRASTRUCTURE_PLAN.md.
+#
+#   cp deploy/.env.example deploy/.env      # fill in on the server only; deploy/.env is gitignored
+#   docker compose -f deploy/compose.staging.yml --env-file deploy/.env build
+#   docker compose -f deploy/compose.staging.yml --env-file deploy/.env --profile ops run --rm migrate
+#   docker compose -f deploy/compose.staging.yml --env-file deploy/.env up -d
+#   docker compose -f deploy/compose.staging.yml --env-file deploy/.env --profile ops run --rm check
+#
+# Migrations never run automatically on start: they are an explicit, logged step taken after a backup.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "5" }
+
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:?set APP_ENV in deploy/.env}
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in deploy/.env}
+  SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL}
+  SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY:?set SUPABASE_PUBLISHABLE_KEY}
+  CORS_ORIGINS: https://${APP_DOMAIN:?set APP_DOMAIN}
+  ACCESS_REQUEST_REVIEWER_EMAIL: ${ACCESS_REQUEST_REVIEWER_EMAIL:-}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+  # Recovery model: off unless set; staging also needs the recorded approval reference (core/config.py).
+  AGENT_MODEL_PROVIDER: ${AGENT_MODEL_PROVIDER:-none}
+  AGENT_MODEL_STAGING_APPROVAL: ${AGENT_MODEL_STAGING_APPROVAL:-}
+  MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+  MINIMAX_MODEL: ${MINIMAX_MODEL:-}
+  NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
+  NEBIUS_MODEL: ${NEBIUS_MODEL:-}
+
+services:
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [frontend, api]
+    logging: *logging
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://${API_DOMAIN}
+        NEXT_PUBLIC_SUPABASE_URL: ${SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_ACCESS_REQUEST_REVIEWER_EMAIL: ${ACCESS_REQUEST_REVIEWER_EMAIL:-}
+    image: korofarm-frontend:${RELEASE:-staging}
+    restart: unless-stopped
+    expose: ["3000"]
+    mem_limit: 768m
+    logging: *logging
+
+  api:
+    build: { context: .., dockerfile: deploy/backend.Dockerfile }
+    image: korofarm-backend:${RELEASE:-staging}
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      DB_APPLICATION_NAME: korofarm-api
+    expose: ["8000"]
+    mem_limit: 512m
+    logging: *logging
+
+  # Supervised: Docker restarts it if it exits, and on host reboot. A stalled worker (alive but not beating) is
+  # caught by the external monitor on https://API_DOMAIN/health/worker, which returns 503 unless OPERATIONAL.
+  worker:
+    image: korofarm-backend:${RELEASE:-staging}
+    command: ["python", "-m", "src.backend.app.worker"]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      <<: *backend-env
+      DB_APPLICATION_NAME: korofarm-worker
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-2}
+    healthcheck:
+      disable: true
+    depends_on: [api]
+    mem_limit: 384m
+    logging: *logging
+
+  migrate:
+    image: korofarm-backend:${RELEASE:-staging}
+    profiles: ["ops"]
+    command: ["python", "-m", "alembic", "-c", "src/backend/alembic.ini", "upgrade", "head"]
+    environment:
+      <<: *backend-env
+      # Migrations need the session pooler (port 5432) or a direct connection, never the 6543 transaction pooler.
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL}}
+      DB_APPLICATION_NAME: korofarm-migrate
+    logging: *logging
+
+  check:
+    image: korofarm-backend:${RELEASE:-staging}
+    profiles: ["ops"]
+    command: ["python", "-m", "src.backend.scripts.check_staging", "--api-url", "https://${API_DOMAIN}", "--frontend-origin", "https://${APP_DOMAIN}"]
+    environment:
+      <<: *backend-env
+      DB_APPLICATION_NAME: korofarm-check
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:

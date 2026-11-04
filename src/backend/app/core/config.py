@@ -1,13 +1,16 @@
 import ipaddress
 import os
 from collections.abc import Mapping
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 # APP_ENV must be set explicitly to one of these; a missing or unrecognized value stops startup.
 # staging and production both receive every production safeguard.
 RECOGNIZED_ENVIRONMENTS = ("development", "test", "staging", "production")
 NON_PRODUCTION_ENVIRONMENTS = frozenset({"test", "development"})
 _LOCAL_SUFFIXES = (".local", ".localhost", ".test", ".internal", ".lan")
+# The built-in development database credentials (infrastructure/database/session.py, alembic.ini).
+DEVELOPMENT_DATABASE_CREDENTIALS = ("korofarm", "korofarm")
+TLS_SSLMODES = frozenset({"require", "verify-ca", "verify-full"})
 
 
 class UnsafeConfigurationError(RuntimeError):
@@ -67,6 +70,11 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
       as the E2E auth stub (src/frontend/e2e/r1/support/auth-stub.mjs), which must never back production.
     * AGENT_MODEL_PROVIDER is refused when APP_ENV=production: production model access stays disabled until provider,
       data-handling, security and evaluation requirements are approved (R1 WP3, decision 3).
+    * AGENT_MODEL_PROVIDER in staging needs AGENT_MODEL_STAGING_APPROVAL, the reference of the product owner's recorded
+      approval to send that environment's data to the provider. Without it the process refuses to start.
+    * In staging and production DATABASE_URL must be set explicitly (no development default), must not use the built-in
+      development credentials, and must require TLS (sslmode=require, verify-ca or verify-full) unless the database
+      host is local, private or a single-label service name on the deployment's own network.
     """
     env = os.environ if env is None else env
     app_env = environment(env)
@@ -80,8 +88,13 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
             f"ALLOW_INSECURE_DEMO_AUTH=true is only permitted when APP_ENV=test (APP_ENV is {app_env!r}); refusing to start")
     if app_env == "production" and env.get("AGENT_MODEL_PROVIDER", "").strip().lower() not in ("", "none"):
         raise UnsafeConfigurationError("AGENT_MODEL_PROVIDER is not permitted in production until model use is approved; refusing to start")
+    if app_env == "staging" and env.get("AGENT_MODEL_PROVIDER", "").strip().lower() not in ("", "none")             and not env.get("AGENT_MODEL_STAGING_APPROVAL", "").strip():
+        raise UnsafeConfigurationError(
+            "AGENT_MODEL_PROVIDER in staging requires AGENT_MODEL_STAGING_APPROVAL (the recorded approval reference for "
+            "sending staging data to the provider); refusing to start")
     if not is_production(env):
         return
+    _validate_database_url(env.get("DATABASE_URL", "").strip())
     url = env.get("SUPABASE_URL") or env.get("NEXT_PUBLIC_SUPABASE_URL")
     key = env.get("SUPABASE_PUBLISHABLE_KEY") or env.get("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
     if not url or not key:
@@ -92,3 +105,27 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
     if _is_private_or_local(parsed.hostname):
         raise UnsafeConfigurationError(
             f"production SUPABASE_URL points at a local or private host ({parsed.hostname}); refusing to start")
+
+
+def _validate_database_url(value: str) -> None:
+    """Staging and production: an explicit, TLS-protected database URL without the development credentials."""
+    if not value:
+        raise UnsafeConfigurationError("production requires DATABASE_URL to be set explicitly; refusing to start")
+    parsed = urlparse(value)
+    if not parsed.scheme.startswith("postgresql") or not parsed.hostname:
+        raise UnsafeConfigurationError("production DATABASE_URL must be a postgresql URL with a host; refusing to start")
+    if (parsed.username, parsed.password) == DEVELOPMENT_DATABASE_CREDENTIALS:
+        raise UnsafeConfigurationError("production DATABASE_URL uses the development credentials; refusing to start")
+    host = parsed.hostname
+    on_deployment_network = "." not in host.strip("[]") and ":" not in host or _is_private_or_local(host)
+    sslmode = (parse_qs(parsed.query).get("sslmode") or [""])[0].lower()
+    if not on_deployment_network and sslmode not in TLS_SSLMODES:
+        raise UnsafeConfigurationError(
+            "production DATABASE_URL must require TLS (add sslmode=require or verify-full) for a remote database host; "
+            "refusing to start")
+
+
+def model_staging_approval(env: Mapping[str, str] | None = None) -> str:
+    """The recorded approval reference that lets a staging deployment call a model provider ("" when absent)."""
+    env = os.environ if env is None else env
+    return env.get("AGENT_MODEL_STAGING_APPROVAL", "").strip()

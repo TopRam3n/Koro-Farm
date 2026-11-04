@@ -27,11 +27,16 @@ a signed-out token until it expires, and the backend needs local session checks 
 2. The staging API deployed with `APP_ENV=staging`, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for that project,
    `ALLOW_INSECURE_DEMO_AUTH` unset, and the supply-exception worker running.
 3. The staging frontend built with `NEXT_PUBLIC_APP_MODE=live` and the same Supabase project.
-4. Three Supabase users, each with an active KoroFarm membership:
+4. Three Supabase users (created in the Supabase dashboard; [R1_PRODUCT_OWNER_SETUP_GUIDE.md](R1_PRODUCT_OWNER_SETUP_GUIDE.md)
+   §1.5), each given an active KoroFarm membership with `python -m src.backend.scripts.provision_staging <plan.json>
+   --apply` (§1.6, §1.9):
    - `coordinator_a`: supply coordinator in organization A;
    - `colleague_a`: any staff role in organization A;
    - `coordinator_b`: supply coordinator in organization B.
-5. One order (requirement) created in organization A; its id goes in `STAGING_ORG_A_ORDER_ID`.
+5. One order (requirement) created in organization A: sign in as `coordinator_a` and create it in **Orders**. That
+   also exercises the real app. Its id (from the order page's address) goes in `STAGING_ORG_A_ORDER_ID`.
+6. `python -m src.backend.scripts.check_staging --api-url … --frontend-origin …` passes. It is the configuration,
+   database, Data API, health, worker and CORS check, and it is not a substitute for this test.
 
 ## Run
 

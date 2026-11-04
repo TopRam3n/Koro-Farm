@@ -204,3 +204,150 @@ def test_fulfilment_accounting_backfill_preserves_legacy_records_and_round_trips
     command.downgrade(config, "0023_model_calls_and_leases")
     command.upgrade(config, "head")
     engine.dispose()
+
+
+def _supabase_like_roles(url) -> None:
+    """Create Supabase's client roles (cluster-wide, NOLOGIN, harmless) and its default grants in this database."""
+    engine = create_engine(url, isolation_level="AUTOCOMMIT")
+    with engine.connect() as connection:
+        for role in ("anon", "authenticated", "service_role"):
+            if not connection.execute(text("select 1 from pg_roles where rolname = :r"), {"r": role}).first():
+                try:
+                    connection.execute(text(f'create role "{role}" nologin'))
+                except Exception:  # created concurrently by another run
+                    pass
+        connection.execute(text("alter default privileges in schema public grant all on tables to anon, authenticated, service_role"))
+        connection.execute(text("alter default privileges in schema public grant all on sequences to anon, authenticated, service_role"))
+        connection.execute(text("alter default privileges in schema public grant all on functions to anon, authenticated, service_role"))
+    engine.dispose()
+
+
+def test_supabase_client_roles_reach_no_table_after_migrating(fresh_database_url, monkeypatch) -> None:
+    """0026: on a Supabase-like database the Data API roles hold no privilege and every table has RLS, including
+    tables a later migration adds (this test fails if a new table is created without enabling RLS)."""
+    from src.backend.app.infrastructure.database.data_api import exposure_findings, lockdown_statements
+
+    _supabase_like_roles(fresh_database_url)
+    monkeypatch.setenv("DATABASE_URL", fresh_database_url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, "0025_physical_event_times")
+    engine = create_engine(fresh_database_url)
+    with engine.connect() as connection:
+        before = exposure_findings(connection)
+    assert before["applicable"] and before["exposed"]
+    assert {"object": "supply_allocations", "role": "anon"} in before["table_privileges"]
+
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        after = exposure_findings(connection)
+        assert after["applicable"] and not after["exposed"], after
+        assert after["default_privileges"] == []
+        assert lockdown_statements(connection)[:1] == ["revoke all on all tables in schema public from \"anon\", \"authenticated\", \"service_role\""]
+        assert not [s for s in lockdown_statements(connection) if "enable row level security" in s]
+    # The backend (table owner) is unaffected by RLS; tables created later get no client grants.
+    with engine.begin() as connection:
+        assert connection.execute(text("select count(*) from roles")).scalar() > 0
+        connection.execute(text("create table later_table (id int)"))
+        assert not connection.execute(text("select has_table_privilege('anon', 'later_table', 'SELECT')")).scalar()
+    with engine.connect() as connection:
+        assert exposure_findings(connection)["tables_without_rls"] == ["later_table"]
+        assert lockdown_statements(connection)[-1] == 'alter table public."later_table" enable row level security'
+    engine.dispose()
+
+
+def test_data_api_lockdown_needs_the_supabase_roles(fresh_database_url) -> None:
+    from src.backend.app.infrastructure.database.data_api import exposure_findings, lockdown_statements
+
+    engine = create_engine(fresh_database_url)
+    with engine.connect() as connection:
+        absent = ("korofarm_absent_role_a", "korofarm_absent_role_b")
+        assert exposure_findings(connection, absent) == {
+            "applicable": False, "roles": [], "table_privileges": [], "sequence_privileges": [],
+            "function_privileges": [], "tables_without_rls": [], "default_privileges": [], "exposed": False}
+        assert lockdown_statements(connection, absent) == []
+    engine.dispose()
+
+
+def test_alembic_accepts_url_encoded_passwords(fresh_database_url, monkeypatch) -> None:
+    """A password containing reserved characters is URL-encoded (%40 for @); configparser must not choke on it."""
+    name = f"kf_pct_{uuid4().hex[:8]}"
+    admin = create_engine(fresh_database_url, isolation_level="AUTOCOMMIT")
+    with admin.connect() as connection:
+        connection.execute(text(f"create role {name} login password 'p@ss%word'"))
+        connection.execute(text(f"grant all on schema public to {name}"))
+    user_engine = None
+    try:
+        url = fresh_database_url.set(username=name, password="p@ss%word")
+        rendered = url.render_as_string(hide_password=False)
+        assert "%40" in rendered and "%25" in rendered
+        monkeypatch.setenv("DATABASE_URL", rendered)
+        config = Config(str(BACKEND / "alembic.ini"))
+        config.set_main_option("script_location", str(BACKEND / "alembic"))
+        command.upgrade(config, "head")
+        user_engine = create_engine(url)
+        with user_engine.connect() as connection:
+            assert connection.execute(text("select version_num from alembic_version")).scalar() == "0026_supabase_data_api_lockdown"
+    finally:
+        if user_engine is not None:
+            user_engine.dispose()
+        with admin.connect() as connection:
+            connection.execute(text(f"drop owned by {name}"))
+            connection.execute(text(f"drop role {name}"))
+        admin.dispose()
+
+
+def test_readiness_check_against_a_migrated_supabase_like_database(fresh_database_url, monkeypatch) -> None:
+    """check_staging's database checks on a real PostgreSQL: migrations at head, no Data API exposure. The local
+    disposable server has no TLS, and the check must say so rather than pass."""
+    from src.backend.scripts import check_staging
+
+    _supabase_like_roles(fresh_database_url)
+    engine = create_engine(fresh_database_url)
+    behind = check_staging.check_migrations(engine)
+    assert behind.status == "FAIL" and "run the migrations" in behind.detail
+    monkeypatch.setenv("DATABASE_URL", fresh_database_url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, "head")
+    database = {c.name: c for c in check_staging.check_database(engine)}
+    assert database["database"].status == "PASS" and "PostgreSQL" in database["database"].detail
+    with engine.connect() as connection:
+        encrypted = connection.execute(text("select ssl from pg_stat_ssl where pid = pg_backend_pid()")).scalar()
+    assert database["database_tls"].status == ("PASS" if encrypted else "FAIL")
+    assert encrypted or "NOT encrypted" in database["database_tls"].detail
+    assert check_staging.check_migrations(engine).status == "PASS"
+    grants = check_staging.check_data_api_grants(engine)
+    assert grants.status == "PASS", grants.detail
+    with engine.begin() as connection:
+        connection.execute(text("grant select on organizations to anon"))
+    exposed = check_staging.check_data_api_grants(engine)
+    assert exposed.status == "FAIL" and "1 tables granted" in exposed.detail
+    engine.dispose()
+
+
+def test_lockdown_can_be_reapplied_after_grants_reappear(fresh_database_url, monkeypatch, capsys) -> None:
+    """After a restore into a project with default grants, data_api_lockdown removes them again (dry run first)."""
+    from src.backend.app.infrastructure.database.data_api import exposure_findings
+    from src.backend.scripts import data_api_lockdown
+
+    _supabase_like_roles(fresh_database_url)
+    monkeypatch.setenv("DATABASE_URL", fresh_database_url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, "head")
+    engine = create_engine(fresh_database_url)
+    with engine.begin() as connection:  # what a restore under the new project's default grants looks like
+        connection.execute(text("grant all on all tables in schema public to anon, authenticated"))
+        connection.execute(text("alter table users disable row level security"))
+    assert data_api_lockdown.main([], env={"APP_ENV": "staging"}, engine=engine) == 0
+    assert "dry run: nothing was changed" in capsys.readouterr().out
+    with engine.connect() as connection:
+        assert exposure_findings(connection)["exposed"]
+    assert data_api_lockdown.main(["--apply"], env={"APP_ENV": "staging"}, engine=engine) == 0
+    assert "applied; nothing exposed" in capsys.readouterr().out
+    with engine.connect() as connection:
+        assert not exposure_findings(connection)["exposed"]
+        assert connection.execute(text("select count(*) from roles")).scalar() == 8  # rows untouched
+    assert data_api_lockdown.main(["--apply"], env={"APP_ENV": "production"}, engine=engine) == 2
+    engine.dispose()

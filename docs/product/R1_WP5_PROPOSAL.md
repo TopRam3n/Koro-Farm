@@ -1,5 +1,13 @@
 # R1 — WP5 scope proposal (for review; no implementation started)
 
+> **Update, 3 November 2026: priority instruction.** The staging baseline comes first
+> ([R1_INFRASTRUCTURE_PLAN.md](R1_INFRASTRUCTURE_PLAN.md)).
+> - Planning priority: **M1** (role-aware workspace), **M2** (buyer portal) and **M3** (external notifications and
+>   supplier consent; it builds on the outbound pattern in the infrastructure plan §10).
+> - **M4–M7 are deferred** until the staging baseline is established, unless a demonstrated pilot dependency requires
+>   them.
+> - No WP5 feature implementation is authorized.
+
 **Basis:**
 - WP4 accepted as engineering-complete ([R1_WP4_DECISIONS.md](R1_WP4_DECISIONS.md)).
 - The deferred items in [TECH_DEBT_REGISTER.md](TECH_DEBT_REGISTER.md).
@@ -96,7 +104,7 @@ WP5 must not delay them, and they do not need WP5 code. Engineering support for 
 
 ## 4. Decisions needed before implementation
 
-1. Which milestones are in WP5, and in what order. **Suggested order:** M1, M2, M5, M6, M4, M7, with M3 when its channel decision is made.
+1. Which milestones are in WP5, and in what order. **Current priority (3 November 2026):** M1, M2, M3. M3 needs its channel decision first. M4–M7 wait for the staging baseline.
 2. M3: channel, provider, consent wording, and whether WP5 sends anything from staging.
 3. M4: whether any order may accept another grade, and who decides.
 4. M5: the evidence standard for a per-crop period.

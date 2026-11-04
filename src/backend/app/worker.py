@@ -185,6 +185,7 @@ def beat(factory: sessionmaker[Session], worker_id: str, started_at: datetime, t
 def main() -> None:
     logging.basicConfig(level=os.getenv("WORKER_LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
     interval = float(os.getenv("WORKER_POLL_SECONDS", "2"))
+    os.environ.setdefault("DB_APPLICATION_NAME", "korofarm-worker")
     factory = create_session_factory()
     worker_id = f"{socket.gethostname()}:{os.getpid()}"
     started_at = datetime.now(timezone.utc)

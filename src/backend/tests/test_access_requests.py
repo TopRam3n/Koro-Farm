@@ -128,3 +128,22 @@ def test_other_invite_admin_cannot_review_access_requests(client, session, monke
     )
     response = client.get("/admin/access-requests")
     assert response.status_code == 403
+
+
+def test_without_a_configured_reviewer_nobody_reviews_access_requests(client, session, monkeypatch) -> None:
+    """There is no built-in reviewer address: an unset ACCESS_REQUEST_REVIEWER_EMAIL refuses every reviewer."""
+    _organization(session)
+    monkeypatch.delenv("ACCESS_REQUEST_REVIEWER_EMAIL", raising=False)
+    admin = UserAccount(id=uuid4(), email="admin@example.test", display_name="Organization Admin")
+    session.add(admin)
+    session.commit()
+    app.dependency_overrides[get_authorization_context] = lambda: AuthorizationContext(
+        user_id=admin.id,
+        organization_id=DEFAULT_ORGANIZATION_ID,
+        membership_id=uuid4(),
+        role=RoleCode.ORGANIZATION_ADMIN,
+        permissions=ROLE_PERMISSIONS[RoleCode.ORGANIZATION_ADMIN],
+    )
+    assert client.get("/admin/access-requests").status_code == 403
+    monkeypatch.setenv("ACCESS_REQUEST_REVIEWER_EMAIL", "  ")
+    assert client.get("/admin/access-requests").status_code == 403

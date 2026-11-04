@@ -4,18 +4,20 @@ KoroFarm is an enterprise agricultural supply-assurance platform for buyer progr
 
 ## Prerequisites
 
-Python 3.11+ and PostgreSQL are required for the application database. Copy `.env.example` to `.env` or set `DATABASE_URL` to a standard PostgreSQL URL. The application does not depend on Supabase-specific APIs.
+Python 3.11+ (CI uses 3.12), PostgreSQL 17 and Node.js 22. Environment templates with placeholders only:
+`src/backend/.env.example` (local backend), `src/frontend/.env.example` (local frontend) and `deploy/.env.example`
+(staging stack). Copy them to their gitignored names and fill them in locally; never commit or paste real values.
+The database is plain PostgreSQL (staging uses Supabase's); Supabase provides authentication. Staging setup:
+`docs/product/R1_INFRASTRUCTURE_PLAN.md` and `docs/product/R1_PRODUCT_OWNER_SETUP_GUIDE.md`.
 
 ## Run
 
 ```powershell
 python -m pip install -e "src/backend[dev]"
 $env:APP_ENV = "development"   # required: development | test | staging | production
-$env:DATABASE_URL = "postgresql+psycopg://user:password@host:5432/korofarm"
-Set-Location src/backend
-alembic upgrade head
-python -m app.infrastructure.database.seed
-Set-Location ../..
+$env:DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/korofarm"
+python -m alembic -c src/backend/alembic.ini upgrade head
+python -m src.backend.app.infrastructure.database.seed   # optional: synthetic development data only
 python -m uvicorn src.backend.app.main:app --reload
 ```
 
@@ -135,10 +137,10 @@ Copy `src/frontend/.env.example` to `src/frontend/.env.local`. Live mode uses
 the real API and demo mode is an explicit, deterministic offline fallback:
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_REQUIREMENT_ID=00000000-0000-0000-0000-000000000500
 NEXT_PUBLIC_APP_MODE=live
-NEXT_PUBLIC_AUTH_MODE=supabase
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
 Set these variables for the backend process:
@@ -161,7 +163,9 @@ Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/li
 `APP_ENV` is required and must be one of `development`, `test`, `staging` or
 `production`; the API refuses to start if it is missing or unrecognized. In
 `staging` and `production` it also refuses to start unless `SUPABASE_URL` is https
-on a public host with a publishable key. The insecure auth bypass
+on a public host with a publishable key, and unless `DATABASE_URL` is set explicitly, does not use the development
+credentials and requires TLS (`sslmode=require`) for a remote host. A recovery model provider in staging also needs
+`AGENT_MODEL_STAGING_APPROVAL`, the product owner's recorded approval reference. The insecure auth bypass
 (`ALLOW_INSECURE_DEMO_AUTH=true`) works only with `APP_ENV=test`, for automated
 tests; with any other value the API refuses to start if it is set.
 
@@ -201,7 +205,7 @@ granted through organization invitations.
 Applicants can also create an account from the sign-in page and request Farmer
 or Customer access. Supabase email confirmation must be enabled; only verified
 accounts can submit requests. The configured `ACCESS_REQUEST_REVIEWER_EMAIL`
-(defaults to `allensava13@gmail.com`) reviews the in-app queue in Users & Access.
+(no default; set it per environment, otherwise nobody can review requests) reviews the in-app queue in Users & Access.
 That email must itself have an active organization membership with the
 organization-admin invite permission; the email address alone does not grant
 review authority. If overriding the backend setting, also set the matching

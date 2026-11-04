@@ -1,0 +1,38 @@
+# Caddy obtains and renews Let's Encrypt certificates for both names automatically (ports 80 and 443 must reach
+# this host, and both DNS records must point at it). HTTP redirects to HTTPS.
+{
+	email {$ACME_EMAIL}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+{$APP_DOMAIN} {
+	import security_headers
+	header X-Robots-Tag "noindex, nofollow"
+	encode zstd gzip
+	reverse_proxy frontend:3000
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$API_DOMAIN} {
+	import security_headers
+	header X-Robots-Tag "noindex, nofollow"
+	encode zstd gzip
+	reverse_proxy api:8000
+	log {
+		output stdout
+		format json
+	}
+}

@@ -97,3 +97,80 @@ jobs:
             authstub.log
             worker.log
             src/frontend/frontend.log
+
+  # Deployment configuration (deploy/): images build, the backend image enforces the staging rules, and the API,
+  # worker and migrations run from the image against PostgreSQL. Nothing is pushed or deployed.
+  container-images:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: kf_stage_ci
+          POSTGRES_PASSWORD: kf_stage_ci_only
+          POSTGRES_DB: korofarm_stage_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kf_stage_ci -d korofarm_stage_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      STAGE_DB: postgresql+psycopg://kf_stage_ci:kf_stage_ci_only@127.0.0.1:5432/korofarm_stage_ci
+      PLACEHOLDER_SUPABASE: https://abcdefgh.supabase.co
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose file is valid with the template values
+        run: docker compose -f deploy/compose.staging.yml --env-file deploy/.env.example config --quiet
+      - name: Build the backend image
+        run: docker build -f deploy/backend.Dockerfile -t korofarm-backend:ci .
+      - name: Backend image refuses unsafe staging configuration
+        run: |
+          set +e
+          docker run --rm -e APP_ENV=staging korofarm-backend:ci python -c "import src.backend.app.main"; [ $? -ne 0 ] || exit 1
+          docker run --rm -e APP_ENV=staging -e SUPABASE_URL=$PLACEHOLDER_SUPABASE -e SUPABASE_PUBLISHABLE_KEY=x \
+            -e DATABASE_URL=postgresql+psycopg://korofarm:korofarm@db.example.com/korofarm?sslmode=require \
+            korofarm-backend:ci python -c "import src.backend.app.main"; [ $? -ne 0 ] || exit 1
+          docker run --rm -e APP_ENV=staging -e SUPABASE_URL=$PLACEHOLDER_SUPABASE -e SUPABASE_PUBLISHABLE_KEY=x \
+            -e DATABASE_URL=$STAGE_DB -e AGENT_MODEL_PROVIDER=nebius \
+            korofarm-backend:ci python -c "import src.backend.app.main"; [ $? -ne 0 ] || exit 1
+          echo "unsafe configurations refused"
+      - name: Migrations, API and supervised worker run from the image
+        run: |
+          COMMON="--network host -e APP_ENV=staging -e SUPABASE_URL=$PLACEHOLDER_SUPABASE -e SUPABASE_PUBLISHABLE_KEY=x -e DATABASE_URL=$STAGE_DB"
+          docker run --rm $COMMON korofarm-backend:ci python -m alembic -c src/backend/alembic.ini upgrade head
+          docker run -d --name api $COMMON korofarm-backend:ci
+          docker run -d --name worker --init --restart unless-stopped $COMMON -e WORKER_POLL_SECONDS=1 korofarm-backend:ci python -m src.backend.app.worker
+          for attempt in $(seq 1 40); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health/worker || true)
+            [ "$status" = "200" ] && break
+            sleep 1
+          done
+          curl --fail -s http://127.0.0.1:8000/health
+          curl --fail -s http://127.0.0.1:8000/health/worker
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/me)" = "401"
+          docker run --rm $COMMON korofarm-backend:ci python -m src.backend.scripts.check_staging --api-url http://127.0.0.1:8000 || true
+          # Supervision: crash the worker process (SIGKILL from inside, as an OOM kill would); Docker restarts the
+          # container and monitoring recovers. (`docker kill` would count as a deliberate stop and suppress restarts.)
+          docker exec worker python -c "import os; [os.kill(int(p), 9) for p in os.listdir('/proc') if p.isdigit() and int(p) not in (1, os.getpid()) and b'src.backend.app.worker' in open(f'/proc/{p}/cmdline', 'rb').read()]" || true
+          sleep 8
+          test "$(docker inspect -f '{{.RestartCount}}' worker)" -ge 1
+          for attempt in $(seq 1 40); do
+            curl --fail -s http://127.0.0.1:8000/health/worker && break
+            sleep 1
+          done
+          curl --fail -s http://127.0.0.1:8000/health/worker
+      - name: Logs
+        if: always()
+        run: docker logs api 2>&1 | tail -50; docker logs worker 2>&1 | tail -50
+      - name: Build the frontend image with placeholder public settings
+        run: |
+          docker build -f deploy/frontend.Dockerfile \
+            --build-arg NEXT_PUBLIC_API_URL=https://api.example.invalid \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL=$PLACEHOLDER_SUPABASE \
+            --build-arg NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_placeholder \
+            -t korofarm-frontend:ci .
+      - name: Images contain no environment files
+        run: |
+          for image in korofarm-backend:ci korofarm-frontend:ci; do
+            found=$(docker run --rm --entrypoint sh "$image" -c 'find / -xdev -name ".env*" ! -name ".env.example" -not -path "*/node_modules/*" 2>/dev/null')
+            if [ -n "$found" ]; then echo "environment file in $image: $found"; exit 1; fi
+          done

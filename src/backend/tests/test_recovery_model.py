@@ -422,16 +422,21 @@ def test_costs_are_estimated_per_model_with_tiers_cache_and_priority() -> None:
 
 
 def test_production_model_access_stays_disabled_and_anthropic_is_never_required(monkeypatch) -> None:
-    production = {"APP_ENV": "production", "SUPABASE_URL": "https://example.supabase.co", "SUPABASE_PUBLISHABLE_KEY": "x"}
+    production = {"APP_ENV": "production", "SUPABASE_URL": "https://example.supabase.co", "SUPABASE_PUBLISHABLE_KEY": "x",
+                  "DATABASE_URL": "postgresql+psycopg://app:placeholder@db.example.supabase.co/postgres?sslmode=require"}
     for provider in ("minimax", "nebius", "anthropic"):
         with pytest.raises(UnsafeConfigurationError, match="AGENT_MODEL_PROVIDER"):
             validate_runtime_configuration({**production, "AGENT_MODEL_PROVIDER": provider})
     validate_runtime_configuration({**production, "AGENT_MODEL_PROVIDER": "none"})
     assert build_decider({"APP_ENV": "production", "AGENT_MODEL_PROVIDER": "nebius", **env_for("nebius", NEBIUS_SMALL)}).mode == "deterministic"
     assert build_decider({"APP_ENV": "staging"}).mode == "deterministic"  # off unless explicitly enabled
-    staged = build_decider({"APP_ENV": "staging", "AGENT_MODEL_PROVIDER": "nebius", **env_for("nebius", NEBIUS_SMALL)})
+    # Staging calls a provider only with the product owner's recorded data approval.
+    unapproved = build_decider({"APP_ENV": "staging", "AGENT_MODEL_PROVIDER": "nebius", **env_for("nebius", NEBIUS_SMALL)})
+    assert unapproved.mode == "deterministic"
+    approval = {"AGENT_MODEL_STAGING_APPROVAL": "PO-approval-ref"}
+    staged = build_decider({"APP_ENV": "staging", "AGENT_MODEL_PROVIDER": "nebius", **approval, **env_for("nebius", NEBIUS_SMALL)})
     assert staged.mode == "model" and staged.provider == "nebius"
-    broken = build_decider({"APP_ENV": "staging", "AGENT_MODEL_PROVIDER": "minimax", "MINIMAX_API_KEY": KEY})
+    broken = build_decider({"APP_ENV": "staging", "AGENT_MODEL_PROVIDER": "minimax", **approval, "MINIMAX_API_KEY": KEY})
     assert isinstance(broken, DeterministicDecider) and "MINIMAX_MODEL" in broken.configuration_error
     import src.backend.app.agents.infrastructure.providers as providers
     assert "anthropic" not in vars(providers)  # the Anthropic SDK is imported only if that provider is selected

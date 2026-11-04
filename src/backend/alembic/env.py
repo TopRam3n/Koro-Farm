@@ -32,7 +32,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 if database_url := os.getenv("DATABASE_URL"):
-    config.set_main_option("sqlalchemy.url", database_url)
+    # configparser treats "%" as interpolation; URL-encoded passwords (e.g. %40) must be escaped.
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
@@ -44,7 +45,10 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
+    # Migrations take explicit locks and run DDL; use the session pooler or a direct connection, not port 6543.
+    connect_args = {"prepare_threshold": None} if ":6543/" in config.get_main_option("sqlalchemy.url", "") else {}
+    connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.",
+                                     poolclass=pool.NullPool, connect_args=connect_args)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

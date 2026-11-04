@@ -121,9 +121,12 @@ class ModelDecider:
 
 
 def model_enabled(env=None) -> bool:
-    from src.backend.app.core.config import environment
+    """Never in production; in staging only with the recorded data approval (core/config.py)."""
+    from src.backend.app.core.config import environment, model_staging_approval
     env = os.environ if env is None else env
-    return env.get("AGENT_MODEL_PROVIDER", "").strip().lower() not in ("", "none") and environment(env) != "production"
+    if env.get("AGENT_MODEL_PROVIDER", "").strip().lower() in ("", "none") or environment(env) == "production":
+        return False
+    return environment(env) != "staging" or bool(model_staging_approval(env))
 
 
 def build_decider(env=None, sdk_client=None) -> Decider:

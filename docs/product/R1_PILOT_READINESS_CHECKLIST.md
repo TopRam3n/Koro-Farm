@@ -12,13 +12,20 @@
 - **Eng:** engineering;
 - **Ops:** whoever runs the deployment and the pilot database.
 
-**Status** as of 3 November 2026.
+**Status** as of 3 November 2026, updated after the infrastructure preparation (branch
+`feat/r1-staging-infrastructure`; see [R1_INFRASTRUCTURE_PLAN.md](R1_INFRASTRUCTURE_PLAN.md) and
+[R1_INTEGRATION_READINESS.md](R1_INTEGRATION_READINESS.md)).
+
+**Pilot database:** no evidence that one exists (infrastructure plan §1). Unless you say otherwise, staging and the
+pilot start from a new, empty database. In that case section 5's release audit has nothing to correct: its dry run
+should report empty results, and its backup steps become the routine backup before each migration.
 
 ## 1. Authentication: real Supabase (blocker)
 
 | Item | Owner | Verify | Status |
 |---|---|---|---|
-| Staging deployment pointing at a real Supabase project (not the test-only stand-in) | Ops | `docs/product/STAGING_AUTH_VERIFICATION.md`, environment section | Not started |
+| Staging deployment pointing at a real Supabase project (not the test-only stand-in) | Ops | `docs/product/STAGING_AUTH_VERIFICATION.md`, environment section; `check_staging` | Prepared: deployment configuration, provisioning and check tools. Awaiting the Supabase project (setup guide §1) |
+| Supabase Data API cannot read KoroFarm tables | Eng and PO | Migration `0026`; dashboard switch; `check_staging` (`data_api_grants`, `data_api_http`) | Prepared; not yet run on Supabase |
 | Sign-in, token refresh, sign-out, expired-session handling | Eng runs, PO reviews | The staging checklist, each step with evidence | Not run |
 | Cross-organization access refused with real tokens (orders, deliveries, disputes, sites, reconciliations) | Eng | Staging checklist, cross-organization section; the WP4 routes are covered by `test_tenant_isolation.py` in code | Code: done. Staging: not run |
 | Test-only auth stand-in absent from the deployed bundle | Eng | `npm run check:bundle` on the deployed build | Passes in CI; repeat on the staging build |
@@ -35,8 +42,8 @@
 
 | Item | Owner | Verify | Status |
 |---|---|---|---|
-| `python -m src.backend.app.worker` runs under a supervisor that restarts it (systemd, a container restart policy or similar) | Ops | Kill the process and confirm it returns; `/health/worker` | Not configured |
-| Uptime monitor on `/health/worker`, alerting a named person | Ops | Stop the worker and confirm the alert arrives | Not configured |
+| `python -m src.backend.app.worker` runs under a supervisor that restarts it (systemd, a container restart policy or similar) | Ops | Kill the process and confirm it returns; `/health/worker` | Prepared: `deploy/compose.staging.yml` (`restart: unless-stopped`); the CI job crashes the worker and checks the restart. Not yet on a real host |
+| Uptime monitor on `/health/worker`, alerting a named person | Ops | Stop the worker and confirm the alert arrives | Awaiting the PO (setup guide §3) |
 | Worker logs kept and searchable, including `stock ledger mismatch` and `monitoring degraded` lines | Ops | A forced mismatch (on staging) appears in the logs | Not configured |
 
 ## 4. Monitored exceptions and operating routine (blocker)
@@ -57,9 +64,11 @@
 Run by whoever holds pilot database access, from a machine with the repository and the backend virtual environment. Credentials come from that machine's own secret store. They are never pasted into chat, tickets or the repository.
 
 1. **Backup.** Do it before any migration or audit.
-   - Make the dump: `pg_dump --format=custom --no-owner --file=korofarm-pilot-<YYYYMMDD-HHMM>.dump "$PILOT_DATABASE_URL"`.
+   - Make the dump: `pg_dump --format=custom --schema=public --no-owner --no-privileges --file=korofarm-pilot-<YYYYMMDD-HHMM>.dump "$PILOT_DATABASE_URL"`.
    - Verify it is readable: `pg_restore --list korofarm-pilot-<…>.dump | head`.
-   - Restore it into a scratch database at least once, to prove it is restorable.
+   - Restore it into a scratch database at least once, to prove it is restorable. Use the filtered-list restore in
+     [R1_INFRASTRUCTURE_PLAN.md](R1_INFRASTRUCTURE_PLAN.md) §6. (Corrected 3 November 2026: a plain restore into a new
+     database fails on `CREATE SCHEMA public`. The earlier command here also dumped Supabase's own schemas.)
    - Record the file name, size, SHA-256 and storage location. That record is the **backup reference**.
 2. **Migrate.** Do this only once authorized under section 2: bring the pilot database to `0025`. The audit needs the WP4 schema.
 3. **Dry run.** It is read-only on PostgreSQL and cannot write.

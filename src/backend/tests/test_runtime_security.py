@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 from src.backend.app.core.config import UnsafeConfigurationError, demo_auth_bypass_enabled, validate_runtime_configuration
 
 REPO = Path(__file__).resolve().parents[3]
-PUBLIC = {"SUPABASE_URL": "https://abcdefgh.supabase.co", "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_example"}
+PUBLIC = {"SUPABASE_URL": "https://abcdefgh.supabase.co", "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_example",
+          "DATABASE_URL": "postgresql+psycopg://app_user:placeholder@aws-0-region.pooler.supabase.com:5432/postgres?sslmode=require"}
 
 
 @pytest.mark.parametrize("app_env", [None, "", "development", "demo", "production", "prod", "staging", "TEST "])
@@ -74,6 +75,52 @@ def test_production_accepts_a_public_https_provider() -> None:
     validate_runtime_configuration({"APP_ENV": "production", **PUBLIC})
 
 
+@pytest.mark.parametrize("database_url", [
+    None, "",
+    "postgresql+psycopg://korofarm:korofarm@db.example.com:5432/korofarm?sslmode=require",  # development credentials
+    "postgresql+psycopg://app:placeholder@aws-0-region.pooler.supabase.com:5432/postgres",  # remote without TLS
+    "postgresql+psycopg://app:placeholder@db.abcdefgh.supabase.co:5432/postgres?sslmode=prefer",
+    "postgresql+psycopg://app:placeholder@db.abcdefgh.supabase.co:5432/postgres?sslmode=disable",
+    "mysql://app:placeholder@db.example.com/korofarm?sslmode=require",
+    "not a url",
+])
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_staging_and_production_refuse_a_missing_default_or_unencrypted_database(database_url, app_env) -> None:
+    env = {"APP_ENV": app_env, **PUBLIC}
+    env.pop("DATABASE_URL")
+    if database_url is not None:
+        env["DATABASE_URL"] = database_url
+    with pytest.raises(UnsafeConfigurationError, match="DATABASE_URL"):
+        validate_runtime_configuration(env)
+
+
+@pytest.mark.parametrize("database_url", [
+    "postgresql+psycopg://app:placeholder@db.abcdefgh.supabase.co:5432/postgres?sslmode=verify-full",
+    "postgresql+psycopg://app:placeholder@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require",
+    "postgresql+psycopg://app:placeholder@db:5432/korofarm",          # a service on the deployment's own network
+    "postgresql+psycopg://app:placeholder@10.0.0.7:5432/korofarm",    # private address
+])
+def test_staging_accepts_an_explicit_tls_or_private_database(database_url) -> None:
+    validate_runtime_configuration({"APP_ENV": "staging", **PUBLIC, "DATABASE_URL": database_url})
+
+
+def test_development_and_test_keep_the_local_database_default() -> None:
+    validate_runtime_configuration({"APP_ENV": "development"})
+    validate_runtime_configuration({"APP_ENV": "test"})
+
+
+def test_a_staging_model_provider_needs_a_recorded_data_approval() -> None:
+    staged = {"APP_ENV": "staging", **PUBLIC, "AGENT_MODEL_PROVIDER": "minimax"}
+    with pytest.raises(UnsafeConfigurationError, match="AGENT_MODEL_STAGING_APPROVAL"):
+        validate_runtime_configuration(staged)
+    with pytest.raises(UnsafeConfigurationError, match="AGENT_MODEL_STAGING_APPROVAL"):
+        validate_runtime_configuration({**staged, "AGENT_MODEL_STAGING_APPROVAL": "   "})
+    validate_runtime_configuration({**staged, "AGENT_MODEL_STAGING_APPROVAL": "PO-2026-11-03-synthetic-only"})
+    validate_runtime_configuration({"APP_ENV": "staging", **PUBLIC, "AGENT_MODEL_PROVIDER": "none"})
+    # Development keeps working without an approval: it holds synthetic data only.
+    validate_runtime_configuration({"APP_ENV": "development", "AGENT_MODEL_PROVIDER": "minimax"})
+
+
 @pytest.mark.parametrize("app_env", ["test", "development"])
 def test_local_provider_is_allowed_only_outside_production(app_env) -> None:
     validate_runtime_configuration({"APP_ENV": app_env, "SUPABASE_URL": "http://127.0.0.1:54999",
@@ -83,7 +130,8 @@ def test_local_provider_is_allowed_only_outside_production(app_env) -> None:
 def _start_app(extra_env: dict) -> subprocess.CompletedProcess:
     env = {key: value for key, value in os.environ.items()
            if key not in {"APP_ENV", "ALLOW_INSECURE_DEMO_AUTH", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY",
-                          "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"}}
+                          "NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "DATABASE_URL",
+                          "AGENT_MODEL_PROVIDER", "AGENT_MODEL_STAGING_APPROVAL"}}
     env.update(extra_env)
     return subprocess.run([sys.executable, "-c", "import src.backend.app.main"], cwd=REPO, env=env,
                           capture_output=True, text=True, timeout=120)
@@ -99,6 +147,8 @@ def _start_app(extra_env: dict) -> subprocess.CompletedProcess:
     {"APP_ENV": "production", "SUPABASE_URL": "https://127.0.0.1:54999", "SUPABASE_PUBLISHABLE_KEY": "e2e-test-key"},
     {"APP_ENV": "demo", "ALLOW_INSECURE_DEMO_AUTH": "true", **PUBLIC},
     {"ALLOW_INSECURE_DEMO_AUTH": "true"},
+    {"APP_ENV": "staging", **{k: v for k, v in PUBLIC.items() if k != "DATABASE_URL"}},
+    {"APP_ENV": "staging", **PUBLIC, "AGENT_MODEL_PROVIDER": "nebius"},
 ])
 def test_the_real_application_refuses_to_start_with_unsafe_configuration(extra) -> None:
     result = _start_app(extra)

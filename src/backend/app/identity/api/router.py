@@ -90,9 +90,10 @@ def _access_request_view(request: AccessRequest, user: UserAccount) -> dict:
 
 
 def _require_request_reviewer(context: AuthorizationContext, session: Session) -> None:
-    reviewer_email = os.getenv("ACCESS_REQUEST_REVIEWER_EMAIL", "allensava13@gmail.com").strip().lower()
+    # No default: without ACCESS_REQUEST_REVIEWER_EMAIL nobody reviews access requests (fail closed).
+    reviewer_email = os.getenv("ACCESS_REQUEST_REVIEWER_EMAIL", "").strip().lower()
     reviewer = session.get(UserAccount, context.user_id)
-    if (reviewer is None or reviewer.email.lower() != reviewer_email
+    if (not reviewer_email or reviewer is None or reviewer.email.lower() != reviewer_email
             or PermissionCode.USER_INVITE not in context.permissions):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "designated access reviewer permission required")
 

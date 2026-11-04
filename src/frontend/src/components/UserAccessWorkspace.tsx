@@ -31,8 +31,9 @@ export function UserAccessWorkspace() {
   const [copied, setCopied] = useState(false);
   const users = useQuery({ queryKey: ['admin', 'users'], queryFn: () => apiFetch<{ items: Membership[] }>('/admin/users') });
   const assignables = useQuery({ queryKey: ['admin', 'assignables'], queryFn: () => apiFetch<Assignables>('/admin/users/assignable-entities') });
-  const reviewerEmail = (process.env.NEXT_PUBLIC_ACCESS_REQUEST_REVIEWER_EMAIL ?? 'allensava13@gmail.com').toLowerCase();
-  const canReviewRequests = identity.data?.email.toLowerCase() === reviewerEmail;
+  // No default reviewer: the API refuses everyone unless ACCESS_REQUEST_REVIEWER_EMAIL is configured.
+  const reviewerEmail = (process.env.NEXT_PUBLIC_ACCESS_REQUEST_REVIEWER_EMAIL ?? '').trim().toLowerCase();
+  const canReviewRequests = reviewerEmail !== '' && identity.data?.email.toLowerCase() === reviewerEmail;
   const accessRequests = useQuery({
     queryKey: ['admin', 'access-requests'],
     queryFn: () => apiFetch<{ items: AccessRequest[] }>('/admin/access-requests'),
