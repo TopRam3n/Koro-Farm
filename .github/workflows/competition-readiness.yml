@@ -170,7 +170,10 @@ jobs:
             -t korofarm-frontend:ci .
       - name: Images contain no environment files
         run: |
+          # Build-context files land only in the application directories (/srv backend, /app frontend).
+          status=0
           for image in korofarm-backend:ci korofarm-frontend:ci; do
-            found=$(docker run --rm --entrypoint sh "$image" -c 'find / -xdev -name ".env*" ! -name ".env.example" -not -path "*/node_modules/*" 2>/dev/null')
-            if [ -n "$found" ]; then echo "environment file in $image: $found"; exit 1; fi
+            found=$(docker run --rm --entrypoint sh "$image" -c 'for d in /srv /app; do [ -d "$d" ] && find "$d" \( -name ".env" -o -name ".env.*" \) ! -name ".env.example" -not -path "*/node_modules/*"; done; true')
+            if [ -n "$found" ]; then echo "::error::environment file in $image: $(echo $found)"; status=1; fi
           done
+          exit $status
