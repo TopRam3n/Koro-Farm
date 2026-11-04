@@ -163,7 +163,7 @@ Spec in place. It needs items 1, 5, 6 and a deployed stack (items 9–11).
   - crashes the worker process and checks Docker restarts it and monitoring recovers;
   - checks neither image contains an env file.
 
-**Evidence:** CI result recorded below (§ CI record). Docker is not installed on this workstation, so the images were not built locally.
+**Evidence:** CI runs 41766998942 and 41768132124 (§ CI record). Docker is not installed on this workstation, so the images were not built locally.
 
 ### 11. HTTPS and routing: PREPARED
 
@@ -180,7 +180,7 @@ Spec in place. It needs items 1, 5, 6 and a deployed stack (items 9–11).
 - the compose file sets `restart: unless-stopped` and `init: true`, with a 30-second graceful stop;
 - stalls are caught by `/health/worker` (item 13).
 
-**Evidence:** the CI crash-and-restart step.
+**Evidence:** the CI crash-and-restart step passed in both runs: the worker process was SIGKILLed, Docker restarted the container, and `/health/worker` returned 200 again. Not yet shown on a real host.
 
 ### 13. Uptime monitoring: AWAITING PRODUCT OWNER
 
@@ -250,4 +250,5 @@ The last WP4 run passed (run 41671496065).
 
 | Commit | Run | Result |
 |---|---|---|
-| (this branch) | pending | pending: recorded after the push |
+| `800f318` | [41766998942](https://github.com/TopRam3n/Koro-Farm/actions/runs/41766998942) | `verify` passed. `container-images`: every step passed (images built; unsafe staging configurations refused; migrations, API and worker ran from the image; `/health/worker` 200; `/me` 401; the crashed worker was restarted and monitoring recovered) **except** the env-file scan. That scan searched the whole image filesystem. Its log needs authentication, so the matching file is unknown; it was outside the application directories, which are the only place build-context files land |
+| `00f9943` | [41768132124](https://github.com/TopRam3n/Koro-Farm/actions/runs/41768132124) | **Passed, both jobs.** The env-file scan now covers `/srv` and `/app` and reports any match as an annotation |
