@@ -1,0 +1,8 @@
+code,name,canonical_unit_code,definition,non_negative
+AREA_REAPED,Area reaped,HA,"Land area from which a crop was harvested in the period, as defined by the Ministry of Agriculture (AMID)",true
+AREA_HARVESTED,Area harvested,HA,"FAOSTAT element Area harvested: area from which a crop is gathered, excluding area sown but not harvested",true
+PRODUCTION,Production,TONNE,Quantity harvested in the period,true
+YIELD,Yield,KG_PER_HA,Production per unit of harvested area,true
+FARMGATE_PRICE,Farmgate price,JMD_PER_KG,"Price received by farmers at the farm gate, in Jamaican dollars (nominal, not inflation-adjusted)",true
+PRODUCER_PRICE_LCU,Producer price (local currency),JMD_PER_KG,FAOSTAT producer price in local currency units (JMD for Jamaica),true
+PRODUCER_PRICE_USD,Producer price (USD),USD_PER_TONNE,FAOSTAT producer price in US dollars per tonne,true

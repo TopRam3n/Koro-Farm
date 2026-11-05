@@ -22,6 +22,8 @@ COPY src/backend/app src/backend/app
 COPY src/backend/alembic src/backend/alembic
 COPY src/backend/alembic.ini src/backend/alembic.ini
 COPY src/backend/scripts src/backend/scripts
+# Reviewed agricultural reference definitions and empty templates (no statistics): used by scripts/agri_import.py.
+COPY src/backend/data src/backend/data
 # The model SDK is installed so staging can run the synthetic provider evaluation; the provider stays off unless
 # AGENT_MODEL_PROVIDER is set, never in production, and in staging only with AGENT_MODEL_STAGING_APPROVAL.
 RUN pip install "./src/backend[model]"

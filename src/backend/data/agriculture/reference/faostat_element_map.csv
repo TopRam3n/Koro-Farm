@@ -1,0 +1,7 @@
+element_code,element_name,fao_unit,measure_code,unit_code,verified
+5312,Area harvested,ha,AREA_HARVESTED,HA,false
+5510,Production,t,PRODUCTION,TONNE,false
+5412,Yield,kg/ha,YIELD,KG_PER_HA,false
+5419,Yield,100 g/ha,YIELD,HG_PER_HA,false
+5530,Producer Price (LCU/tonne),LCU,PRODUCER_PRICE_LCU,JMD_PER_TONNE,false
+5532,Producer Price (USD/tonne),USD,PRODUCER_PRICE_USD,USD_PER_TONNE,false

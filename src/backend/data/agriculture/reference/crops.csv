@@ -1,0 +1,11 @@
+code,name,scientific_name,category,operational_crop_code,fao_item_code,fao_item_code_verified
+BANANA,Banana,Musa spp.,FRUIT,BANANA,486,false
+BREADFRUIT,Breadfruit,Artocarpus altilis,FRUIT,BREADFRUIT,,false
+CALLALOO,Callaloo,Amaranthus spp.,VEGETABLE,CALLALOO,,false
+CASSAVA,Cassava,Manihot esculenta,ROOT_TUBER,CASSAVA,125,false
+GINGER,Ginger,Zingiber officinale,SPICE,GINGER,720,false
+MANGO,Mango,Mangifera indica,FRUIT,MANGO,571,false
+PLANTAIN,Plantain,Musa spp.,FRUIT,PLANTAIN,489,false
+SCOTCH_BONNET,Scotch bonnet pepper,Capsicum chinense,CONDIMENT,SCOTCH_BONNET,,false
+SWEET_POTATO,Sweet potato,Ipomoea batatas,ROOT_TUBER,SWEET_POTATO,122,false
+YAM,Yam,Dioscorea spp.,ROOT_TUBER,YAM,137,false

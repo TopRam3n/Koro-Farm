@@ -30,6 +30,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 SUPABASE_CLIENT_ROLES = ("anon", "authenticated", "service_role")
 SCHEMA = "public"
+# Schemas that must stay entirely closed to the client roles: no usage, no table or sequence privilege (migration 0029).
+CLOSED_SCHEMAS = ("agri",)
 OBJECT_TYPES = {"r": "tables", "S": "sequences", "f": "functions", "T": "types", "n": "schemas"}
 
 # A client role "reaches" a grantee if it is the grantee, is a member of it, or the grantee is PUBLIC (oid 0).
@@ -133,17 +135,18 @@ def exposure_findings(connection: Connection, roles: tuple[str, ...] = SUPABASE_
         return {"applicable": False, "roles": [], "table_privileges": [], "sequence_privileges": [],
                 "function_privileges": [], "tables_without_rls": [], "default_privileges": [],
                 "future_objects": {"ran": False, "reason": "not applicable", "exposed": []},
-                "objects_not_owned": [], "schema_usage": [], "rls_bypass_roles": [], "exposed": False, "verified": True}
-    params = {"roles": found, "schema": SCHEMA}
+                "objects_not_owned": [], "schema_usage": [], "closed_schema_usage": [], "rls_bypass_roles": [],
+                "exposed": False, "verified": True}
+    params = {"roles": found, "schema": SCHEMA, "schemas": [SCHEMA, *CLOSED_SCHEMAS]}
     table_privileges = _rows(connection, f"""
-        select c.relname as object, r.rolname as role
+        select case when n.nspname = :schema then c.relname else n.nspname || '.' || c.relname end as object, r.rolname as role
         from pg_class c join pg_namespace n on n.oid = c.relnamespace cross join pg_roles r
-        where n.nspname = :schema and c.relkind in ('r', 'p', 'v', 'm', 'f') and r.rolname = any(:roles) and {TABLE_REACH}
+        where n.nspname = any(:schemas) and c.relkind in ('r', 'p', 'v', 'm', 'f') and r.rolname = any(:roles) and {TABLE_REACH}
         order by 1, 2""", params)
     sequence_privileges = _rows(connection, f"""
-        select c.relname as object, r.rolname as role
+        select case when n.nspname = :schema then c.relname else n.nspname || '.' || c.relname end as object, r.rolname as role
         from pg_class c join pg_namespace n on n.oid = c.relnamespace cross join pg_roles r
-        where n.nspname = :schema and c.relkind = 'S' and r.rolname = any(:roles) and {SEQUENCE_REACH}
+        where n.nspname = any(:schemas) and c.relkind = 'S' and r.rolname = any(:roles) and {SEQUENCE_REACH}
         order by 1, 2""", params)
     function_privileges = _rows(connection, """
         select p.oid::regprocedure::text as object, r.rolname as role,
@@ -168,16 +171,21 @@ def exposure_findings(connection: Connection, roles: tuple[str, ...] = SUPABASE_
     schema_usage = list(connection.execute(text("""
         select rolname from pg_roles where rolname = any(:roles) and has_schema_privilege(oid, :schema, 'USAGE')
         order by 1"""), params).scalars())
+    closed_schema_usage = _rows(connection, """
+        select n.nspname as schema, r.rolname as role from pg_namespace n cross join pg_roles r
+        where n.nspname = any(:closed) and r.rolname = any(:roles) and has_schema_privilege(r.oid, n.oid, 'USAGE')
+        order by 1, 2""", {"closed": list(CLOSED_SCHEMAS), "roles": found})
     rls_bypass_roles = list(connection.execute(text(
         "select rolname from pg_roles where rolname = any(:roles) and rolbypassrls order by 1"), params).scalars())
     default_privileges = default_privilege_findings(connection, found)
     future = probe_future_objects(connection, found) if probe else {"ran": False, "reason": "not requested", "exposed": []}
     exposed = bool(table_privileges or sequence_privileges or function_privileges or tables_without_rls
-                   or default_privileges or future["exposed"])
+                   or default_privileges or future["exposed"] or closed_schema_usage)
     return {"applicable": True, "roles": found, "table_privileges": table_privileges,
             "sequence_privileges": sequence_privileges, "function_privileges": function_privileges,
             "tables_without_rls": tables_without_rls, "default_privileges": default_privileges,
             "future_objects": future, "objects_not_owned": objects_not_owned, "schema_usage": schema_usage,
+            "closed_schema_usage": closed_schema_usage,
             "rls_bypass_roles": rls_bypass_roles, "exposed": exposed, "verified": future["ran"]}
 
 

@@ -167,6 +167,8 @@ def check_data_api_grants(engine) -> Check:
                           for row in findings["default_privileges"]})
         parts.append(f"default privileges would expose new objects ({', '.join(entries[:4])}"
                      f"{' ...' if len(entries) > 4 else ''})")
+    if findings.get("closed_schema_usage"):
+        parts.append("client roles can use a closed schema (" + ", ".join(sorted({f"{r['schema']}->{r['role']}" for r in findings["closed_schema_usage"]})) + ")")
     if future["exposed"]:
         parts.append("a newly created " + ", ".join(sorted({f"{row['object']} ({row['role']})" for row in future["exposed"]}))
                      + " would be reachable")

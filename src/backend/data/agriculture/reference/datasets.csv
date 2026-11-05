@@ -1,0 +1,10 @@
+source_code,code,title,landing_url,format,frequency,geographic_level,measures,notes
+MOA_AMID,AREA_REAPED_10Y,All-Island Estimates Of Crop Area Reaped 10 Years,https://www.moa.gov.jm/agridata/all-island-estimates-crop-area-reaped-10-years,PDF,ANNUAL,COUNTRY,AREA_REAPED,Rolling 10-year PDF tables; one file per edition (for example 2016-2025). Units to confirm from the PDF.
+MOA_AMID,AREA_REAPED_QUARTERLY,All-Island Estimates Of Crop Area Reaped By Quarter,https://www.moa.gov.jm/content/agricultural-data,PDF,QUARTERLY,COUNTRY,AREA_REAPED,Structure not yet reviewed.
+MOA_AMID,PRODUCTION_10Y,All-Island Estimates Of Crop Production 10 Years,https://www.moa.gov.jm/content/agricultural-data,PDF,ANNUAL,COUNTRY,PRODUCTION,Structure not yet reviewed.
+MOA_AMID,PRODUCTION_QUARTERLY,All-Island Estimates Of Crop Production By Quarter,https://www.moa.gov.jm/content/agricultural-data,PDF,QUARTERLY,COUNTRY,PRODUCTION,Structure not yet reviewed.
+MOA_AMID,FARMGATE_10Y,All-Island Estimates Of Farmgate Prices 10 Years,https://www.moa.gov.jm/content/agricultural-data,PDF,ANNUAL,COUNTRY,FARMGATE_PRICE,Structure not yet reviewed.
+MOA_AMID,FARMGATE_QUARTERLY,All-Island Estimates Of Farmgate Prices By Quarter,https://www.moa.gov.jm/content/agricultural-data,PDF,QUARTERLY,COUNTRY,FARMGATE_PRICE,Structure not yet reviewed.
+MOA_AMID,AREA_PRODUCTION_FARMGATE,Area Reaped Production And Farmgate Prices,https://www.moa.gov.jm/agridata/area-reaped-production-and-farmgate-prices,PDF,ANNUAL,MIXED,AREA_REAPED|PRODUCTION|FARMGATE_PRICE,Yearly PDFs 2014-2025 with gaps (no 2017 or 2018 seen). Parish detail to confirm from the PDF.
+FAOSTAT,QCL,Crops and livestock products,https://www.fao.org/faostat/en/#data/QCL,CSV,ANNUAL,COUNTRY,AREA_HARVESTED|PRODUCTION|YIELD,Bulk normalized CSV download; Jamaica only. Element codes in faostat_element_map.csv must be verified against the downloaded file.
+FAOSTAT,PP,Producer Prices,https://www.fao.org/faostat/en/#data/PP,CSV,ANNUAL,COUNTRY,PRODUCER_PRICE_LCU|PRODUCER_PRICE_USD,Bulk normalized CSV download; Jamaica only.

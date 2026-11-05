@@ -1,0 +1,16 @@
+code,name,level,parent_code,iso_3166_code,m49_code,fao_area_code
+JM,Jamaica,COUNTRY,,JM,388,109
+JM-01,Kingston,PARISH,JM,JM-01,,
+JM-02,Saint Andrew,PARISH,JM,JM-02,,
+JM-03,Saint Thomas,PARISH,JM,JM-03,,
+JM-04,Portland,PARISH,JM,JM-04,,
+JM-05,Saint Mary,PARISH,JM,JM-05,,
+JM-06,Saint Ann,PARISH,JM,JM-06,,
+JM-07,Trelawny,PARISH,JM,JM-07,,
+JM-08,Saint James,PARISH,JM,JM-08,,
+JM-09,Hanover,PARISH,JM,JM-09,,
+JM-10,Westmoreland,PARISH,JM,JM-10,,
+JM-11,Saint Elizabeth,PARISH,JM,JM-11,,
+JM-12,Manchester,PARISH,JM,JM-12,,
+JM-13,Clarendon,PARISH,JM,JM-13,,
+JM-14,Saint Catherine,PARISH,JM,JM-14,,

@@ -288,7 +288,9 @@ def test_alembic_accepts_url_encoded_passwords(fresh_database_url, monkeypatch) 
         command.upgrade(config, "head")
         user_engine = create_engine(url)
         with user_engine.connect() as connection:
-            assert connection.execute(text("select version_num from alembic_version")).scalar() == "0027_supabase_data_api_hardening"
+            from alembic.script import ScriptDirectory
+            head = ScriptDirectory.from_config(config).get_current_head()
+            assert connection.execute(text("select version_num from alembic_version")).scalar() == head
     finally:
         if user_engine is not None:
             user_engine.dispose()

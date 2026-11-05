@@ -1,0 +1,13 @@
+code,dimension,canonical_code,factor_to_canonical,description
+HA,AREA,HA,1,hectare
+ACRE,AREA,HA,0.40468564224,international acre (0.40468564224 ha)
+TONNE,MASS,TONNE,1,metric tonne
+KG,MASS,TONNE,0.001,kilogram
+LB,MASS,TONNE,0.00045359237,avoirdupois pound
+KG_PER_HA,YIELD,KG_PER_HA,1,kilograms per hectare
+TONNE_PER_HA,YIELD,KG_PER_HA,1000,tonnes per hectare
+HG_PER_HA,YIELD,KG_PER_HA,0.1,hectograms per hectare (older FAOSTAT yield unit)
+JMD_PER_KG,PRICE_PER_MASS,JMD_PER_KG,1,Jamaican dollars per kilogram
+JMD_PER_LB,PRICE_PER_MASS,JMD_PER_KG,2.20462262185,Jamaican dollars per pound
+JMD_PER_TONNE,PRICE_PER_MASS,JMD_PER_KG,0.001,Jamaican dollars per tonne
+USD_PER_TONNE,PRICE_PER_MASS,USD_PER_TONNE,1,US dollars per tonne (never converted to JMD: no exchange rates are applied)
