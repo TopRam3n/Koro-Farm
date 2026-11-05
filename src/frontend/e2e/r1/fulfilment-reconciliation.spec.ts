@@ -5,6 +5,9 @@ import { type Browser, type Page, expect, test } from '@playwright/test';
 // 705 kg accepted and 20 kg rejected; 705 kg delivered and confirmed by the buyer in their own account. The order is
 // reconciled but never shown as 730 kg delivered or as completed; a procurement manager closes it with the
 // documented 25 kg variance, which every later session still sees.
+// WP5: each role's order page offers only what that role may do (M1), the Fulfilment Center lists the work across
+// orders, the buyer follows the order in their portal and downloads the delivery record (M2), and the supplier request
+// shows as not sent because no consent to be contacted was recorded (M3).
 type TestUser = { key: string; email: string; password: string; buyer_name: string | null };
 const usersFile = process.env.R1_E2E_USERS;
 const users: Record<string, TestUser> = usersFile
@@ -142,6 +145,20 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await expect(figure(page, 'Delivered')).toHaveText('705 kg');
     await expect(figure(page, 'Buyer-confirmed')).toHaveText('0 kg');
     await expect(shipment).toContainText('Not confirmed by the buyer');
+    // WP5 M1: a warehouse operator records physical facts only; commercial controls are not offered at all.
+    await expect(shipment.getByRole('button', { name: "Record buyer's confirmation" })).toHaveCount(0);
+    await expect(page.getByRole('form', { name: 'Reconcile' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Close the order' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Supply' }).getByRole('button', { name: 'Propose supply' })).toHaveCount(0);
+    // Sections the role cannot read are absent, not refusals (technical-debt item 20).
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Recovery' })).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await page.goto('/fulfilment');
+    const awaiting = page.locator('[data-queue="awaiting_buyer_confirmation"]');
+    await expect(awaiting).toContainText(`Shipment ${reference}`);
+    await expect(awaiting).toHaveAttribute('data-actionable', 'no');
+    await page.screenshot({ path: `${shots}/19b-fulfilment-center-warehouse.png`, fullPage: true });
     await context.close();
   });
 
@@ -171,11 +188,10 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await expect(page.getByLabel('Order outcome')).toContainText('Reconciled, not closed');
     await expect(page.getByRole('list', { name: 'Why it cannot be completed' })).toContainText('buyer-confirmed 705 kg of 730 kg required');
     await expect(page.getByRole('button', { name: 'Close as completed' })).toHaveCount(0);
-    // A coordinator cannot accept a variance; the server refuses and says why.
-    const close = page.getByRole('form', { name: 'Close with an accepted variance' });
-    await close.getByLabel('Documented reason for accepting the difference').fill('short harvest');
-    await close.getByRole('button', { name: 'Close with variance' }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'variance' })).toBeVisible();
+    // A coordinator cannot accept a variance (the server refuses it: test_fulfilment_accounting). WP5 M1: the form is
+    // not offered; the page says who can close with a documented difference.
+    await expect(page.getByRole('form', { name: 'Close with an accepted variance' })).toHaveCount(0);
+    await expect(page.locator('[data-variance-needs-manager]')).toContainText('procurement manager');
     await page.screenshot({ path: `${shots}/21-reconciled-not-completed.png`, fullPage: true });
   });
 
@@ -203,6 +219,57 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     await expect(figure(coordinator.page, 'Accepted')).toHaveText('705 kg');
     await expect(figure(coordinator.page, 'Released')).toHaveText('5 kg');
     await coordinator.context.close();
+  });
+
+  test('an auditor sees every record, changes nothing and can flag an issue', async ({ browser }) => {
+    const { context, page } = await freshSession(browser, users.auditor_a);
+    await page.goto(orderPath);
+    await expect(figure(page, 'Delivered')).toHaveText('705 kg');
+    await expect(page.locator('[data-read-only-fulfilment]')).toContainText('does not change them');
+    await expect(page.getByText('Record a receipt')).toHaveCount(0);
+    await expect(page.getByRole('form', { name: 'Reconcile' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Raise a discrepancy' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Close the order' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit terms' })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Flag for audit' }).click();
+    const flag = page.getByRole('form', { name: 'Flag for audit' });
+    await flag.getByLabel('Subject').fill('Rejected quantity');
+    await flag.getByLabel('What should be looked at?').fill('Check the grading evidence for the 20 kg rejected');
+    await flag.getByRole('button', { name: 'Record flag' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Flag recorded' })).toBeVisible();
+    await expect(figure(page, 'Accepted')).toHaveText('705 kg');
+    await context.close();
+  });
+
+  test('the buyer follows the order in their portal and downloads the delivery record', async ({ browser }) => {
+    const { context, page } = await freshSession(browser, users.buyer_a);
+    await page.goto('/');
+    await page.waitForURL(url => url.pathname === '/buyer');
+    await page.getByRole('list', { name: 'My orders' }).getByRole('button', { name: /Plantain, grade A/ }).first().click();
+    const order = page.getByRole('region', { name: /Order Plantain, grade A/ });
+    await expect(order.locator('[data-buyer-figure="delivered_kg"]')).toHaveText('705 kg');
+    await expect(order.locator('[data-buyer-figure="confirmed_by_you_kg"]')).toHaveText('705 kg');
+    await expect(order.locator('[data-buyer-figure="relayed_by_staff_kg"]')).toHaveText('0 kg');
+    await expect(order.locator('[data-buyer-figure="still_to_deliver_kg"]')).toHaveText('25 kg');
+    await expect(order.locator('[data-statement-source="BUYER_ACCOUNT"]')).toContainText('Confirmed by the buyer in their account');
+    await expect(order).not.toContainText(farmer); // supplier identities stay with staff
+    const download = page.waitForEvent('download');
+    await order.getByRole('button', { name: 'Download delivery record (CSV)' }).click();
+    const file = await download;
+    const text = readFileSync(await file.path(), 'utf8');
+    expect(text.split('\r\n')[0]).toContain('shipment_reference');
+    expect(text).toContain(reference);
+    expect(text).toContain('Confirmed by the buyer in their account');
+    await page.screenshot({ path: `${shots}/23-buyer-portal.png`, fullPage: true });
+    await context.close();
+  });
+
+  test('the supplier request shows as not sent because no consent to be contacted was recorded', async ({ page }) => {
+    await signIn(page, users.coordinator_a);
+    await page.goto('/notifications');
+    const messages = page.getByRole('list', { name: 'Outbound messages' });
+    await expect(messages.locator('[data-notification-status="BLOCKED_NO_CONSENT"]').filter({ hasText: farmer }).first()).toContainText('Not sent: no consent');
+    await expect(page.locator('[data-notification-provider]')).toContainText('nothing is sent');
   });
 
   test('another organization sees none of it', async ({ browser }) => {

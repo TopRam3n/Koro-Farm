@@ -91,6 +91,13 @@ def worlds(factory, http):
                                     dedupe_key=f"capacity:{a['requirement']}", shortfall_kg=Decimal("10"), summary="test", details={})
         session.add(exception); session.commit()
         a["exception"] = exception.id
+        # A notification owned by organization A (R1 WP5, M3), for the route sweep.
+        from src.backend.app.notifications.domain.models import Notification
+        notification = Notification(organization_id=a["org"], requirement_id=a["requirement"], template_key="SUPPLIER_REQUEST",
+                                    template_version=1, purpose="SUPPLY_REQUESTS", recipient_type="FARMER", recipient_id=a["farmer"],
+                                    body="test", status="BLOCKED_NO_CONSENT")
+        session.add(notification); session.commit()
+        a["notification"] = notification.id
     # The dropout released the lost reservation and flagged the lot for re-verification (R1 WP4, P2/P3); a fresh
     # relayed capacity report confirms usable stock again, so the recovery agent can propose from it.
     reverified = http.post(f"/production-lots/{a['lot']}/capacity-reports", headers=_h(a, "reverify-a"), json={
@@ -253,7 +260,7 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
            "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"], "exception_id": a["exception"],
            "recovery_task_id": a["recovery_task"], "recovery_proposal_id": a["recovery_proposal"],
            "delivery_id": a["delivery"], "dispute_id": a["dispute"], "reconciliation_id": a["reconciliation"],
-           "fulfilment_node_id": a["node"]}
+           "fulfilment_node_id": a["node"], "notification_id": a["notification"]}
     checked, problems = 0, []
     for path, operations in app.openapi()["paths"].items():
         params = [part[1:-1] for part in path.split("/") if part.startswith("{") and part.endswith("}")]

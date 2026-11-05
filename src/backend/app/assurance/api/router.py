@@ -158,7 +158,10 @@ def _plan_response(result) -> PlanRead:
     )
 
 
-@router.post("/{requirement_id}/plan", response_model=PlanRead, status_code=status.HTTP_201_CREATED)
+# Planning fixes the order's terms and proposes suppliers: supply management only (R1 WP5 review; before, any staff role,
+# auditors included, could start it).
+@router.post("/{requirement_id}/plan", response_model=PlanRead, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
 def create_plan(requirement_id: UUID,
                 idempotency_key: str | None = Depends(tenant_idempotency_key),
                 session: Session = Depends(get_session)) -> PlanRead:

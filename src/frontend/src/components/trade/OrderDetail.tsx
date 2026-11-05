@@ -11,12 +11,15 @@ import { FulfilmentSection, outcomeLabel } from '@/components/trade/FulfilmentSe
 import { useFulfilmentCommands } from '@/hooks/useFulfilment';
 import { RecoveryTasks } from '@/components/trade/RecoveryTasks';
 import { useRequestRecovery } from '@/hooks/useRecovery';
+import { useCan } from '@/hooks/useIdentity';
 import {
   ErrorNote, Field, LoadState, Pill, Select, SubmitButton, SupplyStatePill, TextArea, TradePage, formValues, humanize, kg,
 } from '@/components/trade/TradeUi';
 
 export function OrderDetail({ id }: { id: string }) {
   const order = useOrder(id);
+  // R1 WP5 (M1): sections a role cannot read are not shown at all, instead of showing the server's refusal.
+  const seesRecovery = useCan()('recovery.view');
   useEffect(() => { rememberActiveOrder(id); }, [id]);
   const title = order.data ? `${order.data.crop.replace(/_/g, ' ')} for ${order.data.buyer_name}` : 'Order';
   return <TradePage eyebrow="Order" title={title} description="Terms, supplier commitments and the full history of this order."
@@ -26,11 +29,11 @@ export function OrderDetail({ id }: { id: string }) {
         <Terms order={order.data} />
         <Supply order={order.data} />
         {order.data.plan_version > 0 && <FulfilmentSection orderId={id} />}
-        <section aria-labelledby="order-exceptions" className="operational-panel p-5">
+        {seesRecovery && <section aria-labelledby="order-exceptions" className="operational-panel p-5">
           <h2 id="order-exceptions" className="text-base font-semibold">Needs attention</h2>
           <ExceptionList requirementId={id} empty="No open supply exceptions for this order." />
-        </section>
-        <Recovery orderId={id} cancelled={order.data.lifecycle_status === 'CANCELLED'} />
+        </section>}
+        {seesRecovery && <Recovery orderId={id} cancelled={order.data.lifecycle_status === 'CANCELLED'} />}
         <History id={id} />
       </div>}
     </LoadState>
@@ -39,10 +42,11 @@ export function OrderDetail({ id }: { id: string }) {
 
 function Recovery({ orderId, cancelled }: { orderId: string; cancelled: boolean }) {
   const request = useRequestRecovery();
+  const can = useCan();
   return <section aria-labelledby="order-recovery" className="operational-panel p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 id="order-recovery" className="text-base font-semibold">Recovery</h2>
-      {!cancelled && <button type="button" disabled={request.isPending} onClick={() => request.mutate({ requirementId: orderId })}
+      {!cancelled && can('recovery.propose') && <button type="button" disabled={request.isPending} onClick={() => request.mutate({ requirementId: orderId })}
         className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs disabled:opacity-60">Ask the agent to plan again</button>}
     </div>
     <p className="mt-1 text-xs text-muted-foreground">The recovery agent proposes from authorized standby and eligible supply. A person approves the exact proposal before anything is applied.</p>
@@ -56,13 +60,15 @@ function Terms({ order }: { order: Order }) {
   const update = useUpdateOrder(order.id);
   const cancel = useCancelOrder(order.id);
   const { requestCancellation } = useFulfilmentCommands(order.id);
+  const can = useCan();
+  const mayUpdate = can('requirement.update');
   const cancelled = order.lifecycle_status === 'CANCELLED';
   const ended = ['CANCELLED', 'COMPLETED', 'CLOSED_WITH_VARIANCE', 'CLOSED'].includes(order.lifecycle_status);
   // Before planning nothing binds a supplier, so the order is cancelled at once. Afterwards a coordinator only
   // requests cancellation: the agent prepares it and a person approves it (P1).
   const direct = order.plan_version === 0;
   const [outcome, outcomeTone] = outcomeLabel[order.lifecycle_status] ?? [humanize(order.lifecycle_status), 'info'];
-  const editable = !cancelled && order.plan_version === 0;
+  const editable = !cancelled && order.plan_version === 0 && mayUpdate;
 
   async function onEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -97,7 +103,7 @@ function Terms({ order }: { order: Order }) {
       </div>
     </div>
     {cancelled && <p className="mt-2 text-sm text-muted-foreground">Cancelled: {order.cancellation_reason}</p>}
-    {!editable && !ended && <p className="mt-2 text-xs text-muted-foreground">Supply planning has started, so terms are locked. Quantity changes go through a recorded buyer change.</p>}
+    {!editable && !ended && mayUpdate && <p className="mt-2 text-xs text-muted-foreground">Supply planning has started, so terms are locked. Quantity changes go through a recorded buyer change.</p>}
     {!editing ? <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
       {rows.map(([label, value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd>{value}</dd></div>)}
     </dl> : <form className="mt-3 grid gap-3 sm:grid-cols-2" onSubmit={onEdit} aria-label="Edit order terms">
@@ -114,7 +120,7 @@ function Terms({ order }: { order: Order }) {
       </div>
       <div className="sm:col-span-2"><ErrorNote error={update.error} /></div>
     </form>}
-    {!ended && <details className="mt-4">
+    {!ended && mayUpdate && <details className="mt-4">
       <summary className="cursor-pointer text-sm text-muted-foreground">{direct ? 'Cancel this order' : 'Request cancellation'}</summary>
       {!direct && <p className="mt-2 text-xs text-muted-foreground">Suppliers have been asked or have agreed, so cancellation needs approval and each supplier&apos;s agreement to be released (unless your supplier terms grant that right). After goods are received only undelivered obligations are cancelled, with elevated approval. A buyer cancellation never counts against a farmer.</p>}
       <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={onCancel} aria-label={direct ? 'Cancel order' : 'Request cancellation'}>
@@ -132,6 +138,7 @@ function Terms({ order }: { order: Order }) {
 function Supply({ order }: { order: Order }) {
   const supply = useOrderSupply(order.id);
   const plan = usePlanOrder(order.id);
+  const manages = useCan()('supply.manage');
   const cancelled = order.lifecycle_status === 'CANCELLED';
   // Once an order has ended its supply health is history, not a call to action.
   const ended = ['CANCELLED', 'COMPLETED', 'CLOSED_WITH_VARIANCE', 'CLOSED'].includes(order.lifecycle_status);
@@ -162,7 +169,7 @@ function Supply({ order }: { order: Order }) {
         </dl>
         {Number(s.exposed_kg) > 0 && <p role="alert" className="mt-3 text-sm text-destructive">{kg(s.exposed_kg)} of the committed supply is no longer backed by the suppliers&apos; reported capacity. The commitments remain on record; nothing has been activated automatically.</p>}
         {Number(s.unsupported_legacy_kg) > 0 && <p className="mt-3 text-sm text-destructive">{kg(s.unsupported_legacy_kg)} was recorded before supplier consent was captured and does not count as committed.</p>}
-        {order.plan_version === 0 && !cancelled && <div className="mt-4">
+        {order.plan_version === 0 && !cancelled && manages && <div className="mt-4">
           <button type="button" disabled={plan.isPending} onClick={() => plan.mutate()} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60">
             {plan.isPending ? 'Proposing…' : 'Propose supply'}
           </button>
@@ -173,7 +180,7 @@ function Supply({ order }: { order: Order }) {
           <table className="w-full min-w-[720px] text-sm" aria-label="Supplier allocations">
             <thead className="text-left text-xs text-muted-foreground"><tr><th className="py-2">Supplier</th><th>Role</th><th className="text-right">Quantity</th><th className="pl-3">State</th><th className="pl-3">Action</th></tr></thead>
             <tbody className="divide-y divide-white/[0.07]">
-              {s.allocations.map(allocation => <AllocationRow key={allocation.id} orderId={order.id} allocation={allocation} locked={cancelled} />)}
+              {s.allocations.map(allocation => <AllocationRow key={allocation.id} orderId={order.id} allocation={allocation} locked={cancelled || !manages} />)}
             </tbody>
           </table>
         </div>}

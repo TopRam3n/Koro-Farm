@@ -15,6 +15,9 @@ TLS_SSLMODES = frozenset({"require", "verify-ca", "verify-full"})
 # against the project's signing keys, then require its auth.sessions row, which Supabase deletes on sign-out.
 # "remote": ask Supabase Auth (GET /auth/v1/user); development and test only (the E2E auth stand-in).
 SESSION_VERIFICATION_MODES = ("database", "remote")
+# Outbound notifications (notifications/application/providers.py). No real messaging provider exists yet; "synthetic"
+# only records and is refused in production.
+NOTIFICATION_PROVIDERS = ("none", "synthetic")
 
 
 class UnsafeConfigurationError(RuntimeError):
@@ -40,6 +43,12 @@ def session_verification(env: Mapping[str, str] | None = None) -> str:
     if not value:
         return "database" if is_production(env) else "remote"
     return value if value in SESSION_VERIFICATION_MODES else "database"
+
+
+def notification_provider_name(env: Mapping[str, str] | None = None) -> str:
+    env = os.environ if env is None else env
+    value = env.get("NOTIFICATION_PROVIDER", "").strip().lower() or "none"
+    return value if value in NOTIFICATION_PROVIDERS else "none"
 
 
 def cors_origins() -> list[str]:
@@ -112,6 +121,13 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
     if mode and mode not in SESSION_VERIFICATION_MODES:
         raise UnsafeConfigurationError(
             f"AUTH_SESSION_VERIFICATION={mode!r} is not recognized (expected database or remote); refusing to start")
+    provider = env.get("NOTIFICATION_PROVIDER", "").strip().lower()
+    if provider and provider not in NOTIFICATION_PROVIDERS:
+        raise UnsafeConfigurationError(
+            f"NOTIFICATION_PROVIDER={provider!r} is not recognized (expected none or synthetic; no real messaging "
+            "provider is connected); refusing to start")
+    if app_env == "production" and provider == "synthetic":
+        raise UnsafeConfigurationError("NOTIFICATION_PROVIDER=synthetic is not permitted in production; refusing to start")
     if not is_production(env):
         return
     if mode == "remote":

@@ -14,7 +14,7 @@ export function RoleHome() {
 
   useEffect(() => {
     if (role === 'FARMER') router.replace('/farmer');
-    if (role === 'BUYER') router.replace('/marketplace');
+    if (role === 'BUYER') router.replace('/buyer');
   }, [role, router]);
 
   if (identity.isLoading) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground"><span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Loading your workspace…</span></div>;

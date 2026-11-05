@@ -53,6 +53,38 @@ export interface FulfilmentRecord {
 export interface FulfilmentSite { id: string; name: string; node_type: string; parish: string; active: boolean; created_at: string }
 export interface BuyerDelivery extends DeliveryView { order: string; requirement_id: string; shipment_reference: string }
 
+/** One item in a Fulfilment Center queue (R1 WP5, M1); which fields are present depends on the queue. */
+export interface OverviewItem {
+  requirement_id: string; order: string; supplier?: string; received_kg?: string; received_at?: string; reference?: string;
+  dispatched_at?: string | null; delivered_kg?: string; delivered_at?: string; message?: string; party?: string; description?: string;
+  quantity_kg?: string | null; version?: number; reason?: string | null; can_complete?: boolean; blockers?: string[];
+}
+export interface OverviewQueue { items: OverviewItem[]; count: number; action_permission: string }
+export interface FulfilmentOverviewData { generated_at: string; day_start: string; open_orders: number; queues: Record<string, OverviewQueue> }
+
+/** The buyer portal's view of one of their orders (R1 WP5, M2). Own confirmations and staff relays are kept apart. */
+export interface BuyerQuantities {
+  required_kg: string; delivered_kg: string; confirmed_by_you_kg: string; relayed_by_staff_kg: string; disputed_kg: string;
+  awaiting_your_confirmation_kg: string; still_to_deliver_kg: string;
+}
+export interface BuyerOrder {
+  requirement_id: string; crop: string; grade: string; delivery_window_start: string; delivery_window_end: string; destination: string;
+  status: string; status_label: string; quantities: BuyerQuantities;
+}
+export interface BuyerStatement {
+  id: string; confirmed_quantity_kg: string; outcome: 'CONFIRMED' | 'DISCREPANCY'; source: 'BUYER_ACCOUNT' | 'STAFF_RELAYED' | 'LEGACY_UNQUANTIFIED';
+  source_label: string; note: string | null; created_at: string; buyer_representative?: string | null; communication_channel?: string | null; stated_at?: string | null;
+}
+export interface BuyerOrderDelivery {
+  id: string; shipment_reference: string; delivered_at: string; delivered_quantity_kg: string; recorded_quantity_kg: string;
+  corrections: Array<{ delta_kg: string; reason: string; created_at: string }>; current_statement: BuyerStatement | null; statement_history: BuyerStatement[];
+}
+export interface BuyerDispute {
+  id: string; delivery_id: string | null; raised_by: string; quantity_kg: string | null; description: string; created_at: string;
+  status: 'OPEN' | 'RESOLVED' | 'WITHDRAWN'; resolution: string | null; resolved_at: string | null;
+}
+export interface BuyerOrderDetail extends BuyerOrder { deliveries: BuyerOrderDelivery[]; disputes: BuyerDispute[] }
+
 function useCommandKey(prefix: string) {
   const key = useRef<string | null>(null);
   return { current: () => key.current ??= `${prefix}-${crypto.randomUUID()}`, clear: () => { key.current = null; } };
@@ -67,6 +99,13 @@ export const useFulfilmentRecord = (orderId: string) => useQuery({
 });
 export const useFulfilmentSites = (includeInactive = false) => useQuery({
   queryKey: ['fulfilment-sites', includeInactive], queryFn: () => apiFetch<FulfilmentSite[]>(`/fulfilment-nodes${includeInactive ? '?include_inactive=true' : ''}`),
+});
+export const useFulfilmentOverview = () => useQuery({
+  queryKey: ['fulfilment-overview'], queryFn: () => apiFetch<FulfilmentOverviewData>('/fulfilment-overview'), refetchInterval: LIVE_REFRESH_MS,
+});
+export const useBuyerOrders = () => useQuery({ queryKey: ['buyer-orders'], queryFn: () => apiFetch<BuyerOrder[]>('/buyer/orders'), refetchInterval: LIVE_REFRESH_MS });
+export const useBuyerOrder = (id: string | null) => useQuery({
+  queryKey: ['buyer-order', id], queryFn: () => apiFetch<BuyerOrderDetail>(`/buyer/orders/${id}`), enabled: Boolean(id), refetchInterval: LIVE_REFRESH_MS,
 });
 export const useBuyerDeliveries = () => useQuery({ queryKey: ['buyer-deliveries'], queryFn: () => apiFetch<BuyerDelivery[]>('/buyer/deliveries'), refetchInterval: LIVE_REFRESH_MS });
 
@@ -99,6 +138,7 @@ export function useFulfilmentCommands(orderId: string) {
     reconcile: useCommand<{ reason?: string; verification_evidence_reference?: string }>((b, key) => post(`/requirements/${orderId}/reconcile`, b, key), 'reconcile', keys),
     review: useCommand<{ reconciliationId: string; approve: boolean; note: string }>(({ reconciliationId, ...b }) => post(`/reconciliations/${reconciliationId}/review`, b), 'review', keys),
     close: useCommand<{ accept_variance: boolean; reason?: string }>((b, key) => post(`/requirements/${orderId}/close`, b, key), 'close', keys),
+    flag: useCommand<{ subject: string; note: string }>(b => post('/audit-flags', { ...b, requirement_id: orderId }), 'audit-flag', [['order-history', orderId]]),
     requestCancellation: useCommand<{ reason: string; buyer_instruction: string; commercial_consequences?: string }>(
       b => post(`/requirements/${orderId}/cancellation-requests`, b), 'cancel-request', [...keys, ['recovery-tasks', orderId]]),
   };
@@ -113,9 +153,11 @@ export function useSiteCommands() {
 }
 
 export function useBuyerCommands() {
-  const keys = [['buyer-deliveries']];
+  const keys = [['buyer-deliveries'], ['buyer-orders'], ['buyer-order']];
   return {
     confirm: useCommand<{ deliveryId: string; confirmed_quantity_kg: string; discrepancy: boolean; note?: string }>(
       ({ deliveryId, ...b }, key) => post(`/buyer/deliveries/${deliveryId}/confirmation`, b, key), 'buyer-confirm', keys),
+    dispute: useCommand<{ deliveryId: string; description: string; quantity_kg?: string }>(
+      ({ deliveryId, ...b }) => post(`/buyer/deliveries/${deliveryId}/disputes`, b), 'buyer-dispute', keys),
   };
 }

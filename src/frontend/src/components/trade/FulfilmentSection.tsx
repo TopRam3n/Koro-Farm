@@ -5,6 +5,10 @@ import {
   type Confirmation, type FulfilmentRecord, type Receipt, type Shipment, useFulfilmentCommands, useFulfilmentRecord, useFulfilmentSites,
 } from '@/hooks/useFulfilment';
 import { ErrorNote, Field, LoadState, Pill, Select, SubmitButton, TextArea, formValues, humanize, kg } from '@/components/trade/TradeUi';
+import { useCan, useIdentity } from '@/hooks/useIdentity';
+
+/** Permission check passed down so every panel offers only what the viewer's role may do (R1 WP5, M1). */
+type Can = (permission: string) => boolean;
 
 const ENDED = ['COMPLETED', 'CLOSED_WITH_VARIANCE', 'CANCELLED', 'CLOSED'];
 const localToIso = (value: string) => new Date(value).toISOString();
@@ -33,7 +37,12 @@ export function FulfilmentSection({ orderId }: { orderId: string }) {
 }
 
 function Body({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
+  const can = useCan();
+  // Say "read-only" only once the permissions are known, never while they are loading.
+  const known = Array.isArray(useIdentity().data?.permissions);
   const ended = ENDED.includes(r.lifecycle_status);
+  const actsOnFulfilment = ['receiving.record', 'grading.record', 'shipment.create', 'shipment.dispatch', 'delivery.confirm',
+    'buyer_confirmation.relay', 'dispute.raise', 'trade.reconcile', 'trade.accept_variance'].some(can);
   const f = r.figures;
   const figures: Array<[string, string, string]> = [
     ['Required', f.required_kg, 'What the buyer ordered'], ['Committed', f.committed_kg, 'Agreed by suppliers'],
@@ -58,13 +67,17 @@ function Body({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
         <dt className="text-xs text-muted-foreground">{name}</dt><dd className="mt-1 text-lg font-semibold" data-fulfilment-figure={name}>{kg(value)}</dd>
       </div>)}
     </dl>
-    {!ended && <Receiving orderId={orderId} r={r} />}
-    <Receipts orderId={orderId} receipts={r.receipts} locked={ended} />
-    <Shipments orderId={orderId} r={r} locked={ended} />
-    <SequenceFlags orderId={orderId} r={r} locked={ended} />
-    <Disputes orderId={orderId} r={r} locked={ended} />
-    <Reconciliations orderId={orderId} r={r} locked={ended} />
-    {!ended && <Close orderId={orderId} r={r} />}
+    {known && !actsOnFulfilment && <p role="note" data-read-only-fulfilment className="rounded-md border border-white/[0.1] p-3 text-xs text-muted-foreground">
+      You can see every fulfilment record here. Your role does not change them{can('audit.flag') ? '; flag anything that looks wrong below' : ''}.
+    </p>}
+    {!ended && can('receiving.record') && <Receiving orderId={orderId} r={r} />}
+    <Receipts orderId={orderId} receipts={r.receipts} locked={ended} canGrade={can('grading.record')} />
+    <Shipments orderId={orderId} r={r} locked={ended} can={can} />
+    <SequenceFlags orderId={orderId} r={r} locked={ended || !can('trade.reconcile')} />
+    <Disputes orderId={orderId} r={r} locked={ended} can={can} />
+    <Reconciliations orderId={orderId} r={r} locked={ended || !can('trade.reconcile')} />
+    {!ended && (can('trade.reconcile') || can('trade.accept_variance')) && <Close orderId={orderId} r={r} can={can} />}
+    {can('audit.flag') && <AuditFlag orderId={orderId} />}
   </div>;
 }
 
@@ -93,12 +106,12 @@ function Receiving({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
   </details>;
 }
 
-function Receipts({ orderId, receipts, locked }: { orderId: string; receipts: Receipt[]; locked: boolean }) {
+function Receipts({ orderId, receipts, locked, canGrade }: { orderId: string; receipts: Receipt[]; locked: boolean; canGrade: boolean }) {
   if (receipts.length === 0) return <p className="text-sm text-muted-foreground">Nothing has been received for this order yet.</p>;
   return <div className="overflow-x-auto">
     <table className="w-full min-w-[640px] text-sm" aria-label="Receipts">
       <thead className="text-left text-xs text-muted-foreground"><tr><th className="py-2">Supplier</th><th className="text-right">Received</th><th className="text-right">Accepted</th><th className="text-right">Rejected</th><th className="pl-3">Grading</th></tr></thead>
-      <tbody className="divide-y divide-white/[0.07]">{receipts.map(receipt => <ReceiptRow key={receipt.id} orderId={orderId} receipt={receipt} locked={locked} />)}</tbody>
+      <tbody className="divide-y divide-white/[0.07]">{receipts.map(receipt => <ReceiptRow key={receipt.id} orderId={orderId} receipt={receipt} locked={locked || !canGrade} />)}</tbody>
     </table>
   </div>;
 }
@@ -132,7 +145,7 @@ function ReceiptRow({ orderId, receipt, locked }: { orderId: string; receipt: Re
   </>;
 }
 
-function Shipments({ orderId, r, locked }: { orderId: string; r: FulfilmentRecord; locked: boolean }) {
+function Shipments({ orderId, r, locked, can }: { orderId: string; r: FulfilmentRecord; locked: boolean; can: Can }) {
   const sites = useFulfilmentSites();
   const { createShipment } = useFulfilmentCommands(orderId);
   const unshipped = r.receipts.filter(x => x.graded && !x.shipment_id && Number(x.accepted_kg) > 0);
@@ -146,8 +159,8 @@ function Shipments({ orderId, r, locked }: { orderId: string; r: FulfilmentRecor
   return <div>
     <h3 className="text-sm font-semibold">Shipments</h3>
     {r.shipments.length === 0 && <p className="mt-1 text-sm text-muted-foreground">No shipments yet.</p>}
-    <ul className="mt-2 space-y-3" aria-label="Shipments">{r.shipments.map(s => <ShipmentItem key={s.id} orderId={orderId} shipment={s} unshipped={unshipped} locked={locked} />)}</ul>
-    {!locked && unshipped.length > 0 && <form onSubmit={onCreate} aria-label="New shipment" className="mt-3 flex flex-wrap items-end gap-2">
+    <ul className="mt-2 space-y-3" aria-label="Shipments">{r.shipments.map(s => <ShipmentItem key={s.id} orderId={orderId} shipment={s} unshipped={unshipped} locked={locked} can={can} />)}</ul>
+    {!locked && can('shipment.create') && unshipped.length > 0 && <form onSubmit={onCreate} aria-label="New shipment" className="mt-3 flex flex-wrap items-end gap-2">
       <div className="min-w-[200px]"><Select label="From site" name="fulfilment_node_id" required placeholder="Choose" options={(sites.data ?? []).map(s => ({ value: s.id, label: s.name }))} /></div>
       <div className="min-w-[160px]"><Field label="Shipment reference" name="reference" required minLength={3} /></div>
       <SubmitButton busy={createShipment.isPending} variant="secondary">New shipment</SubmitButton>
@@ -156,7 +169,7 @@ function Shipments({ orderId, r, locked }: { orderId: string; r: FulfilmentRecor
   </div>;
 }
 
-function ShipmentItem({ orderId, shipment, unshipped, locked }: { orderId: string; shipment: Shipment; unshipped: Receipt[]; locked: boolean }) {
+function ShipmentItem({ orderId, shipment, unshipped, locked, can }: { orderId: string; shipment: Shipment; unshipped: Receipt[]; locked: boolean; can: Can }) {
   const c = useFulfilmentCommands(orderId);
   const [panel, setPanel] = useState<'none' | 'deliver' | 'cancel' | 'confirm' | 'dispatch'>('none');
   const d = shipment.delivery;
@@ -176,12 +189,12 @@ function ShipmentItem({ orderId, shipment, unshipped, locked }: { orderId: strin
       </p> : <p className="text-warning">Not confirmed by the buyer. The order cannot be completed until it is.</p>}
     </div>}
     {!locked && <div className="mt-2 flex flex-wrap gap-2">
-      {shipment.status === 'OPEN' && unshipped.map(x => <button key={x.id} type="button" disabled={c.addToShipment.isPending} onClick={() => c.addToShipment.mutate({ shipmentId: shipment.id, received_sublot_id: x.id })}
+      {shipment.status === 'OPEN' && can('shipment.create') && unshipped.map(x => <button key={x.id} type="button" disabled={c.addToShipment.isPending} onClick={() => c.addToShipment.mutate({ shipmentId: shipment.id, received_sublot_id: x.id })}
         className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Add {x.farmer_name} {kg(x.accepted_kg)}</button>)}
-      {shipment.status === 'OPEN' && <button type="button" onClick={() => setPanel('dispatch')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Dispatch</button>}
-      {shipment.status === 'OPEN' && <button type="button" onClick={() => setPanel('cancel')} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground">Cancel shipment</button>}
-      {shipment.status === 'DISPATCHED' && <button type="button" onClick={() => setPanel('deliver')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Record delivery</button>}
-      {d && <button type="button" onClick={() => setPanel('confirm')} className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Record buyer&apos;s confirmation</button>}
+      {shipment.status === 'OPEN' && can('shipment.dispatch') && <button type="button" onClick={() => setPanel('dispatch')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Dispatch</button>}
+      {shipment.status === 'OPEN' && can('shipment.create') && <button type="button" onClick={() => setPanel('cancel')} className="min-h-9 rounded-md px-3 text-xs text-muted-foreground">Cancel shipment</button>}
+      {shipment.status === 'DISPATCHED' && can('delivery.confirm') && <button type="button" onClick={() => setPanel('deliver')} className="min-h-9 rounded-md border border-primary/60 px-3 text-xs text-primary">Record delivery</button>}
+      {d && can('buyer_confirmation.relay') && <button type="button" onClick={() => setPanel('confirm')} className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Record buyer&apos;s confirmation</button>}
     </div>}
     {panel === 'dispatch' && <form aria-label={`Dispatch ${shipment.reference}`} className="mt-2 grid gap-3 sm:grid-cols-3" onSubmit={async event => {
       event.preventDefault();
@@ -255,7 +268,7 @@ function ReasonForm({ label, submit, busy, onSubmit }: { label: string; submit: 
   </form>;
 }
 
-function Disputes({ orderId, r, locked }: { orderId: string; r: FulfilmentRecord; locked: boolean }) {
+function Disputes({ orderId, r, locked, can }: { orderId: string; r: FulfilmentRecord; locked: boolean; can: Can }) {
   const c = useFulfilmentCommands(orderId);
   const [raising, setRaising] = useState(false);
   return <div>
@@ -266,10 +279,10 @@ function Disputes({ orderId, r, locked }: { orderId: string; r: FulfilmentRecord
         <span className="text-xs text-muted-foreground">Raised by {d.party === 'BUYER' ? 'the buyer' : 'staff'} {when(d.created_at)}{d.quantity_kg ? ` · ${kg(d.quantity_kg)}` : ''}</span></div>
       <p className="mt-1">{d.description}</p>
       {d.resolution && <p className="mt-1 text-xs text-muted-foreground">Outcome: {d.resolution}</p>}
-      {d.status === 'OPEN' && !locked && <ReasonForm label="Resolution" submit="Resolve" busy={c.resolveDispute.isPending}
+      {d.status === 'OPEN' && !locked && can('trade.reconcile') && <ReasonForm label="Resolution" submit="Resolve" busy={c.resolveDispute.isPending}
         onSubmit={resolution => c.resolveDispute.mutate({ disputeId: d.id, outcome: 'RESOLVED', resolution })} />}
     </li>)}</ul>
-    {!locked && <button type="button" onClick={() => setRaising(v => !v)} className="mt-2 min-h-9 rounded-md px-3 text-xs text-muted-foreground">Raise a discrepancy</button>}
+    {!locked && can('dispute.raise') && <button type="button" onClick={() => setRaising(v => !v)} className="mt-2 min-h-9 rounded-md px-3 text-xs text-muted-foreground">Raise a discrepancy</button>}
     {raising && <ReasonForm label="What is wrong?" submit="Raise" busy={c.raiseDispute.isPending}
       onSubmit={description => c.raiseDispute.mutateAsync({ description }).then(() => setRaising(false), () => null)} />}
     <ErrorNote error={c.resolveDispute.error ?? c.raiseDispute.error} />
@@ -301,7 +314,7 @@ function Reconciliations({ orderId, r, locked }: { orderId: string; r: Fulfilmen
   </div>;
 }
 
-function Close({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
+function Close({ orderId, r, can }: { orderId: string; r: FulfilmentRecord; can: Can }) {
   const { close } = useFulfilmentCommands(orderId);
   if (!r.effective_reconciliation_version) return null;
   return <div className="rounded-md border border-white/[0.1] p-3">
@@ -311,12 +324,32 @@ function Close({ orderId, r }: { orderId: string; r: FulfilmentRecord }) {
       : <ul className="mt-1 list-disc pl-5 text-sm text-warning" aria-label="Why it cannot be completed">{r.completion.blockers.map(b => <li key={b}>{b}</li>)}</ul>}
     <p className="mt-1 text-xs text-muted-foreground">Closing releases only reservations that were never received. Open standby is released and open requests are withdrawn; the released stock must be confirmed again before it is offered to another order.</p>
     <div className="mt-2 flex flex-wrap items-end gap-2">
-      {r.completion.can_complete && <button type="button" disabled={close.isPending} onClick={() => close.mutate({ accept_variance: false })} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Close as completed</button>}
-      <form aria-label="Close with an accepted variance" className="flex flex-wrap items-end gap-2" onSubmit={event => { event.preventDefault(); close.mutate({ accept_variance: true, reason: formValues(event.currentTarget).reason }); }}>
+      {r.completion.can_complete && can('trade.reconcile') && <button type="button" disabled={close.isPending} onClick={() => close.mutate({ accept_variance: false })} className="min-h-11 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Close as completed</button>}
+      {can('trade.accept_variance') ? <form aria-label="Close with an accepted variance" className="flex flex-wrap items-end gap-2" onSubmit={event => { event.preventDefault(); close.mutate({ accept_variance: true, reason: formValues(event.currentTarget).reason }); }}>
         <div className="min-w-[260px]"><Field label="Documented reason for accepting the difference" name="reason" required minLength={3} hint="Procurement managers and organization administrators only." /></div>
         <SubmitButton busy={close.isPending} variant="secondary">Close with variance</SubmitButton>
-      </form>
+      </form> : !r.completion.can_complete && <p className="text-xs text-muted-foreground" data-variance-needs-manager>Closing with a documented difference needs a procurement manager or organization administrator.</p>}
     </div>
     <ErrorNote error={close.error} />
+  </div>;
+}
+
+/** Auditors record a concern about this order without changing any record (R1 WP4 P11; offered in WP5 M1). */
+function AuditFlag({ orderId }: { orderId: string }) {
+  const { flag } = useFulfilmentCommands(orderId);
+  const [open, setOpen] = useState(false);
+  return <div>
+    <button type="button" onClick={() => setOpen(v => !v)} className="min-h-9 rounded-md border border-white/[0.14] px-3 text-xs">Flag for audit</button>
+    {open && <form aria-label="Flag for audit" className="mt-2 grid gap-3 sm:grid-cols-3" onSubmit={async event => {
+      event.preventDefault();
+      const v = formValues(event.currentTarget);
+      await flag.mutateAsync({ subject: v.subject ?? '', note: v.note ?? '' }).then(() => setOpen(false), () => null);
+    }}>
+      <Field label="Subject" name="subject" required minLength={3} />
+      <div className="sm:col-span-2"><TextArea label="What should be looked at?" name="note" required minLength={3} /></div>
+      <div><SubmitButton busy={flag.isPending} variant="secondary">Record flag</SubmitButton></div>
+    </form>}
+    {flag.isSuccess && <p role="status" className="mt-2 text-xs">Flag recorded. Nothing in the order was changed.</p>}
+    <ErrorNote error={flag.error} />
   </div>;
 }

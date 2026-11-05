@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useCreateFarmer, useCreateLot, useCrops, useFarmers, useLots, useRelayCapacity } from '@/hooks/useTrade';
 import { ErrorNote, Field, LoadState, Select, SubmitButton, TradePage, VerificationPill, formValues, kg } from '@/components/trade/TradeUi';
 import { HonestEmpty } from '@/components/WorkspacePrimitives';
+import { ContactConsentPanel } from '@/components/trade/ContactConsentPanel';
 
 export function SuppliersWorkspace() {
   const farmers = useFarmers();
@@ -59,6 +60,7 @@ export function SuppliersWorkspace() {
             </ul>
           </LoadState>
         </section>
+        <ContactConsentPanel farmers={farmers.data ?? []} />
         <section aria-labelledby="lots-list" className="operational-panel p-5">
           <h2 id="lots-list" className="text-base font-semibold">Production lots</h2>
           <LoadState query={lots} empty={<HonestEmpty title="No production recorded" detail="Record a farmer's declared lot to make it available for orders." />}>

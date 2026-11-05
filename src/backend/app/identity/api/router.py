@@ -167,6 +167,9 @@ def profile(context: AuthorizationContext = Depends(get_authorization_context),
     return {
         "id": str(user.id), "email": user.email, "name": user.display_name,
         "active_organization_id": str(context.organization_id), "active_role": context.role.value,
+        # What the active membership may do (R1 WP5, M1): the workspace hides actions the server would refuse.
+        # Display only; every route still checks its own permission.
+        "permissions": sorted(permission.value for permission in context.permissions),
         "active_farmer_id": str(context.farmer_id) if context.farmer_id else None,
         "active_buyer_id": str(context.buyer_id) if context.buyer_id else None,
         "organizations": [{"id": str(org.id), "name": org.name, "role": member.role_code.value,

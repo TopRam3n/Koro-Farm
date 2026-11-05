@@ -255,6 +255,15 @@ def get_stock_ledger(session: Session = Depends(get_session), context: Authoriza
     return {"balanced": not found, "mismatches": found}
 
 
+@router.get("/fulfilment-overview", dependencies=[Depends(require_permission(PermissionCode.REQUIREMENT_VIEW))])
+def get_fulfilment_overview(session: Session = Depends(get_session),
+                            context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    """Work across this organization's open orders: today's receipts, grading, shipments, deliveries awaiting the
+    buyer, flagged event times, disputes, reviews and orders ready to close (R1 WP5, M1). Read-only."""
+    from src.backend.app.reconciliation.application.overview import fulfilment_overview
+    return fulfilment_overview(session, context.organization_id)
+
+
 def _delivery_view(session: Session, delivery: Delivery) -> dict:
     statements = session.scalars(select(BuyerConfirmation).where(BuyerConfirmation.delivery_id == delivery.id)
                                  .order_by(BuyerConfirmation.created_at)).all()
@@ -393,6 +402,45 @@ def buyer_deliveries(session: Session = Depends(get_session), context: Authoriza
                            .order_by(Delivery.delivered_at.desc())).all()
     return [{**_delivery_view(session, delivery), "order": f"{str(requirement.crop).replace('_', ' ')}, {requirement.required_quantity_kg} kg",
              "requirement_id": str(requirement.id), "shipment_reference": shipment.reference} for delivery, shipment, requirement in rows]
+
+
+def _portal(fn):
+    from src.backend.app.reconciliation.application.buyer_portal import NotYours
+    try:
+        return fn()
+    except NotYours as exc:
+        raise HTTPException(404, "order not found") from exc
+
+
+@buyer_router.get("/orders", dependencies=[Depends(require_permission(PermissionCode.DELIVERY_CONFIRM_OWN))])
+def buyer_orders(session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> list[dict]:
+    """The buyer's own orders with delivered, self-confirmed, staff-relayed, disputed and outstanding quantities apart."""
+    from src.backend.app.reconciliation.application.buyer_portal import list_orders
+    return list_orders(session, context)
+
+
+@buyer_router.get("/orders/{requirement_id}", dependencies=[Depends(require_permission(PermissionCode.DELIVERY_CONFIRM_OWN))])
+def buyer_order_detail(requirement_id: UUID, session: Session = Depends(get_session),
+                       context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    from src.backend.app.reconciliation.application.buyer_portal import order_detail
+    return _portal(lambda: order_detail(session, context, requirement_id))
+
+
+@buyer_router.get("/orders/{requirement_id}/delivery-record",
+                  dependencies=[Depends(require_permission(PermissionCode.DELIVERY_CONFIRM_OWN))])
+def buyer_delivery_record(requirement_id: UUID, format: str = "csv", session: Session = Depends(get_session),
+                          context: AuthorizationContext = Depends(get_authorization_context)):
+    """Download every delivery and every confirmation statement with its source, as CSV (default) or JSON."""
+    from fastapi.responses import Response
+    from src.backend.app.reconciliation.application.buyer_portal import delivery_record, delivery_record_csv
+    if format not in ("csv", "json"):
+        raise HTTPException(422, "format must be csv or json")
+    record = _portal(lambda: delivery_record(session, context, requirement_id))
+    if format == "json":
+        return record
+    filename = f"korofarm-delivery-record-{requirement_id}.csv"
+    return Response(delivery_record_csv(record), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
 
 
 @buyer_router.post("/deliveries/{delivery_id}/confirmation")

@@ -27,7 +27,8 @@ const farmerGroups: readonly NavGroup[] = [
 ];
 
 const buyerGroups: readonly NavGroup[] = [
-  { label: 'Shop', items: [['Available produce', '/marketplace', ShoppingBasket], ['My orders', '/marketplace#orders', ClipboardCheck], ['Food alerts', '/marketplace#alerts', Bell], ['My deliveries', '/deliveries', PackageCheck]] },
+  { label: 'My orders', items: [['Orders and deliveries', '/buyer', PackageCheck]] },
+  { label: 'Shop', items: [['Available produce', '/marketplace', ShoppingBasket], ['Marketplace orders', '/marketplace#orders', ClipboardCheck], ['Food alerts', '/marketplace#alerts', Bell], ['My deliveries', '/deliveries', PackageCheck]] },
   { label: 'Account', items: [['Profile', '/profile', UserRoundCog]] },
 ];
 

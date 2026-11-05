@@ -131,6 +131,11 @@ def _org_of_reconciliation(record_id) -> Select:
 
 
 # Kind -> ownership query. Path parameters use the same names with an ``_id`` suffix.
+def _org_of_notification(notification_id) -> Select:
+    from src.backend.app.notifications.domain.models import Notification
+    return select(Notification.organization_id).where(Notification.id == notification_id)
+
+
 RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "buyer": _org_of_buyer,
     "requirement": _org_of_requirement,
@@ -152,6 +157,7 @@ RESOLVERS: dict[str, Callable[[UUID], Select]] = {
     "delivery": _org_of_delivery,
     "dispute": _org_of_dispute,
     "reconciliation": _org_of_reconciliation,
+    "notification": _org_of_notification,
 }
 
 

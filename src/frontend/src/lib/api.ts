@@ -68,3 +68,29 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     throw new ApiError('API returned an invalid JSON response', response.status);
   }
 }
+
+/** Download a file the API produces for the signed-in user (for example a delivery record CSV). The bearer token
+ *  goes in a header, never in the URL, so the file is fetched and handed to the browser as a local blob. */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  const organizationId = selectedOrganizationId() ?? process.env.NEXT_PUBLIC_ORGANIZATION_ID ?? null;
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(organizationId ? { 'X-Organization-ID': organizationId } : {}) },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(describe(body?.detail, response.status), response.status, body?.detail ?? null);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  try {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+}

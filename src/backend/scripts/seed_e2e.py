@@ -28,6 +28,7 @@ ACCOUNTS = [
     ("farmer_a", "A", RoleCode.FARMER, "Fiona Grant"),
     ("warehouse_a", "A", RoleCode.WAREHOUSE_OPERATOR, "Wesley Brown"),
     ("buyer_a", "A", RoleCode.BUYER, "Bianca Lewis"),
+    ("auditor_a", "A", RoleCode.AUDITOR, "Audrey Clarke"),  # WP5 M1: read and flag only
 ]
 FARMER_PARISH = "St. Ann"
 

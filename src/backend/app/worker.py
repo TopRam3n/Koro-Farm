@@ -41,6 +41,8 @@ from src.backend.app.assurance.application.exceptions import (
 )
 from src.backend.app.assurance.application.operations import operational_status, record_heartbeat
 from src.backend.app.assurance.domain.models import OutboxMessage
+from src.backend.app.notifications.application.providers import configured_provider
+from src.backend.app.notifications.application.service import dispatch_due, on_event as notify_on_event
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.supply.application.ledger import check_ledger
 from src.backend.app.supply.application.lot_timers import (
@@ -64,6 +66,13 @@ def _handle(session: Session, message: OutboxMessage) -> None:
             reevaluate_lot(session, allocation.production_lot_id, message.event_id)
     # Exceptions open or join the order's recovery task; other order events wake it.
     on_event(session, message)
+    # Notifications the event calls for (R1 WP5, M3), in a savepoint so a notification defect cannot undo or retry
+    # the supply-exception and recovery handling above. A failure is logged; the event itself is still processed.
+    try:
+        with session.begin_nested():
+            notify_on_event(session, message)
+    except Exception:  # noqa: BLE001
+        log.exception("notification for outbox message %s (%s) could not be recorded", message.id, message.topic)
 
 
 def process_next_message(factory: sessionmaker[Session], now: datetime | None = None) -> bool:
@@ -159,6 +168,12 @@ def run_ledger_check(factory: sessionmaker[Session], now: datetime, force: bool 
     return len(found)
 
 
+def run_notifications(factory: sessionmaker[Session], now: datetime | None = None) -> dict:
+    """Send due notifications through the configured provider (none by default; never a real one in R1)."""
+    with factory() as session, session.begin():
+        return dispatch_due(session, configured_provider(), now)
+
+
 def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_messages: int = 500,
              decider: Decider | None = None) -> dict:
     processed = 0
@@ -169,10 +184,11 @@ def run_once(factory: sessionmaker[Session], now: datetime | None = None, max_me
     while processed < max_messages and process_next_message(factory, now):
         processed += 1
     advanced = advance_due(factory, now, decider)
+    notifications = run_notifications(factory, now)
     # Drain what recovery just recorded, so a tick leaves nothing of its own pending.
     while processed < max_messages and process_next_message(factory, now):
         processed += 1
-    return {"messages": processed, **timers, "recovery_tasks": advanced}
+    return {"messages": processed, **timers, "recovery_tasks": advanced, "notifications": notifications}
 
 
 def beat(factory: sessionmaker[Session], worker_id: str, started_at: datetime, tick: dict,

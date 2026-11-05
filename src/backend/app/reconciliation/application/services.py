@@ -100,8 +100,14 @@ def delivered_kg(session: Session, delivery: Delivery) -> Decimal:
 
 
 def current_confirmation(session: Session, delivery_id: UUID) -> BuyerConfirmation | None:
-    """The buyer's latest statement about a delivery (a later one supersedes earlier ones)."""
-    return session.scalar(select(BuyerConfirmation).where(BuyerConfirmation.delivery_id == delivery_id)
+    """The buyer's latest statement about a delivery (a later one supersedes earlier ones).
+
+    The statement no other statement supersedes, so two statements recorded within the same clock tick (SQLite keeps
+    whole seconds) cannot swap places; time order only breaks ties between legacy rows without a supersedes link."""
+    superseded = select(BuyerConfirmation.supersedes_id).where(BuyerConfirmation.delivery_id == delivery_id,
+                                                               BuyerConfirmation.supersedes_id.is_not(None))
+    return session.scalar(select(BuyerConfirmation).where(BuyerConfirmation.delivery_id == delivery_id,
+                                                          BuyerConfirmation.id.not_in(superseded))
                           .order_by(BuyerConfirmation.created_at.desc(), BuyerConfirmation.id.desc()).limit(1))
 
 
