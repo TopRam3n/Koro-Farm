@@ -277,6 +277,8 @@ def test_alembic_accepts_url_encoded_passwords(fresh_database_url, monkeypatch) 
     with admin.connect() as connection:
         connection.execute(text(f"create role {name} login password 'p@ss%word'"))
         connection.execute(text(f"grant all on schema public to {name}"))
+        # A migration role also needs CREATE on the database for 0029's agri schema.
+        connection.execute(text(f'grant create on database "{fresh_database_url.database}" to {name}'))
     user_engine = None
     try:
         url = fresh_database_url.set(username=name, password="p@ss%word")

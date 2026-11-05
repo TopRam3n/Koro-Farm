@@ -79,6 +79,20 @@ Monitoring never assumes the worker is running. Each tick records a heartbeat.
 - `python -m src.backend.scripts.release_audit` lists reservations that should no longer be held (dry run). `--apply` needs the reviewed report, a reason, an approval reference and a backup reference. Never run it on a shared database without approval.
 - Details: `docs/product/R1_WP4_REPORT.md`.
 
+## Role-aware workspace, buyer portal and notifications (R1 WP5)
+
+- `GET /me` returns the active membership's `permissions`. The order page offers only the actions the role may take and leaves out sections it cannot read. The server still enforces every action.
+- The Fulfilment Center (`/fulfilment`, `GET /fulfilment-overview`) lists work across open orders. It marks each queue as actionable or for information according to the viewer's permissions.
+- Buyers use `/buyer`: `GET /buyer/orders`, `/buyer/orders/{id}` and `/buyer/orders/{id}/delivery-record` (CSV or JSON). Their own confirmations and staff relays are always shown apart.
+- Notifications come from outbox events and only with recorded consent to be contacted (`/farmers/{id}/contact-consents`, `GET /notifications`).
+  - `NOTIFICATION_PROVIDER` is `none` (default) or `synthetic`. **No messaging provider is connected; nothing is sent.**
+  - Contract: `docs/integrations/MESSAGING.md`.
+- Agricultural statistics live in the separate `agri` schema (migration 0029).
+  - Offline import, dry run by default: `python -m src.backend.scripts.agri_import reference|observations|faostat FILE`.
+  - Specification: `docs/integrations/AGRICULTURAL_DATA.md`.
+  - Forecasting baselines and the evidence-grounded answer checks: `docs/integrations/ML_AND_LLM.md`.
+- Details: `docs/product/R1_WP5_HANDOFF.md`. The order of external connections after WP5: `docs/product/AFTER_WP5_INTEGRATION_CHECKLIST.md`.
+
 ## Current planning endpoints
 
 - `POST /requirements/{id}/plan` creates one immutable initial plan. It reserves exactly the required committed quantity where possible, then a 20% standby target. A second initial plan request returns `409` rather than double allocating lots.

@@ -19,6 +19,8 @@ Access: nothing in `agri` is granted to PUBLIC or to Supabase's client roles (an
 usage on the schema is revoked from them. Supabase's Data API only serves the schemas configured for it (KoroFarm
 switches it off), and this schema is never one of them. A read-only analytics role is a separate, reviewed step
 (deploy/sql/agri_readonly_role.sql), not part of this migration.
+The migration role needs CREATE on the database (Supabase's postgres role has it); without it the migration stops
+with that explanation before changing anything.
 Downgrade drops the schema only when it holds no observations, so data is never destroyed by a downgrade.
 """
 from typing import Sequence, Union
@@ -29,6 +31,17 @@ revision: str = "0029_agricultural_intelligence"
 down_revision: Union[str, None] = "0028_notifications_consent"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+PRIVILEGE_CHECK = """
+do $$
+begin
+    if not exists (select 1 from pg_namespace where nspname = 'agri')
+       and not has_database_privilege(current_database(), 'CREATE') then
+        raise exception 'migration 0029 creates the agri schema: the migration role needs CREATE on database % (GRANT CREATE ON DATABASE ... TO <migration role>)', current_database();
+    end if;
+end
+$$;
+"""
 
 SCHEMA_SQL = r"""
 create schema if not exists agri;
@@ -401,6 +414,7 @@ drop schema agri cascade;
 def upgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         return
+    op.execute(PRIVILEGE_CHECK)
     op.execute(SCHEMA_SQL)
     op.execute(CLIENT_ROLES_SQL)
 

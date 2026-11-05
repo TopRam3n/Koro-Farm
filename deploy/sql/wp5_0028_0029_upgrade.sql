@@ -102,6 +102,15 @@ UPDATE alembic_version SET version_num='0028_notifications_consent' WHERE alembi
 
 -- Running upgrade 0028_notifications_consent -> 0029_agricultural_intelligence
 
+do $$
+begin
+    if not exists (select 1 from pg_namespace where nspname = 'agri')
+       and not has_database_privilege(current_database(), 'CREATE') then
+        raise exception 'migration 0029 creates the agri schema: the migration role needs CREATE on database % (GRANT CREATE ON DATABASE ... TO <migration role>)', current_database();
+    end if;
+end
+$$;;
+
 create schema if not exists agri;
 comment on schema agri is 'KoroFarm agricultural intelligence: public statistics, provenance and forecasts. Separate from operational trade data.';
 

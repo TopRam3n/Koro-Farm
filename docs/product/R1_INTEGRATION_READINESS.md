@@ -1,6 +1,6 @@
 # R1 — Integration readiness
 
-**Updated:** 4 November 2026 (security review amendments), branch `feat/r1-staging-infrastructure`.
+**Updated:** 5 November 2026 (WP5 and offline integration preparation), branch `feat/r1-wp5`.
 
 **Statuses:**
 
@@ -39,9 +39,14 @@
 | 17 | Nebius Token Factory (synthetic evaluation) | AWAITING PRODUCT OWNER | Key in a local file; turn on Zero Data Retention (guide §5) |
 | 18 | Anthropic adapter | NOT STARTED | Present and disabled; no decision requested |
 | 19 | Email delivery for Auth (SMTP) | NOT STARTED | Only if email sign-up or reset is needed at scale |
-| 20 | External messaging: SMS, WhatsApp, email (WP5 M3) | NOT STARTED | Channel decision (WP5) |
-| 21 | Agricultural data sources, government, institutional partners | NOT STARTED | Ingestion API is the foundation (plan §10) |
+| 20 | External messaging: SMS, WhatsApp, email (WP5 M3) | PREPARED (foundation) / AWAITING PRODUCT OWNER (provider) | Channel, provider, consent wording (docs/integrations/MESSAGING.md) |
+| 21 | Agricultural data sources, government, institutional partners | PREPARED (schema, importer) | See rows 23–25 |
 | 22 | GitHub Actions CI | VERIFIED | Runs on every push |
+| 23 | Agricultural intelligence schema `agri` (migration 0029) | PREPARED | Install with the other migrations (checklist §2) |
+| 24 | Ministry of Agriculture (AMID) statistics | AWAITING PRODUCT OWNER | Written permission: the site says "All Rights Reserved" (docs/integrations/AGRICULTURAL_DATA.md §8) |
+| 25 | FAOSTAT statistics | AWAITING PRODUCT OWNER | Confirm CC BY 4.0 and attribution; verify FAO codes against a real download |
+| 26 | Evidence-grounded agricultural answers (LLM) | PREPARED (interfaces, gates) / NOT STARTED (connectivity) | Model gate, licence approval, AGRI_LLM_ENABLED (docs/integrations/ML_AND_LLM.md) |
+| 27 | Tristan's existing database | NOT STARTED (untouched) | Read-only assessment needs separate authorization (docs/integrations/LEGACY_DATABASE.md) |
 
 ## Details and evidence
 
@@ -274,6 +279,36 @@ Central log shipping is not started; the uptime alert comes first.
 **Recommendation:** switch on Zero Data Retention before any evaluation run.
 
 **Not yet:** any call. No key is configured.
+
+### 23–27. WP5 integration preparation
+
+**Evidence (all local; nothing contacted a real service):**
+- **Row 23:** `test_agriculture_postgres.py`:
+  - the schema matches the mapping;
+  - client roles hold no usage or privilege on `agri`;
+  - one current revision per figure;
+  - a downgrade refuses to drop ingested data.
+
+  The reviewed SQL `deploy/sql/wp5_0028_0029_upgrade.sql` was applied with `psql` to a disposable database at 0027:
+  revision 0029, and `data_api_grants` PASS.
+- **Rows 24 and 25:** the importer with synthetic files:
+  - dry run first;
+  - licence gate (`--apply` refused for `PERMISSION_REQUIRED` and `NOT_REVIEWED`);
+  - idempotent per file hash;
+  - revisions and outlier warnings;
+  - FAOSTAT rows mapped only through verified codes.
+- **Row 26:** `test_agri_intelligence.py`:
+  - grounded answers accepted;
+  - invented figures, unknown citations and uncited numbers rejected;
+  - every gate refuses, and no call is made in production, in staging without approval, without
+    `AGRI_LLM_ENABLED`, without approved licences, for operational data, or over budget.
+- **Row 20:** `test_wp5.py`:
+  - no message without consent;
+  - withdrawal stops queued messages;
+  - retries then FAILED;
+  - the disabled provider sends nothing;
+  - agent events never message;
+  - `synthetic` refused in production.
 
 ### 18–21. NOT STARTED
 

@@ -30,6 +30,11 @@ x-backend-env: &backend-env
   MINIMAX_MODEL: ${MINIMAX_MODEL:-}
   NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
   NEBIUS_MODEL: ${NEBIUS_MODEL:-}
+  # Outbound notifications (R1 WP5, M3): none unless set; no real messaging provider exists yet.
+  NOTIFICATION_PROVIDER: ${NOTIFICATION_PROVIDER:-none}
+  # Agricultural evidence-grounded answers: off unless set and the model gate above also allows it.
+  AGRI_LLM_ENABLED: ${AGRI_LLM_ENABLED:-false}
+  AGRI_LLM_MAX_INPUT_TOKENS: ${AGRI_LLM_MAX_INPUT_TOKENS:-6000}
 
 services:
   caddy:

@@ -1,4 +1,10 @@
-# R1 — WP5 scope proposal (for review; no implementation started)
+# R1 — WP5 scope proposal
+
+> **Update, 5 November 2026: M1, M2 and M3 implemented** under the product owner's revised authorization ("Complete
+> WP5 and prepare integrations offline"). See [R1_WP5_HANDOFF.md](R1_WP5_HANDOFF.md).
+> - M3 was built provider-independent, with consent, templates, delivery status and synthetic/disabled providers only.
+>   The channel and provider decision is still open, and no message is sent.
+> - M4–M7 remain deferred; their code and documentation are unchanged.
 
 > **Update, 3 November 2026: priority instruction.** The staging baseline comes first
 > ([R1_INFRASTRUCTURE_PLAN.md](R1_INFRASTRUCTURE_PLAN.md)).

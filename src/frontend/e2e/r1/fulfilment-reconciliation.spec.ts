@@ -153,7 +153,8 @@ test.describe.serial('WP4 fulfilment, buyer confirmation and close-out', () => {
     // Sections the role cannot read are absent, not refusals (technical-debt item 20).
     await expect(page.getByRole('heading', { name: 'Needs attention' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Recovery' })).toHaveCount(0);
-    await expect(page.getByRole('alert')).toHaveCount(0);
+    // (Next.js keeps an empty route-announcer alert on every page; only refusal messages matter here.)
+    await expect(page.getByRole('alert').filter({ hasText: /permission|access|denied|forbidden|not allowed/i })).toHaveCount(0);
     await page.goto('/fulfilment');
     const awaiting = page.locator('[data-queue="awaiting_buyer_confirmation"]');
     await expect(awaiting).toContainText(`Shipment ${reference}`);
