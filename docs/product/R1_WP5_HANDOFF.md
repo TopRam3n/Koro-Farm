@@ -162,7 +162,7 @@ All local runs on 5 November 2026.
 | Frontend unit (Vitest) | 57 passed; lint and typecheck clean |
 | R1 browser E2E: production build, real API, worker and PostgreSQL, test-only auth stand-in | **30 passed**: the 27 existing tests plus WP5 auditor, buyer portal and outbound messages, and new role assertions inside the WP4 story |
 | Reviewed SQL artifact | Regenerated after the fix and applied with `psql`: revision 0029, row-level security on, 20 `agri` tables, `data_api_grants` PASS |
-| CI on GitHub | `CI_RESULT` |
+| CI on GitHub | **Passed, both jobs** on `e1fa5b8` ([run 42068301028](https://github.com/TopRam3n/Koro-Farm/actions/runs/42068301028)):<br>• `verify`: backend on PostgreSQL, frontend checks, browser E2E;<br>• `container-images`: images built and the staging rules checked in them |
 
 These are local and CI runs: **they do not verify any connection to Supabase, a hosting provider, a messaging
 provider, a model provider, the Ministry or FAOSTAT.**
