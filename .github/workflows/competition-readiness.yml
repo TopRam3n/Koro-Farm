@@ -132,6 +132,9 @@ jobs:
           docker run --rm -e APP_ENV=staging -e SUPABASE_URL=$PLACEHOLDER_SUPABASE -e SUPABASE_PUBLISHABLE_KEY=x \
             -e DATABASE_URL=$STAGE_DB -e AGENT_MODEL_PROVIDER=nebius \
             korofarm-backend:ci python -c "import src.backend.app.main"; [ $? -ne 0 ] || exit 1
+          docker run --rm -e APP_ENV=staging -e SUPABASE_URL=$PLACEHOLDER_SUPABASE -e SUPABASE_PUBLISHABLE_KEY=x \
+            -e DATABASE_URL=$STAGE_DB -e AUTH_SESSION_VERIFICATION=remote \
+            korofarm-backend:ci python -c "import src.backend.app.main"; [ $? -ne 0 ] || exit 1
           echo "unsafe configurations refused"
       - name: Migrations, API and supervised worker run from the image
         run: |
@@ -147,6 +150,7 @@ jobs:
           curl --fail -s http://127.0.0.1:8000/health
           curl --fail -s http://127.0.0.1:8000/health/worker
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/me)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer not-a-jwt' http://127.0.0.1:8000/me)" = "401"
           docker run --rm $COMMON korofarm-backend:ci python -m src.backend.scripts.check_staging --api-url http://127.0.0.1:8000 || true
           # Supervision: crash the worker process (SIGKILL from inside, as an OOM kill would); Docker restarts the
           # container and monitoring recovers. (`docker kill` would count as a deliberate stop and suppress restarts.)

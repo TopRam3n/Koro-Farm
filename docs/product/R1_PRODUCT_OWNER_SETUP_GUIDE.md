@@ -58,7 +58,7 @@ I found no sign of one, so the plan treats staging as a new, empty database.
 
 ### 1.3 Switch off the Data API
 
-**Why:** KoroFarm talks to its database only through its own API. Supabase's Data API would otherwise publish tables over HTTPS to anyone holding the public key. Migration 0026 also locks this down, but both layers should be in place.
+**Why:** KoroFarm talks to its database only through its own API. Supabase's Data API would otherwise publish tables over HTTPS to anyone holding the public key. Migrations 0026 and 0027 also lock this down in the database, but both layers must be in place. §1.11 explains how each is verified.
 
 1. In the project's **Data API** settings (under Integrations or Project Settings, depending on dashboard version):
    - turn **Enable Data API** off;
@@ -77,6 +77,14 @@ I found no sign of one, so the plan treats staging as a new, empty database.
 **Authentication > URL Configuration:**
 - **Site URL:** `https://staging.<your-domain>`. Use a placeholder until the domain exists, and update it later.
 - **Redirect URLs:** the same address only. Don't add localhost to the staging project.
+
+**Project Settings > JWT Keys** (called *JWT Signing Keys* in some dashboard versions):
+- **Why:** the API verifies each sign-in token against the project's published public key, then checks that the session behind it still exists, so a signed-out token is refused immediately. That needs an asymmetric signing key; the API never uses the legacy shared JWT secret.
+- **Expected:** the **Current key** is an **ECC (P-256)** key (ES256). RSA is also accepted.
+- **If the current key is the "Legacy JWT secret":**
+  1. click **Migrate JWT secret**;
+  2. then **Rotate keys**, so the ECC key becomes current. Nothing is deployed yet, so nobody is signed out.
+- Leave **Access token expiry** at the default (3600 seconds). Don't copy any secret from this page.
 
 ### 1.5 Create the three test users
 
@@ -157,8 +165,13 @@ python -m src.backend.scripts.with_env src/backend/.env.staging.local -- python 
 | `database` | PASS (PostgreSQL 17, session pooler or direct) | |
 | `database_tls` | PASS | |
 | `migrations` | **FAIL**: "no alembic_version table; run the migrations" | Correct: nothing is installed yet |
-| `data_api_http` | PASS, or WARN if the Data API is still on | |
+| `data_api_grants` | **FAIL**: "default privileges would expose new objects (postgres:tables->anon …)" | Correct: Supabase's default grants are still in place; migrations 0026 and 0027 remove them |
+| `auth_session_store` | PASS | The API can read Supabase's session records (`auth.sessions`) |
+| `data_api_http` | PASS: "Data API switched off" | Any FAIL means it is still on or the answer was not understood (§1.11) |
 | `auth_settings` | PASS, or WARN if sign-up is open or confirmation is off | |
+| `auth_signing_keys` | PASS: "1 asymmetric signing key(s) (ES256)" | FAIL means the project still signs with the legacy secret (§1.4) |
+
+**About `data_api_grants`:** to prove that tables created later would also be protected, it creates a table, view, sequence and function inside a transaction and always rolls it back. Nothing is left behind (tested).
 
 Send me that output. It contains no secrets.
 
@@ -176,9 +189,43 @@ python -m src.backend.scripts.with_env src/backend/.env.staging.local -- python 
 ```
 
 **What success looks like:**
-- Alembic ends at `0026_supabase_data_api_lockdown`.
+- Alembic ends at `0027_supabase_data_api_hardening`.
 - The provisioning dry run lists 2 organizations, 3 accounts and 3 memberships to create; `--apply` prints `applied`.
-- The final check shows `migrations` PASS and `data_api_grants` PASS ("roles anon, authenticated, service_role hold no privilege; every table has RLS").
+- The final check shows:
+  - `migrations` PASS;
+  - `data_api_grants` PASS ("roles anon, authenticated, service_role hold no privilege, now or on new objects (probe as postgres); every table has RLS");
+  - `auth_session_store`, `data_api_http` and `auth_signing_keys` PASS.
+
+### 1.11 Verifying that the Data API is closed
+
+Three independent proofs are needed; none of them is enough alone.
+
+| Proof | How | Passes when |
+|---|---|---|
+| 1. Dashboard | §1.3 | **Enable Data API** is off |
+| 2. HTTP | `check_staging`'s `data_api_http` | PASS: "Data API switched off (only pg_pgrst_no_exposed_schemas is exposed)" |
+| 3. Database | `check_staging`'s `data_api_grants`, after the migrations | PASS, including "now or on new objects" |
+
+**What the HTTP check does:**
+- It sends the publishable key only in the `apikey` header, as a browser would; never as a bearer token, because it is not a token.
+- It first confirms Supabase accepts the key (a request to Auth settings). If the key is rejected, the result is "inconclusive", never PASS.
+- It passes only when the answer names `pg_pgrst_no_exposed_schemas`. Supabase documents that it serves only that placeholder schema when the Data API is off.
+
+**What the check's FAIL answers mean:**
+
+| Answer | Meaning |
+|---|---|
+| "permission denied" | The Data API is on, and migrations 0026 and 0027 are blocking the table. Still a FAIL: switch it off |
+| "authentication failure" or "inconclusive" | Nothing was learned about the tables. Check the key |
+| "unrecognized answer" | Send me the line, which contains no secrets. I confirmed the placeholder schema's name from Supabase's documentation, but not the exact HTTP status a project returns, so this first real check settles it |
+
+**Manual cross-check** (the publishable key is public, so this is safe):
+
+```text
+curl -s -H "apikey: <publishable key>" "https://<ref>.supabase.co/rest/v1/organizations?select=id&limit=1"
+```
+
+The body should mention `pg_pgrst_no_exposed_schemas`. It must never be a list (`[]` or rows).
 
 ### 1.10 Backups
 

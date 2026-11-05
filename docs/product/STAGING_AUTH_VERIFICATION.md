@@ -17,15 +17,18 @@ covers that gap against a staging deployment.
 | 4 | Cross-organization access | A same-organization colleague can read the order (control). A user from another organization sees "requirement not found" in the UI, gets 404 from the API, and gets 403 or 404 when sending organization A's id in `X-Organization-ID` |
 | 5 | Sign-out | Returns to `/login`; the stored session is cleared; protected pages redirect to `/login`; the access token issued before sign-out is refused by the API with 401 |
 
-Check 5 depends on Supabase rejecting a signed-out session's access token at `GET /auth/v1/user`, which the API
-calls on every request (`src/backend/app/core/auth.py`). If that check fails, do not deploy: the API would accept
-a signed-out token until it expires, and the backend needs local session checks before release.
+Check 5 no longer depends on Supabase rejecting the token at `GET /auth/v1/user`. In staging the API verifies the
+token against the project's signing keys, then requires the token's `auth.sessions` row, which Supabase deletes on
+sign-out (`src/backend/app/core/auth.py`; infrastructure plan §8b). PostgreSQL tests prove the API refuses the token
+once the row is gone (`tests/test_session_auth.py`). This check proves that real Supabase deletes the row and the
+deployed API refuses the token. It remains the release gate: if it fails, do not deploy.
 
 ## Prerequisites
 
 1. A staging Supabase project (https, hosted; the spec refuses `localhost`), with email/password sign-in enabled.
 2. The staging API deployed with `APP_ENV=staging`, `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for that project,
-   `ALLOW_INSECURE_DEMO_AUTH` unset, and the supply-exception worker running.
+   `ALLOW_INSECURE_DEMO_AUTH` and `AUTH_SESSION_VERIFICATION` unset (staging always checks sessions in the database),
+   and the supply-exception worker running. The project signs tokens with an asymmetric key (setup guide §1.4).
 3. The staging frontend built with `NEXT_PUBLIC_APP_MODE=live` and the same Supabase project.
 4. Three Supabase users (created in the Supabase dashboard; [R1_PRODUCT_OWNER_SETUP_GUIDE.md](R1_PRODUCT_OWNER_SETUP_GUIDE.md)
    §1.5), each given an active KoroFarm membership with `python -m src.backend.scripts.provision_staging <plan.json>
@@ -36,7 +39,8 @@ a signed-out token until it expires, and the backend needs local session checks 
 5. One order (requirement) created in organization A: sign in as `coordinator_a` and create it in **Orders**. That
    also exercises the real app. Its id (from the order page's address) goes in `STAGING_ORG_A_ORDER_ID`.
 6. `python -m src.backend.scripts.check_staging --api-url … --frontend-origin …` passes. It is the configuration,
-   database, Data API, health, worker and CORS check, and it is not a substitute for this test.
+   database, Data API, session store, signing keys, health, worker and CORS check, and it is not a substitute for this
+   test.
 
 ## Run
 

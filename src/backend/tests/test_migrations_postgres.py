@@ -262,9 +262,10 @@ def test_data_api_lockdown_needs_the_supabase_roles(fresh_database_url) -> None:
     engine = create_engine(fresh_database_url)
     with engine.connect() as connection:
         absent = ("korofarm_absent_role_a", "korofarm_absent_role_b")
-        assert exposure_findings(connection, absent) == {
-            "applicable": False, "roles": [], "table_privileges": [], "sequence_privileges": [],
-            "function_privileges": [], "tables_without_rls": [], "default_privileges": [], "exposed": False}
+        findings = exposure_findings(connection, absent)
+        assert findings["applicable"] is False and findings["exposed"] is False and findings["roles"] == []
+        assert not any(findings[key] for key in ("table_privileges", "sequence_privileges", "function_privileges",
+                                                 "tables_without_rls", "default_privileges"))
         assert lockdown_statements(connection, absent) == []
     engine.dispose()
 
@@ -287,7 +288,7 @@ def test_alembic_accepts_url_encoded_passwords(fresh_database_url, monkeypatch) 
         command.upgrade(config, "head")
         user_engine = create_engine(url)
         with user_engine.connect() as connection:
-            assert connection.execute(text("select version_num from alembic_version")).scalar() == "0026_supabase_data_api_lockdown"
+            assert connection.execute(text("select version_num from alembic_version")).scalar() == "0027_supabase_data_api_hardening"
     finally:
         if user_engine is not None:
             user_engine.dispose()
@@ -351,3 +352,163 @@ def test_lockdown_can_be_reapplied_after_grants_reappear(fresh_database_url, mon
         assert connection.execute(text("select count(*) from roles")).scalar() == 8  # rows untouched
     assert data_api_lockdown.main(["--apply"], env={"APP_ENV": "production"}, engine=engine) == 2
     engine.dispose()
+
+
+
+def _migrate(url, monkeypatch, revision="head"):
+    monkeypatch.setenv("DATABASE_URL", url.render_as_string(hide_password=False))
+    config = Config(str(BACKEND / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND / "alembic"))
+    command.upgrade(config, revision)
+
+
+def _drop_roles(engine, *roles) -> None:
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        for role in roles:
+            if connection.execute(text("select 1 from pg_roles where rolname = :r"), {"r": role}).first():
+                connection.execute(text(f'drop owned by "{role}" cascade'))
+                connection.execute(text(f'drop role "{role}"'))
+
+
+def test_functions_executable_through_public_are_caught_and_closed_by_0027(fresh_database_url, monkeypatch) -> None:
+    """0026 revoked only direct grants. PostgreSQL gives every new function EXECUTE through PUBLIC, which the client
+    roles inherit; the checker must see it (existing function, default and probe) and 0027 must close it."""
+    from src.backend.app.infrastructure.database.data_api import exposure_findings
+    from src.backend.scripts import check_staging
+
+    _supabase_like_roles(fresh_database_url)
+    _migrate(fresh_database_url, monkeypatch, "0026_supabase_data_api_lockdown")
+    engine = create_engine(fresh_database_url)
+    with engine.begin() as connection:
+        connection.execute(text("create function public.kf_existing() returns integer language sql as 'select 1'"))
+    with engine.connect() as connection:
+        before = exposure_findings(connection)
+    assert {"object": "kf_existing()", "role": "anon", "via_public": True} in before["function_privileges"]
+    assert {"owner": make_url(POSTGRES_URL).username, "object_type": "f", "grantee": "PUBLIC", "role": "anon",
+            "source": "built-in default"} in before["default_privileges"]
+    assert {"object": "function", "role": "anon"} in before["future_objects"]["exposed"]
+    grants = check_staging.check_data_api_grants(engine)
+    assert grants.status == "FAIL" and "through PUBLIC" in grants.detail and "would be reachable" in grants.detail
+
+    _migrate(fresh_database_url, monkeypatch)
+    with engine.connect() as connection:
+        after = exposure_findings(connection)
+        assert not after["exposed"] and after["verified"], after
+    with engine.begin() as connection:
+        connection.execute(text("create function public.kf_later() returns integer language sql as 'select 2'"))
+        assert not connection.execute(text("select has_function_privilege('anon', 'public.kf_later()', 'EXECUTE')")).scalar()
+    assert check_staging.check_data_api_grants(engine).status == "PASS"
+    engine.dispose()
+
+
+def test_column_grants_and_grants_through_role_membership_are_effective_privileges(fresh_database_url, monkeypatch) -> None:
+    from src.backend.app.infrastructure.database.data_api import exposure_findings
+    from src.backend.scripts import check_staging
+
+    _supabase_like_roles(fresh_database_url)
+    _migrate(fresh_database_url, monkeypatch)
+    engine = create_engine(fresh_database_url)
+    intermediary = f"kf_intermediary_{uuid4().hex[:8]}"
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("grant select (name) on organizations to anon"))  # column-level only
+            assert not connection.execute(text("select has_table_privilege('anon', 'organizations', 'SELECT')")).scalar()
+        with engine.connect() as connection:
+            assert {"object": "organizations", "role": "anon"} in exposure_findings(connection)["table_privileges"]
+        assert check_staging.check_data_api_grants(engine).status == "FAIL"
+        with engine.begin() as connection:
+            connection.execute(text("revoke all on organizations from anon"))
+            connection.execute(text(f'create role "{intermediary}" nologin'))
+            connection.execute(text(f'grant select on farmers to "{intermediary}"'))
+            connection.execute(text(f'grant "{intermediary}" to authenticated'))
+        with engine.connect() as connection:
+            findings = exposure_findings(connection)
+        assert findings["table_privileges"] == [{"object": "farmers", "role": "authenticated"}]
+        assert check_staging.check_data_api_grants(engine).status == "FAIL"
+    finally:
+        _drop_roles(engine, intermediary)
+        engine.dispose()
+
+
+def test_default_privileges_for_new_objects_are_caught_by_the_catalog_and_the_probe(fresh_database_url, monkeypatch) -> None:
+    """Objects created later: a default grant reaching a client role through membership, and the default privileges of
+    another role that owns objects in public, which the lockdown (connected role only) cannot remove."""
+    from src.backend.app.infrastructure.database.data_api import exposure_findings, lockdown_statements
+    from src.backend.scripts import check_staging
+
+    _supabase_like_roles(fresh_database_url)
+    _migrate(fresh_database_url, monkeypatch)
+    engine = create_engine(fresh_database_url)
+    intermediary, other_owner = f"kf_intermediary_{uuid4().hex[:8]}", f"kf_other_owner_{uuid4().hex[:8]}"
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(f'create role "{intermediary}" nologin'))
+            connection.execute(text(f'grant "{intermediary}" to anon'))
+            connection.execute(text(f'alter default privileges in schema public grant select on tables to "{intermediary}"'))
+        with engine.connect() as connection:
+            findings = exposure_findings(connection)
+        assert not findings["table_privileges"]  # nothing reachable today ...
+        assert {"object": "table", "role": "anon"} in findings["future_objects"]["exposed"]  # ... but tomorrow
+        assert {"object": "view", "role": "anon"} in findings["future_objects"]["exposed"]
+        assert [row for row in findings["default_privileges"] if row["grantee"] == intermediary and row["role"] == "anon"]
+        grants = check_staging.check_data_api_grants(engine)
+        assert grants.status == "FAIL" and "a newly created table (anon)" in grants.detail
+        with engine.begin() as connection:
+            connection.execute(text(f'alter default privileges in schema public revoke select on tables from "{intermediary}"'))
+        assert check_staging.check_data_api_grants(engine).status == "PASS"
+
+        with engine.begin() as connection:
+            connection.execute(text(f'create role "{other_owner}" nologin'))
+            connection.execute(text("create table public.kf_foreign (id integer)"))
+            connection.execute(text("alter table public.kf_foreign enable row level security"))
+            connection.execute(text(f'alter table public.kf_foreign owner to "{other_owner}"'))
+            connection.execute(text(f'alter default privileges for role "{other_owner}" revoke execute on functions from public'))
+            connection.execute(text(f'alter default privileges for role "{other_owner}" in schema public grant select on tables to anon'))
+        with engine.begin() as connection:
+            for statement in lockdown_statements(connection):
+                connection.execute(text(statement))
+        with engine.connect() as connection:
+            findings = exposure_findings(connection)
+        assert {"owner": other_owner, "object_type": "r", "grantee": "anon", "role": "anon",
+                "source": "schema public"} in findings["default_privileges"]
+        assert {"object": "kf_foreign", "kind": "r", "owner": other_owner} in findings["objects_not_owned"]
+        assert check_staging.check_data_api_grants(engine).status == "FAIL"
+    finally:
+        _drop_roles(engine, intermediary, other_owner)
+        engine.dispose()
+
+
+def test_the_probe_leaves_nothing_behind_and_unverifiable_new_objects_fail(fresh_database_url, monkeypatch) -> None:
+    from src.backend.app.infrastructure.database.data_api import exposure_findings
+    from src.backend.scripts import check_staging
+
+    _supabase_like_roles(fresh_database_url)
+    _migrate(fresh_database_url, monkeypatch)
+    engine = create_engine(fresh_database_url)
+    count = text("select (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+                 "where n.nspname = 'public') + (select count(*) from pg_proc p join pg_namespace n "
+                 "on n.oid = p.pronamespace where n.nspname = 'public')")
+    with engine.connect() as connection:
+        before = connection.execute(count).scalar()
+        assert exposure_findings(connection)["future_objects"]["ran"]
+        assert connection.execute(count).scalar() == before
+    with engine.connect() as connection:
+        assert connection.execute(count).scalar() == before  # nothing committed either
+
+    reader = f"kf_reader_{uuid4().hex[:8]}"  # can read the catalog but cannot create in public
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(f'create role "{reader}" nologin'))
+            connection.execute(text(f'grant usage on schema public to "{reader}"'))
+            connection.execute(text(f'alter default privileges for role "{reader}" revoke execute on functions from public'))
+        as_reader = create_engine(fresh_database_url, connect_args={"options": f"-c role={reader}"})
+        with as_reader.connect() as connection:
+            assert connection.execute(text("select current_user")).scalar() == reader
+            future = exposure_findings(connection)["future_objects"]
+        assert future["ran"] is False and future["reason"]
+        grants = check_staging.check_data_api_grants(as_reader)
+        assert grants.status == "FAIL" and "could not be verified" in grants.detail
+        as_reader.dispose()
+    finally:
+        _drop_roles(engine, reader)
+        engine.dispose()

@@ -1,6 +1,6 @@
 # R1 — Integration readiness
 
-**Updated:** 3 November 2026, branch `feat/r1-staging-infrastructure`.
+**Updated:** 4 November 2026 (security review amendments), branch `feat/r1-staging-infrastructure`.
 
 **Statuses:**
 
@@ -23,8 +23,8 @@
 | 1 | Supabase project (staging) | AWAITING PRODUCT OWNER | Create the project (guide §1) |
 | 2 | Supabase PostgreSQL connection | PREPARED | Your connection string in a local gitignored file; run `check_staging` |
 | 3 | Alembic migrations on Supabase | PREPARED | Run after item 2, with your go-ahead |
-| 4 | Data API lockdown | PREPARED | Migration 0026, plus switching the Data API off (guide §1.3) |
-| 5 | Supabase Auth: sign-in, refresh, sign-out | PREPARED | Users created by you (guide §1.5) |
+| 4 | Data API lockdown | PREPARED | Migrations 0026 and 0027, switching the Data API off (guide §1.3), three-proof verification (guide §1.11) |
+| 5 | Supabase Auth: sign-in, refresh, sign-out (immediate revocation) | PREPARED | Asymmetric signing key and users (guide §1.4, §1.5) |
 | 6 | Staging provisioning (organizations, memberships) | PREPARED | Plan file with the user ids (guide §1.6) |
 | 7 | Cross-tenant verification on staging | PREPARED | `npm run test:staging-auth` after deployment |
 | 8 | Backup and restore | PREPARED | Rehearse against Supabase once it exists |
@@ -84,10 +84,28 @@ Creating a project is an account action that may incur cost (Pro plan). Instruct
 ### 4. Data API lockdown: PREPARED
 
 **Prepared:**
-- migration `0026_supabase_data_api_lockdown`;
+- migrations `0026_supabase_data_api_lockdown` and `0027_supabase_data_api_hardening`;
 - `app/infrastructure/database/data_api.py`, for findings and re-apply statements;
 - `scripts/data_api_lockdown.py`;
 - `check_staging`'s `data_api_grants` and `data_api_http` checks.
+
+**Security review amendment (4 November 2026):** both checks were corrected (infrastructure plan §8a).
+- **`data_api_http` could report PASS on an authentication failure.** It sent the publishable key as a bearer token and accepted any 401.
+  - **Now:** the key goes only in `apikey`, and a control request must prove Supabase accepts it.
+  - PASS requires Supabase's disabled-Data-API signature. Permission denied, not served, authentication failure and unrecognized answers all FAIL.
+- **The grant audit missed several paths:**
+  - `PUBLIC` function execution, column grants and grants through role membership;
+  - other owners' default privileges, and future objects.
+  - **Now:** it evaluates effective privileges, reads every relevant owner's default privileges, and runs a rolled-back probe. If the probe cannot run, the check FAILs.
+
+**Evidence (PostgreSQL 17, Supabase roles and default grants simulated):**
+- `test_functions_executable_through_public_are_caught_and_closed_by_0027`:
+  - at 0026, a function executable through `PUBLIC` is caught three ways: existing grant, built-in default and probe;
+  - after 0027: clean, and later functions get no `PUBLIC` grant.
+- `test_column_grants_and_grants_through_role_membership_are_effective_privileges`.
+- `test_default_privileges_for_new_objects_are_caught_by_the_catalog_and_the_probe`: covers a default grant reaching `anon` through membership, and another owner's default privileges, which the lockdown cannot remove and which stay FAIL.
+- `test_the_probe_leaves_nothing_behind_and_unverifiable_new_objects_fail`.
+- HTTP classification: `test_data_api_probe_*` in `test_staging_readiness.py`, 11 cases; no Authorization header is sent.
 
 **Evidence (local PostgreSQL 17, with Supabase's roles and default grants simulated):**
 - **Before 0026:** `anon` can reach `supply_allocations` and other tables.
@@ -100,13 +118,35 @@ Creating a project is an account action that may incur cost (Pro plan). Instruct
 
 **Not yet:**
 - run on Supabase;
-- the HTTP probe against the real REST endpoint;
+- the HTTP probe against the real REST endpoint. Supabase's disabled signature comes from its documentation and has not been observed yet;
 - the dashboard switch (guide §1.3).
 
 ### 5. Supabase Auth: PREPARED
 
-**Prepared:**
-- the API checks each bearer token with `GET /auth/v1/user` (`core/auth.py`);
+**Security review amendment (4 November 2026):** staging and production no longer rely on `GET /auth/v1/user`.
+- **Token:** verified locally against the project's published ES256/RS256 keys, checking issuer, audience, role, expiry, `sub` and `session_id`.
+- **Session:** the `auth.sessions` row must exist for that session and user, must not be past `not_after`, and the user must not be deleted or banned. Supabase deletes the row on sign-out.
+- **Outcomes:**
+  - invalid, expired or signed-out tokens get 401;
+  - unreadable keys or session records get 503;
+  - membership authorization is unchanged, so a non-member gets 403.
+- **Startup:** staging and production refuse `AUTH_SESSION_VERIFICATION=remote`.
+- Design: infrastructure plan §8b.
+
+**Evidence:**
+- `tests/test_session_auth.py`:
+  - 12 token and configuration tests: expiry, issuer, audience, role, missing session, forged, HS256, `none` and RSA downgrades, key caching, rotation and outage;
+  - on PostgreSQL with a simulated `auth` schema, through the real `/me` route:
+    - active session accepted;
+    - local sign-out refuses that token immediately while another device's session continues;
+    - global sign-out refuses all;
+    - expired token, session past `not_after`, banned or deleted user, missing session, borrowed session, forged token: 401;
+    - non-member and other organization: 403;
+    - unreadable session table or keys: 503.
+- CI checks the image refuses `remote` in staging and answers a malformed token with 401.
+- **These prove the API's behaviour, not Supabase's.**
+
+**Prepared (unchanged):**
 - the staging authentication spec covers wrong password, sign-in, refresh, cross-organization access and sign-out (`e2e/staging/auth.spec.ts`, `STAGING_AUTH_VERIFICATION.md`);
 - `check_staging`'s `auth_settings` check covers email sign-in, open sign-up and confirmation.
 
@@ -115,7 +155,9 @@ Creating a project is an account action that may incur cost (Pro plan). Instruct
 **Not yet:** any run against Supabase.
 - `src/frontend/artifacts/staging-auth-results/` is from a run without the staging variables. Every test was skipped, which is **not a pass**.
 
-**Open question for this check:** whether Supabase refuses a signed-out session's access token at `/auth/v1/user`. Check 5 answers it. If it fails, staging must not go further until the API checks sessions locally.
+**Answered in code:** the API now checks sessions locally, so check 5 no longer depends on `/auth/v1/user`. Check 5 stays the release gate. It proves against the real project that sign-out deletes the session row and that the deployed API refuses the old token.
+
+**Also unproven until the first real check:** whether the `postgres` role can read `auth.sessions` and `auth.users`. `check_staging`'s `auth_session_store` answers it.
 
 ### 6. Staging provisioning: PREPARED
 

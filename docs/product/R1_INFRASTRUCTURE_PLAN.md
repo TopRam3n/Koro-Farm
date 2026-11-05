@@ -39,7 +39,7 @@ It must not become a production service before it is approved as one.
      - Revokes every client-role privilege, now and for future tables.
      - Enables row-level security, with no policies, on every table. The backend connects as the table owner, which RLS does not restrict.
    - **Plus:** the setup guide switches the Data API off in the dashboard.
-   - **Checked by:** `check_staging` (grants, and an HTTP probe with the publishable key).
+   - **Checked by:** `check_staging` (grants, and an HTTP probe with the publishable key). See §8a, which corrects both checks after the security review.
 2. **Staging could have started against the development database.**
    - `DATABASE_URL` silently fell back to `korofarm:korofarm@localhost`.
    - Staging and production now refuse to start unless `DATABASE_URL` meets all of these:
@@ -142,8 +142,9 @@ I have not seen its specifications, so it is **not assumed suitable**. Please re
 | Environment templates (placeholders only) | `deploy/.env.example`, `src/backend/.env.example`, `src/frontend/.env.example` |
 | Fail-closed configuration: database URL, TLS, model approval | `app/core/config.py` |
 | Pooler-aware connections and pool settings | `app/infrastructure/database/session.py` |
-| Data API lockdown: migration, check, re-apply command | `alembic/versions/0026_…`, `data_api.py`, `scripts/data_api_lockdown.py` |
-| Read-only staging check (configuration, database, TLS, migrations, Data API, Auth settings, health, worker, CORS, model) | `scripts/check_staging.py` |
+| Data API lockdown: migrations, effective-privilege audit with a rolled-back future-object probe, re-apply command | `alembic/versions/0026_…`, `0027_…`, `data_api.py`, `scripts/data_api_lockdown.py` |
+| Bearer tokens verified locally against the project's signing keys, then the session checked in `auth.sessions` on every request | `app/core/auth.py` |
+| Read-only staging check (configuration, database, TLS, migrations, Data API grants and HTTP, session store, signing keys, Auth settings, health, worker, CORS, model) | `scripts/check_staging.py` |
 | Organization, account and membership provisioning (dry run by default; never resolves conflicts) | `scripts/provision_staging.py` |
 | Run a command with a gitignored env file, on PowerShell or bash | `scripts/with_env.py` |
 | CI job: builds both images, enforces the staging rules in the image, runs migrations, API and worker from the image, crashes the worker and checks Docker restarts it, checks images contain no env files | `.github/workflows/competition-readiness.yml`, job `container-images` |
@@ -246,10 +247,92 @@ python -m src.backend.scripts.check_staging               # migrations at head, 
   - kept in your password manager and in `deploy/.env` on the server (mode 600, gitignored);
   - the CI image check fails if an env file reaches an image;
   - Supabase's secret key is **not used** by KoroFarm and should not be copied anywhere.
-- **Known limitation (debt item 29):**
-  - The API checks each token with Supabase over HTTPS, which adds a round trip per request. It also means sign-out takes effect immediately, if Supabase refuses ended sessions (staging authentication check 5).
-  - Local JWT verification with Supabase's signing keys would remove the round trip. It is deferred until the staging measurements show whether it is needed.
+- **Sessions (debt item 29, resolved in the security review round):** the API no longer asks Supabase Auth about each token. It verifies the token locally and checks the session row in `auth.sessions` on every request, so sign-out takes effect immediately (§8b).
 - **Least privilege (debt item 30):** the backend connects as Supabase's `postgres` role, the table owner. A dedicated owner role with fewer powers is planned before production.
+
+## 8a. Data API verification (security review amendment, 4 November 2026)
+
+**What the review found, and what was wrong:**
+- **The HTTP probe could mistake an authentication failure for protection.**
+  - It sent the publishable key as a bearer token. That key is not a JWT, so Supabase may reject the request before it reaches the database.
+  - Any non-200 answer counted as PASS, and PostgREST answers both "permission denied" and "invalid key" with 401.
+- **The privilege audit had blind spots:**
+  - `EXECUTE` that every new function gets through `PUBLIC`, which 0026 did not revoke;
+  - column-level grants;
+  - default privileges granted to `PUBLIC` or to a role a client role belongs to;
+  - default privileges of roles other than the connected one;
+  - no direct test of what a newly created object would expose.
+
+**Fix:**
+
+| Layer | Now |
+|---|---|
+| Migration `0027` | Revokes `PUBLIC`'s `EXECUTE` on the migration role's functions in `public`. Adds the global default-privilege entry that stops new functions getting it (a schema-level entry cannot remove it). Revokes any global default privileges of the client roles |
+| `exposure_findings` | Effective privileges via `has_*_privilege`, so grants through `PUBLIC` and role membership count; column privileges; every privilege type. Default privileges of every role that owns objects in `public` plus the connected role, including the built-in `PUBLIC` function default. Objects not owned by the connected role. Client roles with `BYPASSRLS` (Supabase's `service_role`: for it, revoked grants are the only database-side control) |
+| Future-object probe | Creates a table, view, sequence and function inside a savepoint as the connected role, measures what each client role could do, and rolls back. If it cannot run (no `CREATE` on `public`), the check FAILs instead of passing |
+| `data_api_http` | Sends the key only in `apikey`. A control request to Auth must succeed first, otherwise the result is "inconclusive". PASS only on Supabase's disabled-Data-API signature (`pg_pgrst_no_exposed_schemas`). Permission denied, table not served, authentication failure and unrecognized answers all FAIL, each with its own message |
+
+**Verification procedure for the real project:** setup guide §1.11. It requires three independent proofs: the dashboard switch, `data_api_http` PASS and `data_api_grants` PASS.
+
+**Limits:**
+- **The disabled signature has not been seen yet.** It comes from Supabase's troubleshooting documentation, not from a real response; the exact HTTP status is not documented. If the first real check answers differently, it FAILs as "unrecognized", fail-safe, and the classifier gets adjusted to the observed answer.
+- **The probe reflects the connected role.** Run `check_staging` as the role that runs migrations (today both are `postgres`).
+- **Other roles' objects:** objects or default privileges owned by another role (for example `supabase_admin`) are reported but cannot be removed by the lockdown; they need that role.
+
+## 8b. Immediate sign-out revocation (security review amendment, 4 November 2026)
+
+**Problem:** Supabase documents that an access token can stay valid until it expires after sign-out. The staging authentication test (check 5) requires the API to refuse it immediately, and the API relied only on `GET /auth/v1/user`.
+
+**Design (`app/core/auth.py`), staging and production:**
+1. **Verify the token locally:**
+   - signature against the project's published keys (`/auth/v1/.well-known/jwks.json`), ES256 or RS256 only, never HS256 or `none`;
+   - issuer `{SUPABASE_URL}/auth/v1`; audience and role `authenticated`; not anonymous;
+   - unexpired, with 10 seconds of clock leeway;
+   - `sub` and `session_id` present and UUIDs.
+2. **Check the session:**
+   - its `auth.sessions` row exists for that `session_id` **and** that user;
+   - it has not passed `not_after`;
+   - the user is not deleted or banned.
+
+   Supabase deletes the row on sign-out (local, global and others scopes), and documents this check. The row is read on every request and never cached.
+
+**Results:**
+
+| Situation | Result |
+|---|---|
+| Active session, member of the organization | Accepted. Membership authorization then runs separately, unchanged |
+| Authenticated but not a member, or another organization's id | 403 from authorization. Authentication never decides tenancy |
+| Signed out, expired token, session past `not_after`, banned or deleted user, another user's session, forged or malformed token | 401 |
+| Signing keys or session records cannot be read | 503, never accepted |
+
+**Key handling:**
+- keys are cached for 10 minutes;
+- an unknown key id triggers at most one refetch every 30 seconds;
+- during a key-server outage, keys up to an hour old are still used;
+- a key that cannot be fetched gives 503.
+
+**Performance:**
+- one primary-key lookup per request, on the connection the request already uses;
+- no Supabase Auth round trip per request any more.
+
+Supabase advises reserving this check for sensitive actions because of that lookup. KoroFarm accepts the cost: every staff action is sensitive, and the lookup is indexed.
+
+**Identity details:**
+- the email and its confirmation come from `auth.users`, not from token claims;
+- the token's own `email`, `user_metadata` and `app_metadata` are never used for authorization.
+
+**Enforced at startup:**
+- staging and production refuse `AUTH_SESSION_VERIFICATION=remote`;
+- development and test default to `remote`, which the E2E auth stand-in implements.
+
+**Checked by:**
+- `check_staging`'s `auth_signing_keys`: the project publishes an asymmetric key;
+- `check_staging`'s `auth_session_store`: the API's connection can run the exact session query;
+- **release gate:** the real staging authentication test, check 5, against the deployed system.
+
+**Limits:**
+- Whether Supabase's `postgres` role may read `auth.sessions` and `auth.users` on the real project is documented practice but unproven here; `auth_session_store` settles it on the first run.
+- Sessions ended by Supabase's inactivity timeout are enforced by Supabase at refresh time. Their last access token stays usable until it expires (at most 1 hour), unless the row is gone or `not_after` has passed.
 
 ## 9. Estimated monthly operating cost (USD; assumptions stated)
 

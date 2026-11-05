@@ -192,16 +192,72 @@ def _ok(body="", status=200, headers=None):
     return HttpResult(status, headers or {}, body)
 
 
-def test_data_api_probe_fails_when_rows_are_readable_and_passes_when_refused() -> None:
-    rows = FakeHttp({("GET", "/rest/v1/organizations"): _ok('[{"id": "x"}]')})
-    assert check_staging.check_data_api_http(STAGING, rows).status == "FAIL"
-    empty = FakeHttp({("GET", "/rest/v1/organizations"): _ok("[]")})
-    assert check_staging.check_data_api_http(STAGING, empty).status == "WARN"
-    for code in (401, 403, 404):
-        refused = FakeHttp({("GET", "/rest/v1/organizations"): _ok('{"message": "no"}', code)})
-        result = check_staging.check_data_api_http(STAGING, refused)
-        assert result.status == "PASS" and str(code) in result.detail
-    assert check_staging.check_data_api_http({"APP_ENV": "staging"}, rows).status == "SKIP"
+SETTINGS_OK = _ok('{"external": {"email": true}, "disable_signup": true}')
+DISABLED = _ok('{"code": "3F000", "message": "schema \\"pg_pgrst_no_exposed_schemas\\" does not exist"}', 503)
+
+
+def _probe(rest_result, settings_result=SETTINGS_OK):
+    return FakeHttp({("GET", "/auth/v1/settings"): settings_result, ("GET", "/rest/v1/organizations"): rest_result})
+
+
+def test_data_api_probe_passes_only_when_the_data_api_is_switched_off() -> None:
+    fake = _probe(DISABLED)
+    result = check_staging.check_data_api_http(STAGING, fake)
+    assert result.status == "PASS" and "switched off" in result.detail
+    # The key goes only in `apikey`: it is not a JWT and must never be sent as a bearer token.
+    rest_headers = [headers for _, url, headers in fake.calls if "/rest/v1/" in url][0]
+    assert rest_headers["apikey"] == STAGING["SUPABASE_PUBLISHABLE_KEY"] and "Authorization" not in rest_headers
+
+
+@pytest.mark.parametrize("rest_result, verdict", [
+    (_ok('[{"id": "x"}]'), "can READ"),
+    (_ok("[]"), "serves organizations"),
+    # PostgREST answers a missing privilege for the anonymous role with HTTP 401 and SQLSTATE 42501: protected, but on.
+    (_ok('{"code": "42501", "message": "permission denied for table organizations"}', 401), "permission denied"),
+    (_ok('{"code": "PGRST205", "message": "Could not find the table"}', 404), "does not serve"),
+    # Authentication failures prove nothing about the tables, whatever the status code.
+    (_ok('{"message": "Invalid API key", "hint": "Double check your Supabase `anon` or `service_role` API key."}', 401),
+     "authentication failure"),
+    (_ok('{"code": "PGRST301", "message": "JWSError JWSInvalidSignature"}', 401), "authentication failure"),
+    (_ok("", 401), "authentication failure"),
+    (_ok('{"message": "no Route matched with those values"}', 404), "unrecognized"),
+    (_ok("<html>bad gateway</html>", 502), "unrecognized"),
+])
+def test_data_api_probe_fails_for_every_answer_except_switched_off(rest_result, verdict) -> None:
+    result = check_staging.check_data_api_http(STAGING, _probe(rest_result))
+    assert result.status == "FAIL" and verdict in result.detail, result.detail
+
+
+def test_data_api_probe_is_inconclusive_when_the_key_itself_is_rejected() -> None:
+    fake = _probe(DISABLED, settings_result=_ok('{"message": "Invalid API key"}', 401))
+    result = check_staging.check_data_api_http(STAGING, fake)
+    assert result.status == "FAIL" and "inconclusive" in result.detail
+    assert not [url for _, url, _ in fake.calls if "/rest/v1/" in url]  # no verdict drawn from the table probe
+    assert check_staging.check_data_api_http({"APP_ENV": "staging"}, fake).status == "SKIP"
+
+
+def _jwks(*keys):
+    return _ok(json.dumps({"keys": list(keys)}))
+
+
+def test_signing_key_check_needs_an_asymmetric_key() -> None:
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from jwt.algorithms import ECAlgorithm
+
+    public = json.loads(ECAlgorithm.to_jwk(ec.generate_private_key(ec.SECP256R1()).public_key()))
+    good = FakeHttp({("GET", "/.well-known/jwks.json"): _jwks({**public, "kid": "k1", "alg": "ES256", "use": "sig"})})
+    result = check_staging.check_auth_signing_keys(STAGING, good)
+    assert result.status == "PASS" and "ES256" in result.detail
+    legacy = FakeHttp({("GET", "/.well-known/jwks.json"): _jwks()})  # projects on the legacy shared secret publish none
+    assert check_staging.check_auth_signing_keys(STAGING, legacy).status == "FAIL"
+    symmetric = FakeHttp({("GET", "/.well-known/jwks.json"): _jwks({"kty": "oct", "kid": "s", "k": "c2VjcmV0"})})
+    assert check_staging.check_auth_signing_keys(STAGING, symmetric).status == "FAIL"
+    assert check_staging.check_auth_signing_keys(STAGING, FakeHttp({("GET", "/.well-known/jwks.json"): _ok("", 404)})).status == "FAIL"
+
+
+def test_session_store_check_fails_without_the_auth_schema() -> None:
+    from sqlalchemy import create_engine
+    assert check_staging.check_auth_session_store(create_engine("sqlite+pysqlite:///:memory:")).status == "SKIP"
 
 
 def test_auth_settings_report_open_sign_up_and_disabled_email() -> None:
@@ -249,7 +305,8 @@ def test_configuration_and_model_provider_checks() -> None:
 
 
 def test_the_check_never_prints_credentials_and_fails_when_the_database_is_unreachable(capsys, tmp_path) -> None:
-    fake = FakeHttp({("GET", "/rest/v1/"): _ok("", 401), ("GET", "/auth/v1/settings"): _ok('{"external": {"email": true}, "disable_signup": true}')})
+    fake = FakeHttp({("GET", "/rest/v1/"): DISABLED, ("GET", "/auth/v1/settings"): SETTINGS_OK,
+                     ("GET", "/.well-known/jwks.json"): _jwks()})
     out_file = tmp_path / "result.json"
     assert check_staging.main(["--json", str(out_file)], env=STAGING, http=fake) == 1
     printed = capsys.readouterr().out + out_file.read_text(encoding="utf-8")

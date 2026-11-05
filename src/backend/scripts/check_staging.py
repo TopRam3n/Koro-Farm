@@ -1,4 +1,5 @@
-"""Check a staging deployment end to end without revealing credentials. Read-only: no row is written anywhere.
+"""Check a staging deployment end to end without revealing credentials. Read-only: no row is written anywhere; the
+only statements beyond SELECT create probe objects inside a savepoint that is always rolled back (data_api_grants).
 
   python -m src.backend.scripts.check_staging                                   # configuration, database, Supabase
   python -m src.backend.scripts.check_staging --api-url https://api.staging.example.org \\
@@ -12,9 +13,16 @@ Checks
   configuration   the API's own fail-closed startup checks (core/config.py) and APP_ENV=staging
   database        connects; server version; whether this connection uses TLS; pooler mode from the port
   migrations      the database is at the newest Alembic revision
-  data_api_grants Supabase client roles hold no privilege on KoroFarm's tables and every table has RLS (0026)
-  data_api_http   the publishable key cannot read a KoroFarm table through Supabase's REST endpoint
+  data_api_grants Supabase client roles hold no effective privilege (direct, through PUBLIC or role membership,
+                  table or column) on KoroFarm's tables, sequences or functions; no default privilege of any role
+                  owning objects in public would expose new objects, and a rolled-back probe confirms it; every
+                  table has RLS (0026, 0027). FAILs if new objects cannot be probed as the connected role.
+  auth_session_store the API's connection can run its active-session query on auth.sessions and auth.users
+  data_api_http   the Data API is switched off: PASS only on Supabase's disabled signature. The publishable key goes
+                  only in `apikey`; a control request first proves Supabase accepts it, so an authentication failure
+                  is never mistaken for protection. A permission-denied answer still FAILs (the Data API is on).
   auth_settings   Supabase Auth answers; email sign-in enabled; whether public sign-up is open
+  auth_signing_keys the project publishes an ES256/RS256 signing key the API can verify tokens against
   api_health      GET /health (process) and GET /health/worker (exception monitoring; 503 unless OPERATIONAL)
   api_auth        a request without a token is refused with 401
   cors            the frontend origin is allowed and an unrelated origin is not
@@ -37,6 +45,8 @@ from urllib.request import Request, urlopen
 BACKEND = Path(__file__).resolve().parents[1]
 UNRELATED_ORIGIN = "https://unrelated-origin.invalid"
 PROBE_TABLE = "organizations"
+DISABLED_SIGNATURE = "pg_pgrst_no_exposed_schemas"
+OBJECT_KINDS = {"r": "tables", "S": "sequences", "f": "functions"}
 
 
 @dataclass
@@ -139,38 +149,141 @@ def check_data_api_grants(engine) -> Check:
         return Check("data_api_grants", "FAIL", f"could not inspect privileges ({type(exc).__name__})")
     if not findings["applicable"]:
         return Check("data_api_grants", "SKIP", "no Supabase client roles in this database (not a Supabase project)")
-    if not findings["exposed"]:
-        return Check("data_api_grants", "PASS", f"roles {', '.join(findings['roles'])} hold no privilege; every table has RLS")
+    future = findings["future_objects"]
     parts = []
     if findings["table_privileges"]:
         parts.append(f"{len({row['object'] for row in findings['table_privileges']})} tables granted to client roles")
-    if findings["sequence_privileges"] or findings["function_privileges"]:
-        parts.append("sequences or functions granted to client roles")
+    if findings["sequence_privileges"]:
+        parts.append(f"{len({row['object'] for row in findings['sequence_privileges']})} sequences granted to client roles")
+    if findings["function_privileges"]:
+        public = any(row["via_public"] for row in findings["function_privileges"])
+        parts.append(f"{len({row['object'] for row in findings['function_privileges']})} functions executable by client "
+                     f"roles{' (through PUBLIC)' if public else ''}")
     if findings["tables_without_rls"]:
         parts.append(f"RLS off on {', '.join(findings['tables_without_rls'][:5])}"
                      f"{' ...' if len(findings['tables_without_rls']) > 5 else ''}")
-    return Check("data_api_grants", "FAIL", "; ".join(parts) + " (run the migrations; see data_api.py)")
+    if findings["default_privileges"]:
+        entries = sorted({f"{row['owner']}:{OBJECT_KINDS.get(row['object_type'], row['object_type'])}->{row['grantee']}"
+                          for row in findings["default_privileges"]})
+        parts.append(f"default privileges would expose new objects ({', '.join(entries[:4])}"
+                     f"{' ...' if len(entries) > 4 else ''})")
+    if future["exposed"]:
+        parts.append("a newly created " + ", ".join(sorted({f"{row['object']} ({row['role']})" for row in future["exposed"]}))
+                     + " would be reachable")
+    if parts:
+        return Check("data_api_grants", "FAIL", "; ".join(parts) + " (run the migrations or scripts/data_api_lockdown.py; "
+                                                                   "objects owned by another role need that role)")
+    if not future["ran"]:
+        return Check("data_api_grants", "FAIL", f"existing objects are locked down, but objects created later could not be "
+                                                f"verified ({future.get('reason')}); run this check as the role that runs "
+                                                f"the migrations")
+    detail = (f"roles {', '.join(findings['roles'])} hold no privilege, now or on new objects (probe as "
+              f"{future['role']}); every table has RLS")
+    if findings["objects_not_owned"]:
+        detail += f"; {len(findings['objects_not_owned'])} objects in public owned by other roles (none reachable)"
+    return Check("data_api_grants", "PASS", detail)
 
 
-def check_data_api_http(env: Mapping[str, str], http: Http) -> Check:
-    url, key = _supabase(env)
-    if not url or not key:
-        return Check("data_api_http", "SKIP", "SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY not set")
+def _postgrest_error(body: str) -> dict:
     try:
-        result = http("GET", f"{url}/rest/v1/{PROBE_TABLE}?select=id&limit=1",
-                      {"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"})
-    except (URLError, TimeoutError, OSError) as exc:
-        return Check("data_api_http", "FAIL", f"Supabase REST endpoint unreachable ({type(exc).__name__})")
+        parsed = json.loads(body or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def classify_data_api_response(result: HttpResult) -> tuple[str, str]:
+    """What a GET /rest/v1/<table> answer proves. Returns (verdict, detail); verdict is one of disabled, readable,
+    reachable, permission_denied, not_served, auth_failure, unrecognized. Only `disabled` is acceptable for KoroFarm.
+
+    * Supabase does not stop PostgREST when the Data API is switched off: it exposes only the placeholder schema
+      pg_pgrst_no_exposed_schemas, and requests fail naming it. That name is the signature looked for.
+    * PostgREST reports a missing privilege as SQLSTATE 42501 with HTTP 401 for the anonymous role, so a 401 alone
+      says nothing: it is also what an invalid or wrongly sent key gets from the gateway (PGRST301/302, "Invalid API
+      key"). A status code is therefore never taken as proof on its own."""
+    error = _postgrest_error(result.body)
+    code = str(error.get("code") or "")
+    message = " ".join(str(error.get(field) or "") for field in ("message", "hint", "details", "msg", "error"))
+    summary = f"HTTP {result.status}{f' {code}' if code else ''}"
+    if DISABLED_SIGNATURE in result.body:
+        return "disabled", f"{summary}: Data API switched off (only {DISABLED_SIGNATURE} is exposed)"
     if result.status == 200:
         try:
             rows = json.loads(result.body or "[]")
         except json.JSONDecodeError:
             rows = None
         if rows:
-            return Check("data_api_http", "FAIL", f"the publishable key can READ {PROBE_TABLE} through the Data API")
-        return Check("data_api_http", "WARN", f"Data API answers for {PROBE_TABLE} (no rows visible); "
-                                              "switch the Data API off in the Supabase dashboard")
-    return Check("data_api_http", "PASS", f"{PROBE_TABLE} not readable with the publishable key (HTTP {result.status})")
+            return "readable", f"{summary}: the publishable key can READ {PROBE_TABLE} through the Data API"
+        return "reachable", f"{summary}: the Data API serves {PROBE_TABLE} to the publishable key (no rows visible)"
+    if code == "42501":
+        return "permission_denied", (f"{summary}: the Data API is ON; the database refused it (permission denied), so "
+                                     "the grants hold, but the Data API must be switched off")
+    if code in ("PGRST205", "PGRST106", "42P01", "PGRST002"):
+        return "not_served", f"{summary}: the Data API is ON but does not serve {PROBE_TABLE}; switch the Data API off"
+    lowered = message.lower()
+    if code.startswith("PGRST3") or (result.status in (401, 403) and ("api key" in lowered or "jwt" in lowered or not code)):
+        return "auth_failure", (f"{summary}: refused before reaching the database (authentication failure); this "
+                                "proves nothing about table protection")
+    return "unrecognized", f"{summary}: unrecognized answer ({message.strip()[:120] or 'no error body'})"
+
+
+def check_data_api_http(env: Mapping[str, str], http: Http) -> Check:
+    """The publishable key is sent only as `apikey`, the way a browser using it as the anonymous role would, never as
+    a bearer token (it is not a JWT). A control request to Supabase Auth first proves the key itself is accepted, so a
+    rejected key can never be mistaken for a protected table."""
+    url, key = _supabase(env)
+    if not url or not key:
+        return Check("data_api_http", "SKIP", "SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY not set")
+    try:
+        control = http("GET", f"{url}/auth/v1/settings", {"apikey": key})
+        if control.status != 200:
+            return Check("data_api_http", "FAIL", f"inconclusive: Supabase rejected the publishable key itself "
+                                                  f"(HTTP {control.status} from Auth); fix the key and run again")
+        result = http("GET", f"{url}/rest/v1/{PROBE_TABLE}?select=id&limit=1",
+                      {"apikey": key, "Accept": "application/json"})
+    except (URLError, TimeoutError, OSError) as exc:
+        return Check("data_api_http", "FAIL", f"Supabase unreachable ({type(exc).__name__})")
+    verdict, detail = classify_data_api_response(result)
+    return Check("data_api_http", "PASS" if verdict == "disabled" else "FAIL", detail)
+
+
+def check_auth_signing_keys(env: Mapping[str, str], http: Http) -> Check:
+    """The API verifies access tokens locally against the project's published asymmetric signing keys."""
+    from src.backend.app.core.auth import usable_signing_keys
+    url, key = _supabase(env)
+    if not url or not key:
+        return Check("auth_signing_keys", "SKIP", "SUPABASE_URL or SUPABASE_PUBLISHABLE_KEY not set")
+    try:
+        result = http("GET", f"{url}/auth/v1/.well-known/jwks.json", {"apikey": key})
+    except (URLError, TimeoutError, OSError) as exc:
+        return Check("auth_signing_keys", "FAIL", f"signing keys unreachable ({type(exc).__name__})")
+    if result.status != 200:
+        return Check("auth_signing_keys", "FAIL", f"signing keys returned HTTP {result.status}")
+    try:
+        keys = usable_signing_keys(json.loads(result.body))
+    except (json.JSONDecodeError, ValueError):
+        return Check("auth_signing_keys", "FAIL", "signing keys were not a JSON key set")
+    if not keys:
+        return Check("auth_signing_keys", "FAIL", "no ES256/RS256 signing key published: the project still signs with "
+                                                  "the legacy shared secret (setup guide: rotate to an asymmetric key)")
+    algorithms = sorted({item.algorithm_name for item in keys.values()})
+    return Check("auth_signing_keys", "PASS", f"{len(keys)} asymmetric signing key(s) ({', '.join(algorithms)})")
+
+
+def check_auth_session_store(engine) -> Check:
+    """The API's connection can run the exact active-session query the API uses (auth.sessions, auth.users)."""
+    from uuid import uuid4
+
+    from src.backend.app.core.auth import ACTIVE_SESSION
+    try:
+        with engine.connect() as connection:
+            if connection.dialect.name != "postgresql":
+                return Check("auth_session_store", "SKIP", "not PostgreSQL")
+            connection.execute(ACTIVE_SESSION, {"session_id": str(uuid4()), "user_id": str(uuid4())}).first()
+    except Exception as exc:
+        return Check("auth_session_store", "FAIL", f"the API could not read Supabase's session records "
+                                                   f"({type(exc).__name__}); sign-out could not be enforced")
+    return Check("auth_session_store", "PASS", "auth.sessions and auth.users readable; signed-out sessions are refused")
 
 
 def check_auth_settings(env: Mapping[str, str], http: Http) -> Check:
@@ -257,8 +370,8 @@ def run(env: Mapping[str, str], api_url: str | None = None, frontend_origin: str
         database = check_database(engine)
         checks += database
         if database[0].status == "PASS":
-            checks += [check_migrations(engine), check_data_api_grants(engine)]
-    checks += [check_data_api_http(env, http), check_auth_settings(env, http)]
+            checks += [check_migrations(engine), check_data_api_grants(engine), check_auth_session_store(engine)]
+    checks += [check_data_api_http(env, http), check_auth_settings(env, http), check_auth_signing_keys(env, http)]
     checks += check_api(api_url, frontend_origin, http) if api_url else [Check("api_health", "SKIP", "pass --api-url")]
     checks.append(check_model_provider(env))
     return checks

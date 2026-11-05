@@ -11,6 +11,10 @@ _LOCAL_SUFFIXES = (".local", ".localhost", ".test", ".internal", ".lan")
 # The built-in development database credentials (infrastructure/database/session.py, alembic.ini).
 DEVELOPMENT_DATABASE_CREDENTIALS = ("korofarm", "korofarm")
 TLS_SSLMODES = frozenset({"require", "verify-ca", "verify-full"})
+# How the API decides a bearer token's session is still active (core/auth.py). "database": verify the token locally
+# against the project's signing keys, then require its auth.sessions row, which Supabase deletes on sign-out.
+# "remote": ask Supabase Auth (GET /auth/v1/user); development and test only (the E2E auth stand-in).
+SESSION_VERIFICATION_MODES = ("database", "remote")
 
 
 class UnsafeConfigurationError(RuntimeError):
@@ -26,6 +30,16 @@ def environment(env: Mapping[str, str] | None = None) -> str:
 def is_production(env: Mapping[str, str] | None = None) -> bool:
     # Fail closed: anything that is not explicitly development or test is treated as production.
     return environment(env) not in NON_PRODUCTION_ENVIRONMENTS
+
+
+def session_verification(env: Mapping[str, str] | None = None) -> str:
+    """AUTH_SESSION_VERIFICATION, defaulting to "database" in staging and production and "remote" elsewhere. Anything
+    unrecognized is treated as "database" (startup refuses it anyway)."""
+    env = os.environ if env is None else env
+    value = env.get("AUTH_SESSION_VERIFICATION", "").strip().lower()
+    if not value:
+        return "database" if is_production(env) else "remote"
+    return value if value in SESSION_VERIFICATION_MODES else "database"
 
 
 def cors_origins() -> list[str]:
@@ -72,6 +86,8 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
       data-handling, security and evaluation requirements are approved (R1 WP3, decision 3).
     * AGENT_MODEL_PROVIDER in staging needs AGENT_MODEL_STAGING_APPROVAL, the reference of the product owner's recorded
       approval to send that environment's data to the provider. Without it the process refuses to start.
+    * AUTH_SESSION_VERIFICATION must be database or remote; remote is refused in staging and production, where every
+      request's session is checked against auth.sessions (core/auth.py).
     * In staging and production DATABASE_URL must be set explicitly (no development default), must not use the built-in
       development credentials, and must require TLS (sslmode=require, verify-ca or verify-full) unless the database
       host is local, private or a single-label service name on the deployment's own network.
@@ -92,8 +108,16 @@ def validate_runtime_configuration(env: Mapping[str, str] | None = None) -> None
         raise UnsafeConfigurationError(
             "AGENT_MODEL_PROVIDER in staging requires AGENT_MODEL_STAGING_APPROVAL (the recorded approval reference for "
             "sending staging data to the provider); refusing to start")
+    mode = env.get("AUTH_SESSION_VERIFICATION", "").strip().lower()
+    if mode and mode not in SESSION_VERIFICATION_MODES:
+        raise UnsafeConfigurationError(
+            f"AUTH_SESSION_VERIFICATION={mode!r} is not recognized (expected database or remote); refusing to start")
     if not is_production(env):
         return
+    if mode == "remote":
+        raise UnsafeConfigurationError(
+            "AUTH_SESSION_VERIFICATION=remote is not permitted in staging or production: signed-out sessions must be "
+            "refused through auth.sessions; refusing to start")
     _validate_database_url(env.get("DATABASE_URL", "").strip())
     url = env.get("SUPABASE_URL") or env.get("NEXT_PUBLIC_SUPABASE_URL")
     key = env.get("SUPABASE_PUBLISHABLE_KEY") or env.get("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY")
