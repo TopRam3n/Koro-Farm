@@ -12,7 +12,8 @@ stock, commit suppliers or bypass approval.
   (no look-ahead), for later statistical or machine-learning models.
 * `backtest`: rolling-origin evaluation (train on everything before each origin, forecast ahead, compare), with
   MAE, RMSE, sMAPE, MASE against the last-value baseline, and interval coverage.
-* `record_model_run`: stores a run, its forecasts and evaluations in `agri` with the data snapshot it used.
+* `record_model_run`: stores a run, its forecasts and evaluations in `agri`, and the observations it used as
+  relational lineage (agri.model_run_inputs; see agriculture/lineage.py for rights decisions on derived output).
 """
 from __future__ import annotations
 
@@ -197,7 +198,18 @@ def record_model_run(session, *, model: Forecaster, purpose: str, measure_code: 
                      data_snapshot: Sequence[str] = (), parameters: dict | None = None):
     """Store a model run with its forecasts and metrics (agri schema, PostgreSQL)."""
     from datetime import datetime, timezone
-    from src.backend.app.agriculture.domain.models import Forecast, ModelEvaluation, ModelRun
+    from uuid import UUID as _UUID
+    from sqlalchemy import select
+    from src.backend.app.agriculture.domain.models import Forecast, ModelEvaluation, ModelRun, ModelRunInput, Observation
+
+    # Lineage (migration 0030): every input must be a real observation; an unknown id fails the whole run.
+    try:
+        input_ids = sorted({_UUID(str(item)) for item in data_snapshot})
+    except ValueError as exc:
+        raise ValueError("data_snapshot must list observation ids") from exc
+    known = set(session.scalars(select(Observation.id).where(Observation.id.in_(input_ids)))) if input_ids else set()
+    if known != set(input_ids):
+        raise ValueError(f"{len(set(input_ids) - known)} data_snapshot id(s) are not recorded observations; lineage would be unknown")
 
     run = ModelRun(model_code=model.code, model_version=model.version, purpose=purpose, parameters=parameters or {},
                    training_start=training[0] if training else None, training_end=training[1] if training else None,
@@ -205,6 +217,7 @@ def record_model_run(session, *, model: Forecaster, purpose: str, measure_code: 
                    finished_at=datetime.now(timezone.utc))
     session.add(run)
     session.flush()
+    session.add_all([ModelRunInput(model_run_id=run.id, observation_id=observation_id) for observation_id in input_ids])
     for target, point in zip(target_periods, forecasts):
         session.add(Forecast(model_run_id=run.id, measure_code=measure_code, crop_id=crop_id, geo_area_id=geo_area_id,
                              period_type=period_type, target_period_start=target, horizon=point.step,

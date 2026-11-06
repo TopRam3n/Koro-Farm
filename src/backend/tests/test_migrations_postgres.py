@@ -516,3 +516,37 @@ def test_the_probe_leaves_nothing_behind_and_unverifiable_new_objects_fail(fresh
     finally:
         _drop_roles(engine, reader)
         engine.dispose()
+
+
+def test_migrations_explain_a_missing_database_privilege_and_leave_nothing_half_applied(fresh_database_url, monkeypatch) -> None:
+    """Documented privileges (deploy/sql/README.md): the migration role needs CREATE on the database for 0029's agri
+    schema. Without it the upgrade stops with that explanation, and the transaction leaves no agri schema behind."""
+    name = f"kf_restricted_{uuid4().hex[:8]}"
+    admin = create_engine(fresh_database_url, isolation_level="AUTOCOMMIT")
+    with admin.connect() as connection:
+        connection.execute(text(f"create role {name} login password 'restricted-pw-1'"))
+        connection.execute(text(f"grant all on schema public to {name}"))
+    try:
+        url = fresh_database_url.set(username=name, password="restricted-pw-1")
+        monkeypatch.setenv("DATABASE_URL", url.render_as_string(hide_password=False))
+        config = Config(str(BACKEND / "alembic.ini"))
+        config.set_main_option("script_location", str(BACKEND / "alembic"))
+        with pytest.raises(Exception, match="needs CREATE on database"):
+            command.upgrade(config, "head")
+        with admin.connect() as connection:
+            assert not connection.execute(text("select exists (select 1 from pg_namespace where nspname = 'agri')")).scalar()
+        # With the documented privilege the same role migrates to head.
+        with admin.connect() as connection:
+            connection.execute(text(f'grant create on database "{fresh_database_url.database}" to {name}'))
+        command.upgrade(config, "head")
+        from alembic.script import ScriptDirectory
+        user_engine = create_engine(url)
+        with user_engine.connect() as connection:
+            assert connection.execute(text("select version_num from alembic_version")).scalar() == ScriptDirectory.from_config(config).get_current_head()
+        user_engine.dispose()
+    finally:
+        with admin.connect() as connection:
+            connection.execute(text(f"drop owned by {name} cascade"))
+            connection.execute(text(f"revoke all on database \"{fresh_database_url.database}\" from {name}"))
+            connection.execute(text(f"drop role {name}"))
+        admin.dispose()

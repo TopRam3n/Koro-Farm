@@ -8,8 +8,14 @@ How a question would be answered
    status and attribution text.
 3. Gate (`provider_permitted`): a provider may see evidence only if the existing model gate allows it
    (agents/infrastructure/model.py: never production; staging only with a recorded approval), AGRI_LLM_ENABLED=true,
-   every fact comes from a source whose licence review is APPROVED, every fact is classified PUBLIC_STATISTICS, and
-   the request fits AGRI_LLM_MAX_INPUT_TOKENS. Otherwise the deterministic summary is returned and nothing is sent.
+   every fact is classified PUBLIC_STATISTICS, the request fits AGRI_LLM_MAX_INPUT_TOKENS, and each fact's rights are
+   resolved for external processing:
+   * an observation: its source's licence review is APPROVED;
+   * a forecast (derived data): its model run's source lineage is complete (agri.model_run_inputs -> observations ->
+     datasets -> sources) AND a person recorded an explicit EXTERNAL_LLM decision of PERMITTED for that run
+     (agri.derived_rights_decisions, agriculture/lineage.py). Source licences are shown with the lineage but are never
+     turned into a derived-data decision here. Unknown lineage, no decision or NOT_PERMITTED fails closed.
+   Otherwise the deterministic summary is returned and nothing is sent.
 4. Answer check (`validate_answer`): the model must answer in JSON, cite evidence ids that exist, and every figure it
    states must equal a cited fact. An answer that fails is discarded for the deterministic summary, with the reason.
 The deterministic recovery engine and every operational safeguard are unaffected: this module only reads statistics.
@@ -52,11 +58,26 @@ QUERY_CATALOGUE: dict[str, dict] = {
     "forecasts": {
         "params": {"crop": "code", "measure": "code", "area": "code"},
         "sql": """
-            select f.id::text as forecast_id, r.model_code, r.model_version, r.purpose, r.finished_at, f.target_period_start,
-                   f.horizon, f.point, f.lower, f.upper, f.interval_level, f.unit_code,
-                   'FORECAST' as source, 'APPROVED' as licence_review_status, null::text as attribution_text
+            select f.id::text as forecast_id, r.id::text as model_run_id, r.model_code, r.model_version, r.purpose,
+                   r.finished_at, f.target_period_start, f.horizon, f.point, f.lower, f.upper, f.interval_level, f.unit_code,
+                   lineage.inputs as lineage_inputs, lineage.unresolved as lineage_unresolved,
+                   coalesce(lineage.sources, '[]'::jsonb) as lineage_sources,
+                   decision.decision as external_llm_decision, decision.approval_reference as external_llm_reference
             from agri.forecasts f join agri.model_runs r on r.id = f.model_run_id
             join agri.crops c on c.id = f.crop_id join agri.geo_areas g on g.id = f.geo_area_id
+            left join lateral (
+                select count(*) as inputs, count(*) filter (where s.id is null) as unresolved,
+                       jsonb_agg(distinct jsonb_build_object('code', s.code, 'licence_review_status', s.licence_review_status))
+                           filter (where s.id is not null) as sources
+                from agri.model_run_inputs i
+                left join agri.observations o on o.id = i.observation_id
+                left join agri.datasets d on d.id = o.dataset_id
+                left join agri.sources s on s.id = d.source_id
+                where i.model_run_id = r.id) lineage on true
+            left join lateral (
+                select x.decision, x.approval_reference from agri.derived_rights_decisions x
+                where x.model_run_id = r.id and x.purpose = 'EXTERNAL_LLM'
+                order by x.created_at desc, x.id desc limit 1) decision on true
             where c.code = :crop and f.measure_code = :measure and g.code = :area and r.status = 'SUCCEEDED'
             order by r.finished_at desc nulls last, f.target_period_start
             limit 24""",
@@ -111,6 +132,7 @@ class Evidence:
     unit: str
     citation: dict
     classification: str = PUBLIC_STATISTICS
+    kind: str = "observation"  # observation | forecast (derived data: rights decided per model run)
 
 
 def build_evidence(rows: list[dict]) -> list[Evidence]:
@@ -128,9 +150,35 @@ def build_evidence(rows: list[dict]) -> list[Evidence]:
             value = format(Decimal(str(row["point"])).normalize(), "f")
             statement = (f"Forecast by {row['model_code']} v{row['model_version']} for the period starting {row['target_period_start']}: "
                          f"{value} {row['unit_code']} (horizon {row['horizon']})")
-            items.append(Evidence(f"E{index}", statement, value, row["unit_code"],
-                                  {"source": "KoroFarm forecast", "model": row["model_code"], "licence_review_status": "APPROVED"}))
+            sources = row.get("lineage_sources") or []
+            if isinstance(sources, str):
+                sources = json.loads(sources)
+            inputs, unresolved = int(row.get("lineage_inputs") or 0), int(row.get("lineage_unresolved") or 0)
+            citation = {"source": "KoroFarm forecast", "model": row["model_code"], "model_run_id": row.get("model_run_id"),
+                        "lineage": {"complete": inputs > 0 and unresolved == 0 and bool(sources), "inputs": inputs,
+                                    "unresolved": unresolved, "sources": sources},
+                        "external_llm_decision": row.get("external_llm_decision"),
+                        "external_llm_reference": row.get("external_llm_reference")}
+            items.append(Evidence(f"E{index}", statement, value, row["unit_code"], citation, kind="forecast"))
     return items
+
+
+def external_processing_resolved(item: Evidence) -> tuple[bool, str]:
+    """Whether this fact's rights allow sending it to an external model provider. Fails closed on anything unknown."""
+    if item.kind == "observation":
+        if item.citation.get("licence_review_status") == "APPROVED":
+            return True, "source licence approved"
+        return False, "a source's licence review is not APPROVED"
+    if item.kind == "forecast":
+        lineage = item.citation.get("lineage") or {}
+        if not lineage.get("complete"):
+            return False, "forecast lineage is unknown or incomplete; derived data cannot be sent"
+        decision = item.citation.get("external_llm_decision")
+        if decision != "PERMITTED":
+            return False, ("no recorded EXTERNAL_LLM rights decision for this forecast's model run" if decision is None
+                           else f"the EXTERNAL_LLM rights decision for this forecast's model run is {decision}")
+        return True, "lineage complete and external processing explicitly permitted"
+    return False, f"unknown evidence kind {item.kind!r}"
 
 
 def estimate_tokens(*texts: str) -> int:
@@ -149,8 +197,10 @@ def provider_permitted(evidence: list[Evidence], prompt_tokens: int, env: Mappin
         return False, "no evidence to ground an answer"
     if any(item.classification != PUBLIC_STATISTICS for item in evidence):
         return False, "only public statistics may be sent to a model provider"
-    if any(item.citation.get("licence_review_status") != "APPROVED" for item in evidence):
-        return False, "a source's licence review is not APPROVED"
+    for item in evidence:
+        resolved, why = external_processing_resolved(item)
+        if not resolved:
+            return False, f"{item.id}: {why}"
     budget = int(env.get("AGRI_LLM_MAX_INPUT_TOKENS", DEFAULT_MAX_INPUT_TOKENS))
     if prompt_tokens > budget:
         return False, f"request of about {prompt_tokens} tokens exceeds the {budget}-token budget"

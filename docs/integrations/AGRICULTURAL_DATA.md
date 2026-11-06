@@ -169,7 +169,53 @@ source -> dataset -> publication (file, SHA-256, retrieved at/by, supersedes) ->
 **Planned later:** a yield consistency check (production ÷ area against yield, within 10%) and parish-sum
 reconciliation against all-island totals.
 
-## 8. Licensing review (product owner actions)
+## 8. Rights review: product-owner decisions (5 November 2026) and records
+
+### Ministry of Agriculture (AMID)
+
+- **Decision:** the product owner will seek written permission to store, process, analyse and model the statistics,
+  including the intended commercial uses.
+- **Status:** `PERMISSION_REQUIRED`. The licence gate stays; no real Ministry dataset may be applied.
+- **Draft request** (uses, attribution, derived analytics, optional AI processing, request for machine-readable
+  data): `MOA_DATA_PERMISSION_REQUEST.md`.
+
+### FAOSTAT
+
+**Status:** `NOT_REVIEWED`, awaiting rights review. It is never marked approved automatically.
+
+**Record of the official terms** (FAO Statistical Database Terms of Use, https://www.fao.org/contact-us/terms/db-terms-of-use/en/, read 5 November 2026):
+
+| Item | What the terms say |
+|---|---|
+| Licence | Datasets are licensed under CC BY 4.0, "unless specified otherwise in their metadata or webpage", supplemented by additional terms |
+| Prohibited uses | No attempt to de-anonymise; **no use to promote a company or its products**; no use that falsifies or misrepresents the content |
+| Third-party data | The user must determine whether a dataset is fully or partly owned by third parties and comply with their terms; FAO does not guarantee it owns all rights |
+| Endorsement | The user may not represent that FAO participated in, sponsored, approved or endorsed the use |
+| Liability | Provided without warranty; FAO may modify or discontinue databases; no liability for loss or damage |
+| Disputes | UNCITRAL arbitration |
+| Amendments | FAO's terms for reuse of web content are incorporated; both may change, and continued use means acceptance |
+| Required citation | "FAO. [year of last update]. [Name of database: dataset]. [Accessed on DD Month YYYY]. [URL]. Licence: CC-BY-4.0." |
+
+**Uses that need clarification before approval:**
+1. Whether showing FAOSTAT figures inside a commercial service, or in KoroFarm's own product materials, counts as
+   "promoting a company or its products".
+2. The metadata of the QCL and PP datasets for Jamaica: confirm no dataset-specific licence or third-party ownership
+   applies.
+3. Whether derived analytics and forecasts built partly on FAOSTAT may be shown commercially, and how they must be
+   labelled (KoroFarm estimates, never FAO figures; no implied endorsement).
+4. Whether sending FAOSTAT figures, or forecasts derived from them, to an external AI provider is consistent with
+   the terms. Even if it is, it needs KoroFarm's own explicit per-model-run decision (§10).
+
+### Attribution
+
+Every page or answer that shows a figure shows its source's attribution text, which is stored per source.
+
+### Derived data
+
+A forecast's rights are a separate, explicit decision per model run and purpose (`agri.derived_rights_decisions`,
+migration 0030). It is never inferred from the source licences. See `ML_AND_LLM.md`.
+
+## 8a. Licensing review (product owner actions)
 
 1. **Ministry of Agriculture.** Write to request permission to store and analyse AMID statistics, and to show
    derived figures with attribution. Record the answer, then set `licence_review_status` to `APPROVED` (or

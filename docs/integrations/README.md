@@ -10,6 +10,8 @@ service is connected** except GitHub Actions CI.
 | `AGRICULTURAL_DATA.md` | Ministry of Agriculture and FAOSTAT statistics: catalogue, licences, templates, normalisation, provenance, validation, future adapters | Prepared; nothing imported |
 | `MESSAGING.md` | SMS, WhatsApp and email notifications: consent, templates, statuses, provider contract | Foundation implemented; no provider |
 | `ML_AND_LLM.md` | Forecasting interfaces and baselines, backtesting, evidence-grounded answers, privacy and cost controls | Prepared; no provider called |
+| `MOA_DATA_PERMISSION_REQUEST.md` | Draft permission request to the Ministry of Agriculture (uses, attribution, derived analytics, optional AI processing, machine-readable data) | Draft for the product owner; not sent |
+| `MESSAGING_CONSENT_WORDING.md` | Versioned consent wording for WhatsApp, SMS and email, with channel priorities | Draft for review |
 | `LEGACY_DATABASE.md` | Tristan's existing database | Untouched; assessment not started |
 
 **Related:**

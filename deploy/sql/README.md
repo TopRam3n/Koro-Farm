@@ -8,6 +8,7 @@ matching migration.
 | File | What it is | How it is produced or used |
 |---|---|---|
 | `wp5_0028_0029_upgrade.sql` | Exactly what migrations 0028 (notifications and contact consent) and 0029 (agricultural intelligence schema) run on PostgreSQL, from revision 0027, including the `alembic_version` updates | Generated offline (below). Verified on 5 November 2026: applied with `psql` to a disposable PostgreSQL 17 database at 0027 with Supabase's client roles simulated. Result: revision 0029, row-level security on the new public tables, 20 `agri` tables, no `agri` access for `anon`, and `check_staging`'s `data_api_grants` PASS |
+| `wp5_0030_upgrade.sql` | What migration 0030 (forecast lineage and explicit rights decisions) runs, from revision 0029 | Generated offline the same way (`0029_agricultural_intelligence:head`). Verified on 5 November 2026 with `psql` on a disposable database at 0029: revision 0030, 22 `agri` tables, `data_api_grants` PASS |
 | `agri_readonly_role.sql` | An opt-in, read-only role for agricultural statistics (no access to operational data, no writes) | Not part of any migration. Run only after the product owner approves read-only analytics (`docs/product/AFTER_WP5_INTEGRATION_CHECKLIST.md`) |
 
 ## Regenerating the upgrade file
@@ -22,6 +23,8 @@ sed -i 's/%%/%/g' ../../deploy/sql/wp5_0028_0029_upgrade.sql
 
 The `sed` step is required: SQLAlchemy doubles `%` for the psycopg driver, which un-doubles it at run time. In a file
 run by `psql`, a doubled `%%I` inside `format()` would be a literal `%` and the `DO` blocks would fail.
+
+**Privileges:** the migration role needs CREATE on the database (for the `agri` schema) and ownership of `public`'s KoroFarm objects. Without CREATE, migration 0029 stops with "the migration role needs CREATE on database …" before changing anything (`test_migrations_explain_a_missing_database_privilege_and_leave_nothing_half_applied`).
 
 ## Applying it (only with the product owner's go-ahead, and only to the intended database)
 

@@ -50,6 +50,38 @@ safeguards. Forecasts and answers are advisory analytics; they never move stock,
    are reused through their `complete(system, user, schema)` interface. After an error there is no switching to
    another paid provider.
 
+## Forecast provenance and rights (WP5 review correction)
+
+**What changed:** forecast evidence used to receive an unconditional `APPROVED` licence status. That status is gone.
+
+**Lineage** (migration 0030, `agri.model_run_inputs`):
+- `record_model_run` stores every observation a run used.
+- It refuses any id that is not a recorded observation.
+- `lineage.lineage_of(run)` follows inputs → observations → datasets → sources, and reports each source's licence
+  status.
+- Lineage is complete only when there is at least one input and every input resolves to a source.
+
+**Rights decision** (`agri.derived_rights_decisions`, `lineage.record_rights_decision`):
+- A person records, per model run and purpose (`EXTERNAL_LLM`, `PUBLICATION`, `COMMERCIAL_USE`), `PERMITTED` or
+  `NOT_PERMITTED`.
+- Each decision records the basis, who decided, an approval reference (required for `PERMITTED`), and the source
+  licence statuses seen at decision time.
+- It is append-only; the newest decision wins.
+- `PERMITTED` is refused when lineage is incomplete.
+
+**Gate:** a forecast may be sent to an external model only when both of these hold:
+- its lineage is complete;
+- its run's current `EXTERNAL_LLM` decision is `PERMITTED`.
+
+No decision, `NOT_PERMITTED`, an empty lineage or an unresolved input all fail closed, and the deterministic summary
+is returned instead. Source licences are shown alongside but are never turned into a derived-data decision in code.
+One unresolved fact blocks the whole request.
+
+**Tests:**
+- `test_agri_intelligence.py`: approved; restricted; approved source but no decision; mixed sources undecided;
+  mixed sources explicitly decided; missing lineage; unresolved input.
+- `test_agriculture_postgres.py`: end to end on PostgreSQL through the read-only query.
+
 ## Privacy and cost controls
 
 - **Data:** only public statistics, and only from licence-approved sources. Nebius Zero Data Retention is required

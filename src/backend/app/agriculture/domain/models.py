@@ -317,3 +317,25 @@ class ModelEvaluation(AgriBase):
     baseline_model_code: Mapped[str | None] = mapped_column(String(80))
     details: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ModelRunInput(AgriBase):
+    """One observation a model run used (migration 0030): the forecast's source lineage."""
+    __tablename__ = "model_run_inputs"
+    model_run_id: Mapped[UUID] = mapped_column(_fk("model_runs.id"), primary_key=True)
+    observation_id: Mapped[UUID] = mapped_column(_fk("observations.id"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DerivedRightsDecision(AgriBase):
+    """An explicit, append-only decision about a model run's derived output (migration 0030). Newest per purpose wins."""
+    __tablename__ = "derived_rights_decisions"
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    model_run_id: Mapped[UUID] = mapped_column(_fk("model_runs.id"))
+    purpose: Mapped[str] = mapped_column(String(40))
+    decision: Mapped[str] = mapped_column(String(20))
+    basis: Mapped[str] = mapped_column(Text)
+    source_statuses: Mapped[list] = mapped_column(JSONB, default=list)
+    decided_by: Mapped[str] = mapped_column(String(200))
+    approval_reference: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

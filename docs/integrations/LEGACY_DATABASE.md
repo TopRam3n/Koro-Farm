@@ -5,6 +5,9 @@
 KoroFarm has not connected to, read, copied or changed this database. Nothing in the code refers to it. It is a
 separate legacy source, and any migration decision follows a read-only assessment that has not started.
 
+**Product-owner decision (5 November 2026):** preserve it unchanged. No connection, migration, deletion or
+modification is authorized.
+
 ## Future read-only assessment (needs the product owner's and the owner's authorization)
 
 1. **Access.** A read-only database role or an export, provided by its owner. Its credentials are kept outside this

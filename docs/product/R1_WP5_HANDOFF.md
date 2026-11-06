@@ -10,6 +10,67 @@
 - **Externally verified:** against a real service. **Nothing in WP5 is externally verified**; no external service
   was contacted.
 
+## 0. Review outcome and correction (6 November 2026)
+
+**Accepted:** the product owner accepted M1–M3 as engineering-complete, subject to one correction.
+
+### The correction: forecast provenance
+
+**Defect:** `agriculture/evidence.py` gave forecast evidence an unconditional `APPROVED` licence status. A forecast
+could therefore have passed the external-provider gate without known sources or any rights decision.
+
+**Fix:**
+- **Migration `0030_forecast_lineage`:**
+  - `agri.model_run_inputs`: the observations each run used;
+  - `agri.derived_rights_decisions`: append-only, explicit decisions per model run and purpose, with basis, decider,
+    an approval reference (required for `PERMITTED`) and the source licence statuses seen when deciding.
+- **`record_model_run`** stores the lineage and refuses unknown inputs.
+- **`agriculture/lineage.py`** resolves lineage and records decisions. `PERMITTED` is refused when lineage is
+  incomplete.
+- **The forecast query** returns lineage and the current `EXTERNAL_LLM` decision.
+- **The gate** sends a forecast only when its lineage is complete and its run's decision is `PERMITTED`. Source
+  licences are recorded but never turned into a derived-data decision.
+- The deterministic fallback and the read-only query controls are unchanged.
+
+**Regression tests:**
+- approved;
+- restricted;
+- approved source but no decision;
+- mixed sources, undecided and explicitly decided;
+- missing lineage;
+- unresolved input;
+- one unresolved fact blocking a request;
+- end to end on PostgreSQL, including a `PERMITTED` row written around the API, which still cannot release a forecast
+  with unknown lineage;
+- a downgrade refuses to drop lineage or decisions.
+
+### Privileges
+
+The documented requirement is that the migration role needs `CREATE` on the database. Test
+`test_migrations_explain_a_missing_database_privilege_and_leave_nothing_half_applied` checks both sides:
+- a role without it gets "the migration role needs CREATE on database …", and no `agri` schema is left behind;
+- the same role, with the privilege, migrates to head.
+
+**Reviewed SQL:** `deploy/sql/wp5_0030_upgrade.sql`, verified with `psql`.
+
+**Tests on the corrected code** (6 November 2026):
+- backend full suite on SQLite and PostgreSQL 17: **577 passed, 3 skipped, 0 failed**;
+- R1 browser E2E: **30 passed**;
+- the frontend is unchanged by the correction (57 Vitest tests passed earlier).
+
+CI is recorded in §8.
+
+### Product-owner decisions recorded
+
+| Decision | Recorded in |
+|---|---|
+| **Ministry of Agriculture:** permission to be sought; the licence gate stays; draft request prepared | `docs/integrations/MOA_DATA_PERMISSION_REQUEST.md`, `AGRICULTURAL_DATA.md` §8 |
+| **FAOSTAT:** awaiting rights review; never auto-approved. Official licence, additional terms, attribution and the uses needing clarification are recorded | `AGRICULTURAL_DATA.md` §8, `sources.csv` |
+| **Messaging:** WhatsApp, then SMS, for farmers; email for buyers; provisional only. `NOTIFICATION_PROVIDER=none` outside synthetic tests; no real recipients from staging; versioned consent wording; consent is never acceptance of a commitment | `MESSAGING.md`, `MESSAGING_CONSENT_WORDING.md` |
+| **Tristan's database:** preserved unchanged | `LEGACY_DATABASE.md` |
+
+**Merge plan:** `R1_MERGE_PLAN.md`.
+
 ## 1. WP5 functionality completed
 
 | Milestone | What a user can now do | Status |

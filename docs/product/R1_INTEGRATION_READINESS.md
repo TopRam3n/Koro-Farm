@@ -39,14 +39,14 @@
 | 17 | Nebius Token Factory (synthetic evaluation) | AWAITING PRODUCT OWNER | Key in a local file; turn on Zero Data Retention (guide §5) |
 | 18 | Anthropic adapter | NOT STARTED | Present and disabled; no decision requested |
 | 19 | Email delivery for Auth (SMTP) | NOT STARTED | Only if email sign-up or reset is needed at scale |
-| 20 | External messaging: SMS, WhatsApp, email (WP5 M3) | PREPARED (foundation) / AWAITING PRODUCT OWNER (provider) | Channel, provider, consent wording (docs/integrations/MESSAGING.md) |
+| 20 | External messaging: SMS, WhatsApp, email (WP5 M3) | PREPARED (foundation, consent wording drafts) / AWAITING PRODUCT OWNER (provider) | Provisional priorities: WhatsApp/SMS for farmers, email for buyers; no provider selected; staging never messages real recipients |
 | 21 | Agricultural data sources, government, institutional partners | PREPARED (schema, importer) | See rows 23–25 |
 | 22 | GitHub Actions CI | VERIFIED | Runs on every push |
 | 23 | Agricultural intelligence schema `agri` (migration 0029) | PREPARED | Install with the other migrations (checklist §2) |
-| 24 | Ministry of Agriculture (AMID) statistics | AWAITING PRODUCT OWNER | Written permission: the site says "All Rights Reserved" (docs/integrations/AGRICULTURAL_DATA.md §8) |
-| 25 | FAOSTAT statistics | AWAITING PRODUCT OWNER | Confirm CC BY 4.0 and attribution; verify FAO codes against a real download |
-| 26 | Evidence-grounded agricultural answers (LLM) | PREPARED (interfaces, gates) / NOT STARTED (connectivity) | Model gate, licence approval, AGRI_LLM_ENABLED (docs/integrations/ML_AND_LLM.md) |
-| 27 | Tristan's existing database | NOT STARTED (untouched) | Read-only assessment needs separate authorization (docs/integrations/LEGACY_DATABASE.md) |
+| 24 | Ministry of Agriculture (AMID) statistics | AWAITING PRODUCT OWNER | PO will request written permission (draft: docs/integrations/MOA_DATA_PERMISSION_REQUEST.md); licence gate stays |
+| 25 | FAOSTAT statistics | AWAITING PRODUCT OWNER (rights review) | CC BY 4.0 plus FAO's additional terms recorded; commercial display, derived analytics and AI processing need clarification; never auto-approved |
+| 26 | Evidence-grounded agricultural answers (LLM) | PREPARED (interfaces, gates, forecast lineage) / NOT STARTED (connectivity) | Forecasts need complete lineage and an explicit EXTERNAL_LLM decision (migration 0030); model gate; AGRI_LLM_ENABLED |
+| 27 | Tristan's existing database | NOT STARTED (preserved unchanged by PO decision) | No connection, migration, deletion or modification authorized |
 
 ## Details and evidence
 

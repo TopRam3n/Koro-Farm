@@ -114,6 +114,51 @@ def test_only_catalogue_queries_with_checked_parameters_run() -> None:
         ev._check_params("series", {"crop": "GINGER'; drop table x;--", "measure": "PRODUCTION", "area": "JM", "from_year": 2010, "to_year": 2020})
     with pytest.raises(ev.EvidenceError, match="year"):
         ev._check_params("series", {"crop": "GINGER", "measure": "PRODUCTION", "area": "JM", "from_year": "2010", "to_year": 2020})
+    import re
     for spec in ev.QUERY_CATALOGUE.values():  # statistics only: no operational table is ever read
-        tables = {word for word in spec["sql"].replace("\n", " ").split() if "." in word and not word.startswith(("o.", "c.", "g.", "d.", "s.", "p.", "f.", "r."))}
-        assert all(t.startswith("agri.") for t in tables if t[0].isalpha()), tables
+        # "join lateral (" opens a subquery and "extract(year from o.x)" reads a column: neither is a table.
+        tables = [t for t in re.findall(r"\b(?:from|join)\s+([a-z_][a-z_.]*)", spec["sql"])
+                  if t != "lateral" and not re.match(r"^[a-z]\.", t)]
+        assert tables and all(t.startswith("agri.") for t in tables), tables
+
+
+# --- Forecast provenance (WP5 review correction) --------------------------------------------------------------------
+
+def _forecast(decision=None, sources=({"code": "MOA_AMID", "licence_review_status": "APPROVED"},), inputs=6, unresolved=0):
+    sources = list(sources)
+    return ev.Evidence("E1", "Forecast by last_value v1 for the period starting 2024-01-01: 130 TONNE (horizon 1)", "130", "TONNE",
+                       {"source": "KoroFarm forecast", "model": "last_value", "model_run_id": "run-1",
+                        "lineage": {"complete": inputs > 0 and unresolved == 0 and bool(sources), "inputs": inputs,
+                                    "unresolved": unresolved, "sources": sources},
+                        "external_llm_decision": decision, "external_llm_reference": "PO-2026-11-07" if decision else None},
+                       kind="forecast")
+
+
+MIXED = ({"code": "FAOSTAT", "licence_review_status": "NOT_REVIEWED"}, {"code": "MOA_AMID", "licence_review_status": "APPROVED"})
+
+
+@pytest.mark.parametrize("item, allowed, reason", [
+    (_forecast("PERMITTED"), True, "permitted"),                                          # approved: lineage + explicit decision
+    (_forecast("NOT_PERMITTED"), False, "is NOT_PERMITTED"),                             # restricted
+    (_forecast(None), False, "no recorded EXTERNAL_LLM rights decision"),                # approved source alone is not a decision
+    (_forecast(None, sources=MIXED), False, "no recorded EXTERNAL_LLM rights decision"),  # mixed sources, undecided
+    (_forecast("PERMITTED", sources=MIXED), True, "permitted"),                          # mixed sources, explicitly decided
+    (_forecast("PERMITTED", inputs=0, sources=()), False, "lineage is unknown"),          # missing lineage
+    (_forecast("PERMITTED", unresolved=1), False, "lineage is unknown"),                 # an input that resolves to no source
+])
+def test_forecasts_reach_a_provider_only_with_known_lineage_and_an_explicit_decision(item, allowed, reason) -> None:
+    permitted, why = ev.provider_permitted([item], 100, ENABLED)
+    assert permitted is allowed and reason in why, why
+    client = FakeClient({"answer": "The forecast is 130 tonnes.", "citations": ["E1"], "figures": [{"value": "130", "evidence_id": "E1"}],
+                         "insufficient_evidence": False})
+    result = ev.answer("What is the forecast?", [item], client, ENABLED)
+    assert result.used_model is allowed and bool(client.calls) is allowed
+    if not allowed:
+        assert "[E1]" in result.answer  # the deterministic fallback still answers from the evidence
+
+
+def test_one_unresolved_forecast_blocks_the_whole_request() -> None:
+    observation = _evidence()[0]
+    permitted, why = ev.provider_permitted([observation, _forecast(None)], 100, ENABLED)
+    assert not permitted and why.startswith("E1:")
+    assert not ev.external_processing_resolved(ev.Evidence("E9", "x", "1", "T", {}, kind="model_card"))[0]

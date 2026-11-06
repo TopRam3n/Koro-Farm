@@ -304,3 +304,99 @@ def test_the_reviewed_read_only_role_reads_statistics_only(agri_db) -> None:
         with raw.cursor() as cursor:
             cursor.execute("drop owned by korofarm_agri_reader; drop role if exists korofarm_agri_reader")
         raw.close()
+
+
+def test_forecast_lineage_and_explicit_rights_decisions_govern_external_processing(agri_db, tmp_path) -> None:
+    """WP5 review correction: a forecast reaches an external model only with complete source lineage and an explicit
+    EXTERNAL_LLM decision for its run. Source licences are recorded with the decision, never applied implicitly."""
+    from src.backend.app.agriculture import evidence as ev, ingestion, lineage
+    from src.backend.app.agriculture.domain.models import Crop, GeoArea, Observation, Source
+    from src.backend.app.agriculture.forecasting import LastValue, record_model_run
+    from test_agri_intelligence import ENABLED
+
+    _, config, engine = agri_db
+    command.upgrade(config, "head")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    moa = _template(tmp_path, "moa.csv", [f"Ginger,Jamaica,PRODUCTION,YEAR,{y},{v},TONNE,FINAL,,r{y}" for y, v in ((2019, 100), (2020, 110), (2021, 120))])
+    faostat = tmp_path / "faostat.csv"
+    faostat.write_text("Area Code,Area Code (M49),Area,Item Code,Item Code (CPC),Item,Element Code,Element,Year Code,Year,Unit,Value,Flag,Note\n"
+                       f"109,'388,Jamaica,720,01657,Ginger,5510,Production,2022,2022,t,130,A,{SYNTHETIC}\n", encoding="utf-8")
+    element_map = tmp_path / "map.csv"
+    element_map.write_text("element_code,element_name,fao_unit,measure_code,unit_code,verified\n5510,Production,t,PRODUCTION,TONNE,true\n", encoding="utf-8")
+    with factory() as session:
+        ingestion.load_reference(session, apply=True)
+        _approve(session, "MOA_AMID")
+        ingestion.import_observations(session, moa, operator="test", apply=True)
+        _approve(session, "FAOSTAT")  # test only: to import a row; reset below to show mixed licence states
+        session.scalar(select(Crop).where(Crop.code == "GINGER")).fao_item_code_verified = True
+        ingestion.import_faostat(session, faostat, dataset_code="QCL", operator="test", apply=True, element_map=element_map)
+        session.scalar(select(Source).where(Source.code == "FAOSTAT")).licence_review_status = "NOT_REVIEWED"
+        session.commit()
+
+    def run_inputs(session):
+        crop = session.scalar(select(Crop).where(Crop.code == "GINGER"))
+        area = session.scalar(select(GeoArea).where(GeoArea.code == "JM"))
+        observations = session.scalars(select(Observation).order_by(Observation.period_start)).all()
+        model = LastValue().fit([float(o.value) for o in observations])
+        common = dict(purpose="FORECAST", measure_code="PRODUCTION", crop_id=crop.id, geo_area_id=area.id, period_type="YEAR",
+                      forecasts=model.predict(1), unit_code="TONNE", created_by="test")
+        return model, observations, common
+
+    with factory() as session:
+        model, observations, common = run_inputs(session)
+        with pytest.raises(ValueError, match="not recorded observations"):  # an unknown input never becomes lineage
+            record_model_run(session, model=model, data_snapshot=[str(uuid4())], target_periods=[date(2023, 1, 1)], **common)
+        session.rollback()
+    with factory() as session:
+        model, observations, common = run_inputs(session)
+        mixed = record_model_run(session, model=model, data_snapshot=[str(o.id) for o in observations],
+                                 target_periods=[date(2023, 1, 1)], **common)
+        session.commit()
+        found = lineage.lineage_of(session, mixed.id)
+        assert found.complete and found.inputs == 4
+        assert {(s["code"], s["licence_review_status"]) for s in found.sources} == {("MOA_AMID", "APPROVED"), ("FAOSTAT", "NOT_REVIEWED")}
+
+    def evidence_now():
+        with engine.connect() as connection:
+            rows = ev.run_query(connection, "forecasts", {"crop": "GINGER", "measure": "PRODUCTION", "area": "JM"})
+        return ev.build_evidence(rows)
+
+    items = evidence_now()                                            # mixed sources, no decision yet
+    assert items[0].kind == "forecast" and items[0].citation["lineage"]["complete"]
+    assert not ev.provider_permitted(items, 100, ENABLED)[0]
+    assert "no recorded EXTERNAL_LLM rights decision" in ev.provider_permitted(items, 100, ENABLED)[1]
+    with factory() as session:
+        with pytest.raises(lineage.RightsDecisionError, match="approval reference"):
+            lineage.record_rights_decision(session, model_run_id=mixed.id, purpose="EXTERNAL_LLM", permitted=True,
+                                           basis="product owner reviewed the sources", decided_by="po")
+        lineage.record_rights_decision(session, model_run_id=mixed.id, purpose="EXTERNAL_LLM", permitted=False,
+                                       basis="FAOSTAT rights not yet reviewed", decided_by="po")
+        session.commit()
+    assert "is NOT_PERMITTED" in ev.provider_permitted(evidence_now(), 100, ENABLED)[1]           # restricted
+    with factory() as session:
+        decision = lineage.record_rights_decision(session, model_run_id=mixed.id, purpose="EXTERNAL_LLM", permitted=True,
+                                                  basis="product owner approved synthetic evaluation of this run", decided_by="po",
+                                                  approval_reference="PO-TEST-1")
+        session.commit()
+        assert {s["code"] for s in decision.source_statuses} == {"MOA_AMID", "FAOSTAT"}  # what the decider saw is kept
+    assert ev.provider_permitted(evidence_now(), 100, ENABLED) == (True, "permitted")              # approved, explicitly
+
+    with factory() as session:                                         # missing lineage: a run with no recorded inputs
+        model, observations, common = run_inputs(session)
+        empty = record_model_run(session, model=model, data_snapshot=[], target_periods=[date(2024, 1, 1)], **common)
+        session.commit()
+        assert not lineage.lineage_of(session, empty.id).complete
+        with pytest.raises(lineage.RightsDecisionError, match="lineage is incomplete"):
+            lineage.record_rights_decision(session, model_run_id=empty.id, purpose="EXTERNAL_LLM", permitted=True,
+                                           basis="attempt to permit unknown lineage", decided_by="po", approval_reference="PO-X")
+        session.rollback()
+        # Even a PERMITTED row written around the API cannot release a forecast whose lineage is unknown.
+        session.execute(text("insert into agri.derived_rights_decisions (id, model_run_id, purpose, decision, basis, decided_by, approval_reference) "
+                             "values (:id, :run, 'EXTERNAL_LLM', 'PERMITTED', 'written directly', 'test', 'PO-X')"), {"id": uuid4(), "run": empty.id})
+        session.commit()
+    newest = [e for e in evidence_now() if e.citation["model_run_id"] == str(empty.id)]
+    assert newest and not ev.provider_permitted(newest, 100, ENABLED)[0]
+    assert "lineage is unknown" in ev.provider_permitted(newest, 100, ENABLED)[1]
+    # Recorded lineage and decisions are never dropped by a downgrade.
+    with pytest.raises(Exception, match="refusing to drop"):
+        command.downgrade(config, "0029_agricultural_intelligence")

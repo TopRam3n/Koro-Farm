@@ -43,6 +43,22 @@
 
 `QUEUED` → `SENT` (→ `DELIVERED` once a provider reports it) | `FAILED` | `BLOCKED_NO_CONSENT` | `NOT_SENT_PROVIDER_DISABLED`
 
+## Product-owner decisions (5 November 2026)
+
+**Channel priorities** (provisional; not authorization to choose a provider or connect anything):
+
+| Audience | First channel | Alternative |
+|---|---|---|
+| Farmers and suppliers | WhatsApp | SMS |
+| Institutional buyers | Email | none |
+
+**Rules:**
+- `NOTIFICATION_PROVIDER=none` outside synthetic testing.
+- Staging must not message real phone numbers or email addresses.
+- Consent wording is versioned: `MESSAGING_CONSENT_WORDING.md` (`supplier-whatsapp-sms-v1-draft`,
+  `buyer-email-v1-draft`). Each version names the sender, channel, purposes and how to withdraw.
+- Consent to receive messages is never acceptance of a supply commitment.
+
 ## Connecting a real provider later (product-owner decisions first)
 
 **Decisions:**
