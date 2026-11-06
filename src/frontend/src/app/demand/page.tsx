@@ -1,2 +1,6 @@
-import { AuthGate } from '@/components/AuthGate'; import { ModuleWorkspace } from '@/components/ModuleWorkspace';
-export default function Page(){ return <AuthGate><ModuleWorkspace kind="demand" /></AuthGate>; }
+import { AuthGate } from '@/components/AuthGate';
+import { DemandWorkspace } from '@/components/DemandWorkspace';
+
+export default function Page() {
+  return <AuthGate><DemandWorkspace /></AuthGate>;
+}

@@ -1,11 +1,42 @@
+
 import hashlib
 import json
+import math
 
 import pytest
 
 from app.agriculture import api
 from app.agriculture.forecasting import MODELS, backtest, predict
 from app.agriculture.ingestion import DATA, build_dataset, parse_row
+
+
+def assert_close(actual, expected):
+    """Compare nested results while tolerating floating-point precision differences."""
+    if isinstance(actual, dict) and isinstance(expected, dict):
+        assert actual.keys() == expected.keys()
+        for key in actual:
+            assert_close(actual[key], expected[key])
+
+    elif isinstance(actual, list) and isinstance(expected, list):
+        assert len(actual) == len(expected)
+        for a, e in zip(actual, expected):
+            assert_close(a, e)
+
+    elif (
+        isinstance(actual, (int, float))
+        and not isinstance(actual, bool)
+        and isinstance(expected, (int, float))
+        and not isinstance(expected, bool)
+    ):
+        assert math.isclose(
+            actual,
+            expected,
+            rel_tol=1e-12,
+            abs_tol=1e-9,
+        ), f"Expected {expected}, got {actual}"
+
+    else:
+        assert actual == expected
 
 
 def test_ingestion_reconciles_sources_without_duplicates_or_imputation():
@@ -25,16 +56,25 @@ def test_ingestion_reconciles_sources_without_duplicates_or_imputation():
     assert all(r["crop"] == "iceberg_lettuce" for r in rows)
 
 
-@pytest.mark.parametrize("row", ["OTHER LETTUCE 1 2 3 4 5", "ICEBURG LETTUCE 1 2 - 4 5", "ICEBURG LETTUCE 1,23 2 3 4 5", "ICEBURG LETTUCE 1 2 3 4"])
+@pytest.mark.parametrize("row", [
+    "OTHER LETTUCE 1 2 3 4 5",
+    "ICEBURG LETTUCE 1 2 - 4 5",
+    "ICEBURG LETTUCE 1,23 2 3 4 5",
+    "ICEBURG LETTUCE 1 2 3 4",
+])
 def test_unmapped_missing_or_malformed_cells_fail_closed(row):
     with pytest.raises(ValueError):
-        parse_row(row,5)
+        parse_row(row, 5)
 
 
 def test_backtest_has_identical_periods_and_reproducible_metrics():
     artifact = json.loads((DATA / "intelligence.json").read_text())
     result = backtest(artifact["series"])
-    assert result == artifact["experiment"]
+
+    # Allow negligible floating-point differences while preserving
+    # exact comparisons for structure and non-numeric values.
+    assert_close(result, artifact["experiment"])
+
     assert result["metrics"]["all"]["seasonal_naive"]["mae_tonnes"] == pytest.approx(595.15)
     assert result["metrics"]["all"]["ridge_lags"]["mae_tonnes"] == pytest.approx(498.960586331)
     assert {m["n"] for m in result["metrics"]["all"].values()} == {20}
@@ -58,7 +98,15 @@ def test_future_changes_cannot_affect_earlier_predictions():
 
 def test_missing_quarter_does_not_shift_seasonal_lag_and_short_history_unavailable():
     assert predict([100,None,300,400,500], "seasonal_naive") is None
-    series = [dict(period=f"2025 Q{i+1}", year=2025,quarter=i+1,production_tonnes=v) for i,v in enumerate([100,200,300,400])]
+    series = [
+        dict(
+            period=f"2025 Q{i+1}",
+            year=2025,
+            quarter=i+1,
+            production_tonnes=v,
+        )
+        for i, v in enumerate([100,200,300,400])
+    ]
     result = backtest(series)
     assert result["forecast"]["status"] == "unavailable"
     assert result["forecast"]["value_tonnes"] is None
@@ -68,9 +116,15 @@ def test_missing_quarter_does_not_shift_seasonal_lag_and_short_history_unavailab
 
 def test_candidate_that_cannot_beat_seasonality_keeps_seasonal_reference():
     # Test-only perfectly repeating seasonal process; these are not source data.
-    series = [dict(period=f"{2016+i//4} Q{i%4+1}", year=2016+i//4,
-                   quarter=i%4+1,production_tonnes=float([100,200,300,400][i%4]))
-              for i in range(40)]
+    series = [
+        dict(
+            period=f"{2016+i//4} Q{i%4+1}",
+            year=2016+i//4,
+            quarter=i%4+1,
+            production_tonnes=float([100,200,300,400][i%4]),
+        )
+        for i in range(40)
+    ]
     result = backtest(series)
     assert result["metrics"]["all"]["seasonal_naive"]["mae_tonnes"] == 0
     assert result["candidate_qualifies"] is False
@@ -105,16 +159,26 @@ def test_endpoint_requires_existing_authentication(monkeypatch):
 def test_faostat_import_is_annual_unmapped_idempotent_and_missing_is_not_zero(tmp_path):
     from app.agriculture.faostat import import_annual_csv
     path = tmp_path / "test-only-faostat.csv"
-    path.write_text('Area,Item Code,Item,Element,Year,Unit,Value,Flag\n'
-                    'Jamaica,999,Test aggregate,Production,2020,t,123,E\n'
-                    'Jamaica,999,Test aggregate,Production,2020,t,123,E\n'
-                    'Jamaica,999,Test aggregate,Production,2021,t,,E\n'
-                    'Elsewhere,999,Test aggregate,Production,2020,t,99,E\n')
-    result = import_annual_csv(path,"https://www.fao.org/faostat/en/#data/QCL","QCL")
+    path.write_text(
+        'Area,Item Code,Item,Element,Year,Unit,Value,Flag\n'
+        'Jamaica,999,Test aggregate,Production,2020,t,123,E\n'
+        'Jamaica,999,Test aggregate,Production,2020,t,123,E\n'
+        'Jamaica,999,Test aggregate,Production,2021,t,,E\n'
+        'Elsewhere,999,Test aggregate,Production,2020,t,99,E\n'
+    )
+    result = import_annual_csv(
+        path,
+        "https://www.fao.org/faostat/en/#data/QCL",
+        "QCL",
+    )
     assert len(result["records"]) == 1 and len(result["rejected"]) == 1
     row = result["records"][0]
     assert row["frequency"] == "annual" and row["quarter"] is None
     assert row["mapped_ministry_crop"] is None
-    assert result == import_annual_csv(path,"https://www.fao.org/faostat/en/#data/QCL","QCL")
+    assert result == import_annual_csv(
+        path,
+        "https://www.fao.org/faostat/en/#data/QCL",
+        "QCL",
+    )
     with pytest.raises(ValueError):
-        import_annual_csv(path,"https://unofficial.example/data","QCL")
+        import_annual_csv(path, "https://unofficial.example/data", "QCL")

@@ -52,3 +52,6 @@ orgvid/
 .github/skills/
 .impeccable/
 skills-lock.json
+
+# Local backups from KoroFarm integration installers
+.korofarm-local-backups/

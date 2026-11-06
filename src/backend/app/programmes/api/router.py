@@ -10,10 +10,28 @@ from sqlalchemy.orm import Session
 from app.assurance.application.recovery import committed_quantity
 from app.demand.domain.models import Buyer, Requirement, SupplyHealth
 from app.main_dependencies import get_session
+from app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from app.identity.domain.permissions import RoleCode
 from app.programmes.domain.models import Programme, ProgrammeStatus
 from app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
 
 router = APIRouter(prefix="/programmes", tags=["programmes"])
+
+_LEGACY_WRITERS = frozenset({RoleCode.PLATFORM_ADMIN, RoleCode.ORGANIZATION_ADMIN, RoleCode.PROCUREMENT_MANAGER})
+
+
+def _can_write(context: AuthorizationContext):
+    if context.role not in _LEGACY_WRITERS:
+        raise HTTPException(403, "programme modification permission required")
+
+
+def _authorized_programme(session: Session, programme_id: UUID, context: AuthorizationContext) -> Programme:
+    programme = session.scalar(select(Programme).join(Buyer, Buyer.id == Programme.buyer_id).where(
+        Programme.id == programme_id, Buyer.organization_id == context.organization_id,
+    ))
+    if programme is None:
+        raise HTTPException(404, "programme not found")
+    return programme
 
 
 class ProgrammeCreate(BaseModel):
@@ -69,8 +87,11 @@ def _summary(session: Session, programme: Programme) -> dict:
 
 
 @router.post("", response_model=ProgrammeRead, status_code=status.HTTP_201_CREATED)
-def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_session)) -> Programme:
-    if session.get(Buyer, payload.buyer_id) is None:
+def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_session),
+                     context: AuthorizationContext = Depends(get_authorization_context)) -> Programme:
+    _can_write(context)
+    if session.scalar(select(Buyer).where(Buyer.id == payload.buyer_id,
+                                          Buyer.organization_id == context.organization_id)) is None:
         raise HTTPException(404, "buyer not found")
     programme = Programme(**payload.model_dump())
     session.add(programme)
@@ -81,10 +102,13 @@ def create_programme(payload: ProgrammeCreate, session: Session = Depends(get_se
 
 @router.get("")
 def list_programmes(status_filter: ProgrammeStatus | None = None, offset: int = 0, limit: int = 50,
-                    session: Session = Depends(get_session)) -> list[dict]:
+                    session: Session = Depends(get_session),
+                    context: AuthorizationContext = Depends(get_authorization_context)) -> list[dict]:
     if offset < 0 or limit < 1 or limit > 200:
         raise HTTPException(422, "offset must be non-negative and limit must be between 1 and 200")
-    statement = select(Programme)
+    statement = select(Programme).join(Buyer, Buyer.id == Programme.buyer_id).where(
+        Buyer.organization_id == context.organization_id,
+    )
     if status_filter is not None:
         statement = statement.where(Programme.status == status_filter)
     programmes = session.scalars(statement.order_by(Programme.created_at.desc(), Programme.id).offset(offset).limit(limit))
@@ -92,22 +116,27 @@ def list_programmes(status_filter: ProgrammeStatus | None = None, offset: int = 
 
 
 @router.get("/{programme_id}")
-def get_programme(programme_id: UUID, session: Session = Depends(get_session)) -> dict:
-    programme = session.get(Programme, programme_id)
-    if programme is None:
-        raise HTTPException(404, "programme not found")
+def get_programme(programme_id: UUID, session: Session = Depends(get_session),
+                  context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    programme = _authorized_programme(session, programme_id, context)
     return _summary(session, programme)
 
 
 @router.post("/{programme_id}/requirements/{requirement_id}")
 def associate_requirement(programme_id: UUID, requirement_id: UUID,
-                          session: Session = Depends(get_session)) -> dict:
-    programme = session.get(Programme, programme_id)
-    requirement = session.get(Requirement, requirement_id)
-    if programme is None or requirement is None:
+                          session: Session = Depends(get_session),
+                          context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    _can_write(context)
+    programme = _authorized_programme(session, programme_id, context)
+    requirement = session.scalar(select(Requirement).join(Buyer, Buyer.id == Requirement.buyer_id).where(
+        Requirement.id == requirement_id, Buyer.organization_id == context.organization_id,
+    ).with_for_update(of=Requirement))
+    if requirement is None:
         raise HTTPException(404, "programme or requirement not found")
     if programme.buyer_id != requirement.buyer_id:
         raise HTTPException(409, "programme and requirement must belong to the same buyer")
+    if requirement.programme_id is not None and requirement.programme_id != programme.id:
+        raise HTTPException(409, "requirement already linked to another programme")
     requirement.programme_id = programme.id
     session.commit()
     return {"programme_id": str(programme.id), "requirement_id": str(requirement.id), "associated": True}

@@ -1,5 +1,10 @@
+from app.marketplace.api.analytics import router as marketplace_analytics_router
 from app.marketplace.api.operations import router as marketplace_operations_router
 from app.marketplace.api.requests import router as marketplace_requests_router
+from app.marketplace.api.programmes import router as marketplace_programmes_router
+from app.marketplace.api.fulfilment import router as marketplace_fulfilment_router
+from app.marketplace.api.demand import router as marketplace_demand_router
+from app.marketplace.api.command_center import router as marketplace_command_center_router
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -45,7 +50,12 @@ app.include_router(programmes_router, dependencies=staff_dependencies)
 app.include_router(registry_router, dependencies=staff_dependencies)
 app.include_router(marketplace_router, dependencies=[Depends(get_current_user)])
 app.include_router(marketplace_operations_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_demand_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_command_center_router, dependencies=[Depends(get_current_user)])
 app.include_router(marketplace_requests_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_analytics_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_programmes_router, dependencies=[Depends(get_current_user)])
+app.include_router(marketplace_fulfilment_router, dependencies=[Depends(get_current_user)])
 app.include_router(identity_router)
 app.include_router(ingestion_router)
 app.include_router(secure_actions_router)

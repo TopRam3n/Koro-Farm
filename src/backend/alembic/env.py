@@ -47,6 +47,8 @@ if database_url := os.getenv("DATABASE_URL"):
         database_url = f"postgresql+psycopg://{database_url[len('postgresql://'):]}"
     config.set_main_option("sqlalchemy.url", database_url)
 
+from app.marketplace.api.requests import FarmerOffer  # noqa: F401
+from app.marketplace.fulfilment.models import MarketplaceReceipt  # noqa: F401
 target_metadata = Base.metadata
 
 

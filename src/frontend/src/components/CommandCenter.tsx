@@ -1,41 +1,142 @@
 'use client';
 
-import { AlertTriangle, ArrowRight, CheckCircle2, CircleAlert, PackageCheck, ShieldCheck } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { AlertTriangle, ArrowRight, BarChart3, ClipboardList, Clock3, RefreshCw, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
-import { StatusBadge } from '@/components/StatusBadge';
-import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
+import { useIdentity } from '@/hooks/useIdentity';
+import { apiFetch } from '@/lib/api';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
+type RequestSnapshot = {
+  id: string;
+  buyer_name: string;
+  crop: string;
+  grade: string;
+  lifecycle_status: string;
+  delivery_window_start: string;
+  delivery_window_end: string;
+  required_kg: string;
+  accepted_offer_kg: string;
+  pending_offer_kg: string;
+  remaining_offer_kg: string;
+  coverage_pct: number;
+  coverage_status: 'COVERED' | 'PARTIALLY_COVERED' | 'UNFILLED';
+};
+type Offer = {
+  id: string;
+  requirement_id: string;
+  buyer_name: string;
+  farmer_name: string;
+  crop: string;
+  quantity_kg: string;
+  status: string;
+  created_at: string | null;
+};
+type Summary = {
+  scope: 'buyer' | 'organization_staff';
+  as_of: string;
+  coverage_basis: string;
+  totals: {
+    all_requests: number;
+    active_requests: number;
+    draft_requests: number;
+    covered_active_requests: number;
+    partially_covered_active_requests: number;
+    unfilled_active_requests: number;
+    requests_needing_supply: number;
+    requested_kg: string;
+    accepted_offer_kg: string;
+    pending_offer_kg: string;
+    remaining_offer_kg: string;
+    coverage_pct: number | null;
+  };
+  attention: RequestSnapshot[];
+  recent_requests: RequestSnapshot[];
+  recent_offers: Offer[];
+  by_crop: Array<{ crop: string; requests: number; required_kg: string; accepted_offer_kg: string }>;
+};
+
+const kilograms = (value: string | number) => `${Number(value).toLocaleString('en-JM', { maximumFractionDigits: 3 })} kg`;
+const human = (value: string) => value.replace(/_/g, ' ');
+const safeDate = (value: string) => value ? value.slice(0, 10) : 'Unavailable';
+const percent = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
+const tone = (status: string) => status === 'COVERED' || status === 'ACCEPTED'
+  ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+  : status === 'PARTIALLY_COVERED' || status === 'PENDING'
+    ? 'border-amber-500/25 bg-amber-500/10 text-amber-300'
+    : 'border-white/15 bg-white/[0.04] text-slate-300';
 
 export function CommandCenter() {
-  const assurance = useAssurance(requirementId);
-  const fulfilment = useFulfilment(requirementId);
-  const events = useEvents(requirementId);
-  if (assurance.isLoading) return <CommandLoading />;
-  if (!assurance.data) return <CommandError message={assurance.error?.message} />;
-  const data = assurance.data;
-  const required = Number(data.requirement.required_quantity_kg);
-  const committed = Number(data.committed_quantity_kg);
-  const standby = Number(data.standby_quantity_kg);
-  const shortfall = Number(data.unfilled_quantity_kg);
-  const coverage = required ? Math.round(committed / required * 100) : 0;
-  const attention = data.supply_health !== 'COVERED';
-  const parishTotals = data.allocations.filter(item => item.role === 'COMMITTED' && item.status !== 'LOST').reduce<Record<string, number>>((result, item) => { result[item.parish] = (result[item.parish] ?? 0) + Number(item.quantity_kg); return result; }, {});
-  const maxParish = Object.entries(parishTotals).sort((a, b) => b[1] - a[1])[0];
-  return <AppShell programme={`${data.requirement.buyer_name} · ${data.requirement.crop}`}><main className="mx-auto max-w-[1540px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-    <header className="mb-7"><p className="section-eyebrow">KoroFarm</p><h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">Supply Assurance Control Room</h1><p className="mt-2 text-sm text-muted-foreground">Observe commitments, prioritize exceptions, and protect institutional demand.</p></header>
-    <section className="grid border-y border-white/[0.08] sm:grid-cols-4"><Metric label="Active requirements" value="1" detail="Configured workspace" /><Metric label="Covered" value={data.supply_health === 'COVERED' ? '1' : '0'} tone="success" detail={`${coverage}% coverage`} /><Metric label="At risk" value={data.supply_health === 'AT_RISK' ? '1' : '0'} tone="warning" detail={`${shortfall} kg shortfall`} /><Metric label="Escalation required" value={data.supply_health === 'ESCALATION_REQUIRED' ? '1' : '0'} tone="critical" detail="Unresolved exceptions" /></section>
-    <section className="mt-7 operational-panel overflow-hidden"><SectionTitle eyebrow="Exception queue" title="Needs attention" action={attention ? '1 open exception' : 'All clear'} />{attention ? <Link href={`/requirements/${data.requirement.id}`} className="grid gap-4 border-t border-warning/20 bg-warning/[0.035] px-5 py-5 hover:bg-warning/[0.055] md:grid-cols-[120px_minmax(0,1fr)_150px_130px_24px] md:items-center"><StatusBadge status={data.supply_health} /><div><p className="font-medium">Grade {data.requirement.grade} {data.requirement.crop.toLowerCase()}</p><p className="mt-1 text-xs text-muted-foreground">{data.requirement.buyer_name} · committed supply disruption</p></div><div><p className="tabular text-lg font-semibold text-destructive">{shortfall} kg</p><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Quantity impact</p></div><div><p className="text-xs font-medium">Review recovery plan</p><p className="mt-1 text-[10px] text-muted-foreground">Open now</p></div><ArrowRight className="h-4 w-4 text-muted-foreground" /></Link> : <div className="border-t border-white/[0.07] px-5 py-8 text-center"><CheckCircle2 className="mx-auto h-5 w-5 text-success" /><p className="mt-3 text-sm font-medium">No supply disruptions require attention.</p><p className="mt-1 text-xs text-muted-foreground">The configured requirement is currently covered.</p></div>}</section>
-    <section className="mt-7 operational-panel overflow-hidden"><SectionTitle eyebrow="Operating portfolio" title="Active programmes" action="1 authoritative requirement" /><div className="overflow-x-auto"><table className="w-full min-w-[980px] text-left text-sm"><thead className="border-y border-white/[0.07] text-[10px] uppercase tracking-wider text-muted-foreground"><tr>{['Programme','Buyer','Commodity','Required','Committed','Coverage','Standby','Status','Risk','Next delivery'].map(label => <th key={label} className="px-4 py-3 font-medium">{label}</th>)}</tr></thead><tbody><tr className="hover:bg-white/[0.02]"><td className="px-4 py-4"><Link href={`/requirements/${data.requirement.id}`} className="font-medium text-primary hover:underline">Ginger supply programme</Link></td><td className="px-4 py-4 text-xs">{data.requirement.buyer_name}</td><td className="px-4 py-4">Grade {data.requirement.grade} {data.requirement.crop}</td><td className="tabular px-4 py-4">{required} kg</td><td className="tabular px-4 py-4">{committed} kg</td><td className="tabular px-4 py-4">{coverage}%</td><td className="tabular px-4 py-4 text-accent">{standby} kg</td><td className="px-4 py-4"><StatusBadge status={data.supply_health} /></td><td className="px-4 py-4">{data.risk?.label ?? 'UNKNOWN'}</td><td className="px-4 py-4 text-xs text-muted-foreground">{data.requirement.delivery_window_start}</td></tr></tbody></table></div></section>
-    <section className="mt-7 grid gap-6 lg:grid-cols-3"><div className="operational-panel p-5"><p className="section-eyebrow">Today's physical flow</p><h2 className="mt-2 text-lg font-semibold">Receiving position</h2><div className="mt-5 grid grid-cols-2 gap-4"><SmallMetric label="Expected" value={`${fulfilment.data?.required_kg ?? '—'} kg`} /><SmallMetric label="Received" value={`${fulfilment.data?.received_kg ?? '—'} kg`} tone="info" /><SmallMetric label="Accepted" value={`${fulfilment.data?.accepted_kg ?? '—'} kg`} tone="success" /><SmallMetric label="Rejected" value={`${fulfilment.data?.rejected_kg ?? '—'} kg`} tone="critical" /></div><p className="mt-4 flex gap-2 border-t border-white/[0.07] pt-4 text-xs text-muted-foreground"><PackageCheck className="h-3.5 w-3.5 text-accent" />Receipt is not acceptance.</p></div><div className="operational-panel p-5"><p className="section-eyebrow">Network health</p><h2 className="mt-2 text-lg font-semibold">Supply resilience</h2><div className="mt-5 divide-y divide-white/[0.07]"><HealthRow label="Largest parish exposure" value={maxParish ? `${maxParish[0]} · ${Math.round(maxParish[1] / committed * 100)}%` : 'Unknown'} /><HealthRow label="Standby depth" value={`${Math.round(standby / required * 100)}%`} /><HealthRow label="Open disruptions" value={attention ? '1' : '0'} /></div></div><div className="operational-panel overflow-hidden"><div className="p-5"><p className="section-eyebrow">Recent agent activity</p><h2 className="mt-2 text-lg font-semibold">Decision ledger</h2></div><ol className="divide-y divide-white/[0.06]">{events.data?.slice(-3).reverse().map(event => <li key={event.id} className="flex gap-3 px-5 py-3"><span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-accent/10 text-accent"><ShieldCheck className="h-3 w-3" /></span><div><p className="text-xs font-medium">{event.event_type.replace(/\./g, ' ')}</p><p className="mt-1 text-[10px] text-muted-foreground">{new Date(event.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {event.actor_type}</p></div></li>) ?? <li className="px-5 py-8 text-center text-xs text-muted-foreground">Activity unavailable</li>}</ol></div></section>
-    <p className="mt-7 flex items-start gap-2 text-xs text-muted-foreground"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />Portfolio aggregation is limited to the configured requirement because the backend does not expose a requirement-list API. No additional programmes are fabricated.</p>
-  </main></AppShell>;
+  const identity = useIdentity();
+  const role = identity.data?.active_role;
+  const isFarmer = role === 'FARMER';
+  const query = useQuery({
+    queryKey: ['marketplace-command-center', identity.data?.active_organization_id, role, identity.data?.active_buyer_id],
+    queryFn: () => apiFetch<Summary>('/marketplace/command-center/summary'),
+    enabled: Boolean(role) && !isFarmer,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    retry: false,
+  });
+
+  if (identity.isLoading) return <Centered title="Command Center" message="Checking your workspace access…" />;
+  if (identity.isError || !role) return <Centered title="Account access unavailable" message={identity.error?.message ?? 'An active organization membership is required.'} />;
+  if (isFarmer) return <AppShell programme="Farmer workspace"><main className="mx-auto max-w-4xl space-y-4 p-8"><h1 className="text-3xl font-semibold">Your farm workspace</h1><p className="text-sm text-muted-foreground">Procurement portfolio summaries are available to buyers and authorized operations staff. Use your farm workspace to manage harvests and buyer opportunities.</p><Link className="text-primary underline" href="/farmer">Open Harvest &amp; Quality</Link></main></AppShell>;
+
+  const data = query.data;
+  const t = data?.totals;
+  const requestsLink = data?.scope === 'buyer' ? '/demand/demo-orders' : '/demand';
+  return <AppShell programme={data?.scope === 'buyer' ? 'Buyer procurement · Command Center' : 'Organization procurement · Command Center'}>
+    <main className="mx-auto max-w-[1440px] space-y-7 px-4 py-7 sm:px-6 lg:px-8">
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div><p className="section-eyebrow">KoroFarm · Operations overview</p><h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">Command Center</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">See institutional demand, accepted farmer commitments, and outstanding supply across your permitted portfolio.</p></div>
+        <div className="flex flex-wrap items-center gap-2"><Link href="/demand" className="inline-flex min-h-10 items-center gap-2 rounded-md border border-white/20 px-4 text-sm font-semibold hover:bg-white/[0.04]">Explore Demand <ArrowRight className="h-4 w-4" /></Link><button type="button" disabled={query.isFetching} onClick={() => void query.refetch()} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-white/20 px-4 text-sm font-semibold hover:bg-white/[0.04] disabled:opacity-50"><RefreshCw className="h-4 w-4" />Refresh</button></div>
+      </header>
+      {query.isLoading && <div role="status" className="operational-panel p-8 text-sm text-muted-foreground">Loading your procurement portfolio…</div>}
+      {query.isError && <section role="alert" className="operational-panel space-y-3 p-6"><div className="flex items-center gap-2 font-semibold text-warning"><AlertTriangle className="h-5 w-5" />Command Center unavailable</div><p className="text-sm text-muted-foreground">{query.error.message}</p><p className="text-xs text-muted-foreground">Confirm the Phase 2 router is installed, the backend is running, and your account has an active buyer or staff membership. No figures are substituted.</p><button onClick={() => void query.refetch()} type="button" className="rounded border border-white/20 px-3 py-2 text-sm">Retry</button></section>}
+      {t && data && <>
+        <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>{data.scope === 'buyer' ? 'Your buyer portfolio' : 'Your organization portfolio'} · Accepted marketplace offers only</span><span>Snapshot {new Date(data.as_of).toLocaleString('en-JM')} · refreshes every 30 seconds</span></div>
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Portfolio indicators">
+          <Metric label="Active requests" value={String(t.active_requests)} note={`${t.all_requests} total · ${t.draft_requests} drafts`} icon="requests" />
+          <Metric label="Accepted coverage" value={percent(t.coverage_pct)} note={`${kilograms(t.accepted_offer_kg)} accepted`} icon="coverage" />
+          <Metric label="Requested supply" value={kilograms(t.requested_kg)} note="Open procurement requirements" icon="requests" />
+          <Metric label="Remaining demand" value={kilograms(t.remaining_offer_kg)} note={`${t.requests_needing_supply} requests need supply`} icon="attention" />
+        </section>
+        <section className="operational-panel p-5 sm:p-6" aria-labelledby="coverage-title">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><h2 id="coverage-title" className="text-xl font-semibold">Portfolio commitment coverage</h2><p className="mt-1 text-sm text-muted-foreground">Accepted offers are reserved commitments, not received, inspected, or delivered produce.</p></div><span className="text-sm font-semibold tabular-nums">{percent(t.coverage_pct)}</span></div>
+          <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10" role="meter" aria-label="Accepted commitment coverage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={t.coverage_pct ?? 0}><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(0, Math.min(100, t.coverage_pct ?? 0))}%` }} /></div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-4"><Mini label="Accepted offers" value={kilograms(t.accepted_offer_kg)} /><Mini label="Pending offers" value={kilograms(t.pending_offer_kg)} /><Mini label="Covered requests" value={String(t.covered_active_requests)} /><Mini label="Partially covered" value={String(t.partially_covered_active_requests)} /></div>
+        </section>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,0.8fr)]">
+          <section className="operational-panel min-w-0 p-5 sm:p-6" aria-labelledby="attention-title">
+            <div className="flex items-center justify-between gap-3"><div><p className="section-eyebrow">Procurement gaps</p><h2 id="attention-title" className="mt-2 text-xl font-semibold">Needs supply attention</h2></div><span className="rounded-md border border-white/15 px-3 py-1 text-xs text-muted-foreground">{t.requests_needing_supply} open</span></div>
+            {!data.attention.length ? <Empty message={t.active_requests ? 'All active requirements have accepted offer coverage.' : 'No active requirements to assess yet.'} /> : <div className="mt-4 divide-y divide-white/10">{data.attention.map(r => <article key={r.id} className="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold">Grade {r.grade} {human(r.crop)}</h3><span className={`rounded border px-2 py-0.5 text-[10px] ${tone(r.coverage_status)}`}>{human(r.coverage_status)}</span></div><p className="mt-1 text-xs text-muted-foreground">{r.buyer_name} · Delivery {safeDate(r.delivery_window_start)}–{safeDate(r.delivery_window_end)}</p><p className="mt-1 text-xs text-muted-foreground">{kilograms(r.accepted_offer_kg)} accepted / {kilograms(r.required_kg)} requested</p></div><div className="sm:text-right"><p className="text-lg font-semibold text-amber-300 tabular-nums">{kilograms(r.remaining_offer_kg)}</p><p className="text-[10px] uppercase tracking-wider text-muted-foreground">Supply still needed</p></div></article>)}</div>}
+            {t.requests_needing_supply > data.attention.length && <p className="mt-2 text-xs text-muted-foreground">Showing the {data.attention.length} earliest delivery windows. Open Demand for all requirements.</p>}
+            <Link href={requestsLink} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline">Review procurement requests <ArrowRight className="h-4 w-4" /></Link>
+          </section>
+          <section className="operational-panel min-w-0 p-5 sm:p-6" aria-labelledby="crop-title"><div className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" /><h2 id="crop-title" className="text-xl font-semibold">Demand by crop</h2></div><p className="mt-2 text-xs text-muted-foreground">Active requirements only; coverage based on accepted offers.</p>
+            {!data.by_crop.length ? <Empty message="Crop breakdown will appear once requests become active." /> : <div className="mt-6 space-y-6">{data.by_crop.map(c => { const req = Number(c.required_kg); const cov = req > 0 ? Math.min(100, Number(c.accepted_offer_kg) / req * 100) : 0; return <div key={c.crop}><div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium">{human(c.crop)}</span><span className="text-muted-foreground">{c.requests} requests</span></div><div className="mt-1 flex justify-between gap-3 text-xs text-muted-foreground"><span>{kilograms(c.accepted_offer_kg)} accepted</span><span>{kilograms(c.required_kg)} requested</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-primary" style={{width:`${Math.max(0, cov)}%`}} /></div></div>;})}</div>}
+          </section>
+        </div>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <section className="operational-panel min-w-0 p-5 sm:p-6" aria-labelledby="requests-title"><div className="flex items-center gap-2"><ClipboardList className="h-5 w-5 text-primary"/><h2 id="requests-title" className="text-lg font-semibold">Recent active requests</h2></div>
+            {!data.recent_requests.length ? <Empty message="No active procurement requests are recorded."/> : <ul className="mt-4 divide-y divide-white/10">{data.recent_requests.map(r=><li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold">{human(r.crop)} · Grade {r.grade}</p><p className="mt-1 text-xs text-muted-foreground">{r.buyer_name} · {safeDate(r.delivery_window_start)}</p></div><div className="text-right"><p className="text-sm font-semibold">{percent(r.coverage_pct)}</p><p className="text-xs text-muted-foreground">offer coverage</p></div></li>)}</ul>}
+          </section>
+          <section className="operational-panel min-w-0 p-5 sm:p-6" aria-labelledby="offers-title"><div className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-primary"/><h2 id="offers-title" className="text-lg font-semibold">Recent farmer offers</h2></div>
+            {!data.recent_offers.length ? <Empty message="No farmer offers are recorded for this portfolio."/> : <ul className="mt-4 divide-y divide-white/10">{data.recent_offers.map(o=><li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="text-sm font-semibold">{o.farmer_name} · {human(o.crop)}</p><p className="mt-1 text-xs text-muted-foreground">{kilograms(o.quantity_kg)} · {o.created_at ? safeDate(o.created_at) : 'Date unavailable'}</p></div><span className={`rounded border px-2 py-1 text-[10px] ${tone(o.status)}`}>{human(o.status)}</span></li>)}</ul>}
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">This is an offer-status feed, not a verified audit history. Acceptance dates and physical delivery are not inferred.</p>
+          </section>
+        </div>
+        <p className="flex gap-2 text-xs leading-5 text-muted-foreground"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />{data.coverage_basis}. The legacy finalized supply-plan commitments are deliberately excluded to avoid double-counting. Physical fulfilment and modeled supply risk require separate evidence.</p>
+      </>}
+    </main>
+  </AppShell>;
 }
 
-function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: 'success' | 'warning' | 'critical' }) { const color = tone === 'success' ? 'text-success' : tone === 'warning' ? 'text-warning' : tone === 'critical' ? 'text-destructive' : 'text-foreground'; return <div className="border-b border-white/[0.07] px-5 py-5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p><p className={`tabular mt-2 text-3xl font-semibold ${color}`}>{value}</p><p className="mt-1 text-[10px] text-muted-foreground">{detail}</p></div>; }
-function SmallMetric({ label, value, tone }: { label: string; value: string; tone?: 'success' | 'critical' | 'info' }) { return <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p><p className={`tabular mt-1 text-lg font-semibold ${tone === 'success' ? 'text-success' : tone === 'critical' ? 'text-destructive' : tone === 'info' ? 'text-accent' : ''}`}>{value}</p></div>; }
-function HealthRow({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between py-3 text-xs"><span className="text-muted-foreground">{label}</span><strong>{value}</strong></div>; }
-function SectionTitle({ eyebrow, title, action }: { eyebrow: string; title: string; action: string }) { return <div className="flex items-end justify-between gap-4 px-5 py-5"><div><p className="section-eyebrow">{eyebrow}</p><h2 className="mt-2 text-xl font-semibold">{title}</h2></div><span className="text-xs text-muted-foreground">{action}</span></div>; }
-function CommandLoading() { return <div className="grid min-h-screen place-items-center"><div className="h-64 w-[min(90vw,900px)] animate-pulse rounded-xl border border-white/[0.07] bg-card"><span className="sr-only">Loading command center</span></div></div>; }
-function CommandError({ message }: { message?: string }) { return <div className="grid min-h-screen place-items-center px-6"><div role="alert" className="operational-panel max-w-md p-7"><AlertTriangle className="h-5 w-5 text-warning" /><h1 className="mt-3 text-xl font-semibold">Command Center unavailable</h1><p className="mt-2 text-sm text-muted-foreground">{message ?? 'Authoritative state could not be loaded.'} No portfolio data was substituted.</p></div></div>; }
+function Metric({label,value,note,icon}:{label:string;value:string;note:string;icon:'requests'|'coverage'|'attention'}) {
+  const Icon = icon === 'attention' ? AlertTriangle : icon === 'coverage' ? ShieldCheck : ClipboardList;
+  return <div className="operational-panel p-5"><div className="flex justify-between gap-2"><p className="text-xs font-semibold text-muted-foreground">{label}</p><Icon className="h-4 w-4 text-primary" /></div><p className="mt-3 text-2xl font-semibold tabular-nums">{value}</p><p className="mt-2 text-xs text-muted-foreground">{note}</p></div>;
+}
+function Mini({label,value}:{label:string;value:string}) {return <div><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-base font-semibold tabular-nums">{value}</p></div>;}
+function Empty({message}:{message:string}) {return <p className="mt-4 rounded-md border border-dashed border-white/15 p-5 text-sm text-muted-foreground">{message}</p>;}
+function Centered({title,message}:{title:string;message:string}) {return <main className="grid min-h-[60vh] place-items-center px-5"><div className="operational-panel max-w-md p-8"><h1 className="text-xl font-semibold">{title}</h1><p className="mt-3 text-sm text-muted-foreground">{message}</p></div></main>;}

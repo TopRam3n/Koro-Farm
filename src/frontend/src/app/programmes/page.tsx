@@ -1,2 +1,6 @@
-import { AuthGate } from '@/components/AuthGate'; import { ModuleWorkspace } from '@/components/ModuleWorkspace';
-export default function Page(){ return <AuthGate><ModuleWorkspace kind="programmes" /></AuthGate>; }
+import { AuthGate } from '@/components/AuthGate';
+import { ProgrammesWorkspace } from '@/components/ProgrammesWorkspace';
+
+export default function Page() {
+  return <AuthGate><ProgrammesWorkspace /></AuthGate>;
+}

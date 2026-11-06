@@ -82,3 +82,62 @@ def get_farmer_history(farmer_id: UUID, year: int | None = None, crop: str | Non
         statement = statement.where(HistoricalProduction.crop == crop)
     statement = statement.order_by(HistoricalProduction.production_year, HistoricalProduction.production_quarter, HistoricalProduction.crop)
     return [HistoricalProductionRead.model_validate(row) for row in session.scalars(statement)]
+
+# PHASE5_FARMER_HISTORY_DIRECTORY: never exposes farmer directory to farmer or buyer accounts.
+@router.get("/history-directory")
+def farmer_history_directory(
+    q: str = "",
+    offset: int = 0,
+    limit: int = 24,
+    session: Session = Depends(get_session),
+    ctx: AuthorizationContext = Depends(get_authorization_context),
+) -> dict:
+    from sqlalchemy import func, or_
+
+    staff_roles = {
+        RoleCode.PLATFORM_ADMIN, RoleCode.ORGANIZATION_ADMIN,
+        RoleCode.PROCUREMENT_MANAGER, RoleCode.SUPPLY_COORDINATOR,
+        RoleCode.WAREHOUSE_OPERATOR, RoleCode.AUDITOR,
+    }
+    if ctx.role not in staff_roles:
+        raise HTTPException(status_code=403, detail="staff access required")
+    if offset < 0 or not 1 <= limit <= 100 or len(q.strip()) > 100:
+        raise HTTPException(status_code=422, detail="invalid directory pagination or search")
+
+    search = q.strip()
+    conditions = [Farmer.organization_id == ctx.organization_id]
+    if search:
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        conditions.append(or_(Farmer.name.ilike(pattern, escape="\\"), Farmer.parish.ilike(pattern, escape="\\")))
+
+    aggregate = (
+        select(
+            HistoricalProduction.farmer_id.label("farmer_id"),
+            func.count(HistoricalProduction.id).label("record_count"),
+            func.min(HistoricalProduction.production_year).label("first_year"),
+            func.max(HistoricalProduction.production_year).label("last_year"),
+        )
+        .group_by(HistoricalProduction.farmer_id)
+        .subquery()
+    )
+    total = session.scalar(select(func.count(Farmer.id)).where(*conditions)) or 0
+    statement = (
+        select(Farmer, func.coalesce(aggregate.c.record_count, 0),
+               aggregate.c.first_year, aggregate.c.last_year)
+        .outerjoin(aggregate, aggregate.c.farmer_id == Farmer.id)
+        .where(*conditions)
+        .order_by(Farmer.name, Farmer.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    rows = session.execute(statement).all()
+    return {
+        "items": [{
+            "id": str(farmer.id), "name": farmer.name,
+            "parish": farmer.parish, "active": farmer.active,
+            "history_record_count": int(record_count),
+            "first_year": first_year, "last_year": last_year,
+        } for farmer, record_count, first_year, last_year in rows],
+        "total": int(total), "offset": offset, "limit": limit,
+    }

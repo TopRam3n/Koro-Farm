@@ -52,3 +52,29 @@ export function annualSeries(records: HistoricalProduction[], crop?: string) {
   }
   return Array.from(keys.values()).sort((a, b) => a.year.localeCompare(b.year));
 }
+
+export type FarmerHistoryDirectoryItem = {
+  id: string;
+  name: string;
+  parish: string;
+  active: boolean;
+  history_record_count: number;
+  first_year: number | null;
+  last_year: number | null;
+};
+
+export type FarmerHistoryDirectory = {
+  items: FarmerHistoryDirectoryItem[];
+  total: number;
+  offset: number;
+  limit: number;
+};
+
+/** Staff-only organization-scoped directory; never exposed to farmer or buyer roles. */
+export function getFarmerHistoryDirectory(filters: { q?: string; offset?: number; limit?: number } = {}) {
+  const query = new URLSearchParams();
+  if (filters.q) query.set('q', filters.q);
+  query.set('offset', String(filters.offset ?? 0));
+  query.set('limit', String(filters.limit ?? 24));
+  return apiFetch<FarmerHistoryDirectory>(`/farmers/history-directory?${query}`);
+}
