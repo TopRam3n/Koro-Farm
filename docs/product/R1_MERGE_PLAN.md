@@ -18,7 +18,7 @@ Strictly linear: each branch contains the one before it, and `main` has not move
 | 4 | `feat/r1-wp3-model-providers` | `8519a3a` | 3 | 25 files, +2285 / −363 | 0 | green at handoff |
 | 5 | `feat/r1-wp4-fulfilment-accounting` | `267ac9c` | 6 | 84 files, +6332 / −462 | 0 | 41671496065 (WP4); later follow-up green |
 | 6 | `feat/r1-staging-infrastructure` | `07400f0` | 5 | 39 files, +3988 / −57 | 0 | 41950961171 |
-| 7 | `feat/r1-wp5` | see the WP5 handoff | 4 + review correction | 88+ files | 0 | see the WP5 handoff |
+| 7 | `feat/r1-wp5` | `28c2fda` (code); later commits are records only | 5 | about 100 files | 0 | 42168476863 |
 
 **Whole stack against `main`:** 228 files added, 75 modified, 7 deleted.
 

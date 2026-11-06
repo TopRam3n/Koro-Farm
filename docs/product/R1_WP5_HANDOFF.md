@@ -58,7 +58,7 @@ The documented requirement is that the migration role needs `CREATE` on the data
 - R1 browser E2E: **30 passed**;
 - the frontend is unchanged by the correction (57 Vitest tests passed earlier).
 
-CI is recorded in §8.
+**CI:** passed, both jobs, on the corrected commit `28c2fda` ([run 42168476863](https://github.com/TopRam3n/Koro-Farm/actions/runs/42168476863)).
 
 ### Product-owner decisions recorded
 
