@@ -98,3 +98,12 @@ Merge: product owner approval required; merge commit, no squash
   - forecast evidence needs lineage and an explicit rights decision.
 - **Unrelated changes:** none. Untracked local files (demo videos, `brag-output`, `tmp/`, local artifacts, agent
   configuration) are not part of any branch and must not be added.
+
+## Progress
+
+| Date | Step | Result |
+|---|---|---|
+| 11 November 2026 | Remote tips re-verified (local equals remote for all 8 branches; `main` at `731c459`, no commits outside the stack) | OK |
+| 11 November 2026 | PR 1 opened as a **draft**: `feat/r1-trade-core` → `main`, [#4](https://github.com/TopRam3n/Koro-Farm/pull/4). Description covers scope, acceptance criteria, tests, migrations, safeguards, the 7 deletions with justification and compatibility notes | Awaiting review; **not merged** |
+
+PRs 2–7 are not opened. They follow only after #4 merges, or as stacked drafts against the branch before them.

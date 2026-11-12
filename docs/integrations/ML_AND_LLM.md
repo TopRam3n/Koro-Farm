@@ -73,6 +73,8 @@ safeguards. Forecasts and answers are advisory analytics; they never move stock,
 - its lineage is complete;
 - its run's current `EXTERNAL_LLM` decision is `PERMITTED`.
 
+**Outstanding before real-data training (debt item 39):** `record_model_run` validates the observation ids it is given but cannot prove the list is every observation the model used. Before training on real data, the training set must come from an immutable, content-hashed snapshot taken by the code that feeds the model; lineage must be generated from that snapshot; and an end-to-end test must show the model's actual inputs equal the recorded lineage.
+
 No decision, `NOT_PERMITTED`, an empty lineage or an unresolved input all fail closed, and the deterministic summary
 is returned instead. Source licences are shown alongside but are never turned into a derived-data decision in code.
 One unresolved fact blocks the whole request.

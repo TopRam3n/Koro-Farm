@@ -263,6 +263,7 @@ See `AFTER_WP5_INTEGRATION_CHECKLIST.md` for the order.
   - Ministry tables need manual transcription with a second-person check;
   - yield-consistency and parish-sum rules are planned (item 37).
 - **Messaging:** templates are draft wording; there is no provider (item 36).
+- **Forecast lineage completeness (item 39, raised 11 November 2026):** `record_model_run` validates the ids it is given but cannot prove they are every observation used. Before real-data training, lineage must be generated from an immutable training snapshot and verified end to end.
 - **Time zones:** "today" in the Fulfilment Center is Jamaica time (UTC−5 fixed); a multi-country deployment would
   need per-organization time zones.
 - **SQLite timestamps:** whole seconds can still tie in other lists (item 34). PostgreSQL is unaffected.

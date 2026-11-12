@@ -116,6 +116,7 @@ offline.
   over licence-approved public statistics, with `AGENT_MODEL_STAGING_APPROVAL` recorded and `AGRI_LLM_ENABLED=true`.
 - [ ] **ENG:** apply `deploy/sql/agri_readonly_role.sql` if read-only analytics is approved. Build an evaluation set of
   real questions with expected evidence before any real provider run.
+- [ ] **ENG, before any real-data model training:** generate forecast lineage from an immutable, content-hashed training snapshot and verify end to end that the model's inputs equal the recorded lineage (debt item 39).
 - [ ] Production inference stays disabled until separately authorized.
 
 ## 8. Testing on staging
