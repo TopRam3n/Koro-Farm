@@ -44,6 +44,7 @@ class DateWindow:
 
 
 class Crop(StrEnum):
+    """Codes seeded into the shared crop catalogue. The catalogue (crops table) is authoritative."""
     BANANA = "BANANA"
     BREADFRUIT = "BREADFRUIT"
     CALLALOO = "CALLALOO"
@@ -51,6 +52,7 @@ class Crop(StrEnum):
     GINGER = "GINGER"
     MANGO = "MANGO"
     PLANTAIN = "PLANTAIN"
+    SCOTCH_BONNET = "SCOTCH_BONNET"
     SWEET_POTATO = "SWEET_POTATO"
     YAM = "YAM"
 
@@ -64,3 +66,18 @@ class AvailabilityConfidence(StrEnum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+
+
+CROP_CODE_PATTERN = r"^[A-Z][A-Z0-9_]{1,63}$"
+
+
+class CropCode(str):
+    """A crop catalogue code (``crops.code``), e.g. ``GINGER`` or ``SCOTCH_BONNET``.
+
+    Crops are configurable records, not a fixed enum. ``.value`` is kept so existing callers written
+    against the old ``Crop`` enum keep working.
+    """
+
+    @property
+    def value(self) -> str:
+        return str(self)

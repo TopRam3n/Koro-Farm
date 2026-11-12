@@ -1,12 +1,13 @@
 'use client';
 
 import { Activity, Check, Clock3 } from 'lucide-react';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useEvents } from '@/hooks/useAssurance';
 import { SubpageShell } from '@/components/SubpageShell';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 
 export default function Notifications() {
+  const { requirementId } = useActiveRequirementId();
   const events = useEvents(requirementId);
   return <SubpageShell eyebrow="Activity" title="Operational notifications" description="Material programme events from the authoritative audit stream.">
     <section className="operational-panel overflow-hidden">

@@ -50,7 +50,7 @@ Core value types include quantity in kilograms, JMD money, date window, crop, gr
 
 ## Authentication and authorization
 
-Supabase owns browser sessions. The frontend attaches the access token to API requests. FastAPI validates it through Supabase `/auth/v1/user`. A demo bypass is permitted only when `ALLOW_INSECURE_DEMO_AUTH=true` and `APP_ENV` is `test` or `demo`. There is no implemented role-based authorization; procurement, warehouse, coordinator, and administrator experiences remain future RBAC work.
+Supabase owns browser sessions. The frontend attaches the access token to API requests. FastAPI validates it through Supabase `/auth/v1/user`. A demo bypass is permitted only when `ALLOW_INSECURE_DEMO_AUTH=true` and `APP_ENV=test` (changed 29 Oct 2026; any other environment refuses to start with it set). There is no implemented role-based authorization; procurement, warehouse, coordinator, and administrator experiences remain future RBAC work.
 
 ## Data and demo behavior
 

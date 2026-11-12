@@ -30,11 +30,10 @@ export default function Signup() {
   const [isCreatingAccount, setIsCreatingAccount] = useState(false);
   const [invitationToken, setInvitationToken] = useState('');
 
-  const demoMode = process.env.NEXT_PUBLIC_APP_MODE === 'demo' || process.env.NEXT_PUBLIC_AUTH_MODE === 'demo';
   const requests = useQuery({
     queryKey: ['access-requests', 'mine'],
     queryFn: () => apiFetch<{ items: AccessRequest[] }>('/access-requests/mine'),
-    enabled: Boolean(user) && !demoMode,
+    enabled: Boolean(user),
   });
   const submitRequest = useMutation({
     mutationFn: (role: 'FARMER' | 'BUYER') => apiFetch('/access-requests', {
@@ -85,10 +84,6 @@ export default function Signup() {
     } finally {
       setIsCreatingAccount(false);
     }
-  }
-
-  if (demoMode) {
-    return <SignupFrame><div className="text-center"><ShieldCheck className="mx-auto h-6 w-6 text-primary" /><h1 className="mt-4 text-2xl font-bold">Live account registration</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Sign-up and approval require a configured Supabase project. Offline demo roles are previews only and cannot create authenticated accounts.</p><Link href="/login" className="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground">Back to sign in</Link></div></SignupFrame>;
   }
 
   const latestRequest = requests.data?.items[0];

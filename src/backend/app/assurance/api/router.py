@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,11 +10,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.application import PlanAlreadyExistsError, PlannerConfig, RequirementNotFoundError, finalize_plan
+from src.backend.app.supply.application.planner import RequirementNotPlannableError
 from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
 from src.backend.app.economics.domain.models import CostSnapshot
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation, SupplyPlan
 from src.backend.app.assurance.domain.models import CommandDeduplication, RecoveryRun
 from src.backend.app.risk.domain.models import RiskSnapshot
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
@@ -26,7 +28,7 @@ router = APIRouter(prefix="/requirements", tags=["assurance"])
 
 
 @router.post("/{requirement_id}/recovery")
-def run_recovery(requirement_id: UUID, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+def run_recovery(requirement_id: UUID, idempotency_key: str | None = Depends(tenant_idempotency_key),
                  session: Session = Depends(get_session)) -> dict:
     """Advance the single persisted recovery run."""
     if not idempotency_key:
@@ -48,6 +50,8 @@ class PlanRead(BaseModel):
     committed_quantity_kg: Decimal
     standby_quantity_kg: Decimal
     unfilled_quantity_kg: Decimal
+    proposed_commitment_kg: Decimal
+    proposed_standby_kg: Decimal
     supply_health: SupplyHealth
     total_landed_cost_jmd: Decimal
     landed_cost_per_kg_jmd: Decimal
@@ -63,6 +67,13 @@ class AllocationRead(BaseModel):
     status: AllocationStatus
     quantity_kg: Decimal
     created_at: datetime
+    consent_status: ConsentStatus = ConsentStatus.NONE
+    consent_id: UUID | None = None
+    holds_reservation: bool = False
+    activation_conditions: str | None = None
+    authorization_valid_until: date | None = None
+    solicited_at: datetime | None = None
+    responded_at: datetime | None = None
 
 
 class RequirementSummary(BaseModel):
@@ -88,6 +99,11 @@ class AssuranceRead(BaseModel):
     assured_coverage_quantity_kg: Decimal
     standby_quantity_kg: Decimal
     unfilled_quantity_kg: Decimal
+    # Supply states kept apart: nothing proposed or solicited counts as committed.
+    proposed_quantity_kg: Decimal = Decimal("0")
+    solicited_quantity_kg: Decimal = Decimal("0")
+    proposed_standby_kg: Decimal = Decimal("0")
+    unsupported_legacy_kg: Decimal = Decimal("0")
     committed_farmer_count: int
     standby_farmer_count: int
     parish_concentration: dict[str, Decimal]
@@ -114,8 +130,10 @@ def _risk_response(snapshot: RiskSnapshot | None) -> dict | None:
 def _plan_response(result) -> PlanRead:
     return PlanRead(
         id=result.plan_id, requirement_id=result.requirement_id, plan_version=1, planner_version="deterministic-greedy-v1",
-        required_quantity_kg=result.required_quantity_kg, committed_quantity_kg=result.committed_quantity_kg,
-        standby_quantity_kg=result.standby_quantity_kg, unfilled_quantity_kg=result.unfilled_quantity_kg,
+        # A plan is a proposal: nothing is committed or authorized until suppliers respond.
+        required_quantity_kg=result.required_quantity_kg, committed_quantity_kg=Decimal("0"),
+        standby_quantity_kg=Decimal("0"), unfilled_quantity_kg=result.unfilled_quantity_kg,
+        proposed_commitment_kg=result.committed_quantity_kg, proposed_standby_kg=result.standby_quantity_kg,
         supply_health=result.supply_health, total_landed_cost_jmd=result.total_landed_cost_jmd,
         landed_cost_per_kg_jmd=result.landed_cost_per_kg_jmd,
     )
@@ -123,7 +141,7 @@ def _plan_response(result) -> PlanRead:
 
 @router.post("/{requirement_id}/plan", response_model=PlanRead, status_code=status.HTTP_201_CREATED)
 def create_plan(requirement_id: UUID,
-                idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+                idempotency_key: str | None = Depends(tenant_idempotency_key),
                 session: Session = Depends(get_session)) -> PlanRead:
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="Idempotency-Key header is required")
@@ -141,7 +159,7 @@ def create_plan(requirement_id: UUID,
         return response
     except RequirementNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except PlanAlreadyExistsError as exc:
+    except (PlanAlreadyExistsError, RequirementNotPlannableError) as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except IntegrityError as exc:
         # PostgreSQL row locking normally turns this into PlanAlreadyExistsError;
@@ -184,10 +202,15 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
     allocations = [
         AllocationRead(id=allocation.id, production_lot_id=lot.id, farmer_id=farmer.id, farmer_name=farmer.name,
                        parish=lot.parish, role=allocation.role, status=allocation.status,
-                       quantity_kg=allocation.quantity_kg, created_at=allocation.created_at)
+                       quantity_kg=allocation.quantity_kg, created_at=allocation.created_at,
+                       consent_status=allocation.consent_status,
+                       consent_id=allocation.consent_evidence_id if allocation.consent_status == ConsentStatus.RECORDED else None,
+                       holds_reservation=allocation.holds_reservation, activation_conditions=allocation.activation_conditions,
+                       authorization_valid_until=allocation.authorization_valid_until,
+                       solicited_at=allocation.solicited_at, responded_at=allocation.responded_at)
         for allocation, lot, farmer in rows
     ]
-    committed_rows = [(allocation, lot, farmer) for allocation, lot, farmer in rows if allocation.role == AllocationRole.COMMITTED and allocation.status == AllocationStatus.COMMITTED]
+    committed_rows = [(allocation, lot, farmer) for allocation, lot, farmer in rows if allocation.role == AllocationRole.COMMITTED and allocation.status == AllocationStatus.COMMITTED and allocation.consent_status == ConsentStatus.RECORDED]
     parish_quantities: defaultdict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for allocation, lot, _ in committed_rows:
         parish_quantities[lot.parish] += allocation.quantity_kg
@@ -199,7 +222,13 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
     }
     committed_kg = committed_quantity(session, requirement.id)
     assured_kg = _coverage(session, requirement.id)
-    standby_kg = sum((a.quantity_kg for a, _, _ in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY), Decimal("0"))
+    standby_kg = sum((a.quantity_kg for a, _, _ in rows if a.role == AllocationRole.STANDBY and a.status == AllocationStatus.STANDBY and a.consent_status == ConsentStatus.RECORDED), Decimal("0"))
+    def _sum(predicate) -> Decimal:
+        return sum((a.quantity_kg for a, _, _ in rows if predicate(a)), Decimal("0"))
+    proposed_kg = _sum(lambda a: a.role == AllocationRole.COMMITTED and a.status == AllocationStatus.PROPOSED)
+    solicited_kg = _sum(lambda a: a.status == AllocationStatus.SOLICITED)
+    proposed_standby_kg = _sum(lambda a: a.role == AllocationRole.STANDBY and a.status == AllocationStatus.PROPOSED)
+    unsupported_kg = _sum(lambda a: a.consent_status == ConsentStatus.UNSUPPORTED_LEGACY and a.status in (AllocationStatus.COMMITTED, AllocationStatus.STANDBY))
     concentration = {parish: quantity / committed_kg for parish, quantity in parish_quantities.items()} if committed_kg else {}
     initial_plan = session.scalar(select(SupplyPlan).where(SupplyPlan.requirement_id == requirement.id).order_by(SupplyPlan.plan_version))
     original_cost = session.scalar(select(CostSnapshot).where(CostSnapshot.supply_plan_id == initial_plan.id)) if initial_plan else None
@@ -214,6 +243,8 @@ def get_assurance(requirement_id: UUID, session: Session = Depends(get_session))
     return AssuranceRead(
         requirement=requirement_summary, supply_health=requirement.supply_health, committed_quantity_kg=committed_kg,
         assured_coverage_quantity_kg=assured_kg, standby_quantity_kg=standby_kg,
+        proposed_quantity_kg=proposed_kg, solicited_quantity_kg=solicited_kg, proposed_standby_kg=proposed_standby_kg,
+        unsupported_legacy_kg=unsupported_kg,
         unfilled_quantity_kg=max(requirement.required_quantity_kg - assured_kg, Decimal("0")),
         committed_farmer_count=len({farmer.id for _, _, farmer in committed_rows}),
         standby_farmer_count=len({farmer.id for allocation, _, farmer in rows if allocation.role == AllocationRole.STANDBY}),

@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from consent_support import plan_and_confirm
 
 from sqlalchemy import select
 
@@ -30,7 +31,7 @@ def execution_state(session):
     session.add(LotCostInput(production_lot_id=lot.id, farmgate_price_per_kg_jmd=300,
         pickup_cost_jmd=100, handling_grading_cost_per_kg_jmd=20, packaging_cost_per_kg_jmd=10,
         transport_cost_jmd=100, expected_rejection_pct=Decimal("0.02"))); session.commit()
-    plan = finalize_plan(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+    plan = plan_and_confirm(session, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
     allocation = session.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
     return req, node, farmer, lot, allocation
 

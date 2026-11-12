@@ -5,13 +5,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/trade-corridors", tags=["trade-corridors"])
 
 @router.get("")
-def list_corridors(session: Session = Depends(get_session)) -> list[dict]:
-    return [{"id": str(c.id), "name": c.name, "origin_country": c.origin_country, "destination_country": c.destination_country, "transport_mode": c.transport_mode, "active": c.active, "last_verified_at": c.last_verified_at} for c in session.scalars(select(TradeCorridor).order_by(TradeCorridor.name))]
+def list_corridors(session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> list[dict]:
+    return [{"id": str(c.id), "name": c.name, "origin_country": c.origin_country, "destination_country": c.destination_country, "transport_mode": c.transport_mode, "active": c.active, "last_verified_at": c.last_verified_at} for c in session.scalars(select(TradeCorridor).where(TradeCorridor.organization_id == context.organization_id).order_by(TradeCorridor.name))]
 
 @router.get("/{corridor_id}")
 def get_corridor(corridor_id: UUID, session: Session = Depends(get_session)) -> dict:

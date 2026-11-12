@@ -14,8 +14,8 @@ def assert_safe(url: str) -> None:
     database = parsed.database or ""
     if parsed.get_backend_name() != "postgresql":
         raise SystemExit("Refusing reset: demo reset requires PostgreSQL")
-    if environment not in {"test", "demo"}:
-        raise SystemExit("Refusing reset: APP_ENV must be test or demo")
+    if environment not in {"test", "development"}:
+        raise SystemExit("Refusing reset: APP_ENV must be test or development")
     if not database.endswith(("_test", "_demo")):
         raise SystemExit("Refusing reset: database name must end in _test or _demo")
 

@@ -12,7 +12,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from src.backend.app.assurance.application.recovery import accept, continue_recovery, dropout
+from src.backend.app.assurance.application.recovery import continue_recovery, dropout
+from consent_support import TEST_ACTOR, plan_and_confirm, accept
+from src.backend.app.supply.application.commitments import CommitmentError, solicit
 from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun
 from src.backend.app.demand.application.services import create_requirement
 from src.backend.app.demand.domain.models import Buyer, Requirement
@@ -21,6 +23,8 @@ from src.backend.app.economics.domain.models import LotCostInput
 from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
 from src.backend.app.infrastructure.database.base import Base
+from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
+from src.backend.app.infrastructure.database.seed import SEED_CONTEXT
 from src.backend.app.reconciliation.api.router import AddSublot, add_sublot
 from src.backend.app.reconciliation.domain.models import Shipment, ShipmentSublot
 from src.backend.app.supply.application import planner as planner_module
@@ -38,6 +42,10 @@ def pg_factory():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    # Rows created without an explicit organization default to DEFAULT_ORGANIZATION_ID (migration 0011).
+    with factory() as setup:
+        setup.add(Organization(id=DEFAULT_ORGANIZATION_ID, name="Default test organization", slug="default-test"))
+        setup.commit()
     yield factory
     engine.dispose()
 
@@ -89,17 +97,29 @@ def assert_inventory(factory):
 
 
 def test_two_requirements_cannot_reserve_the_same_lot(pg_factory):
+    """Two orders race for one 100 kg lot, each planning and recording its supplier's acceptance.
+
+    Planning reserves nothing, so either interleaving is legitimate: the later order may find no free
+    stock to propose, or both may be proposed the lot and the later acceptance is refused as stale.
+    The invariant checked is the same either way: exactly 100 kg committed, held by one order.
+    """
     with pg_factory() as s:
-        first, second = requirement(s), requirement(s); lot(s, "100")
-    results = concurrent(pg_factory, [lambda s: finalize_plan(s, first.id), lambda s: finalize_plan(s, second.id)])
-    assert sorted(r[1].committed_quantity_kg for r in results if r[0] == "ok") == [Decimal("0"), Decimal("100")]
+        first, second = requirement(s), requirement(s); item = lot(s, "100")
+    results = concurrent(pg_factory, [lambda s: plan_and_confirm(s, first.id), lambda s: plan_and_confirm(s, second.id)])
+    assert all(isinstance(r[1], CommitmentError) for r in results if r[0] == "error"), results
+    with pg_factory() as s:
+        committed = s.scalars(select(SupplyAllocation).where(SupplyAllocation.status == AllocationStatus.COMMITTED)).all()
+        assert sum((a.quantity_kg for a in committed), Decimal("0")) == Decimal("100")
+        assert len({a.requirement_id for a in committed}) == 1
+        assert all(a.consent_status.value == "RECORDED" for a in committed)
+        assert s.get(ProductionLot, item.id).reserved_quantity_kg == Decimal("100")
     assert_inventory(pg_factory)
 
 
 def test_two_recoveries_activate_standby_once(pg_factory):
     with pg_factory() as s:
         req = requirement(s); lot(s, "100", "10"); lot(s, "100", "20")
-        finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=0))
+        plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("1"), landed_cost_weight=0))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
         dropout(s, allocation.id, "loss", "drop", auto_recover=False); s.commit()
     results = concurrent(pg_factory, [lambda s: continue_recovery(s, req.id, "recover-a"), lambda s: continue_recovery(s, req.id, "recover-b")])
@@ -112,7 +132,7 @@ def test_two_recoveries_activate_standby_once(pg_factory):
 def test_two_acceptances_cannot_use_replacement_twice(pg_factory):
     with pg_factory() as s:
         req = requirement(s); lot(s, "100", "10"); lot(s, "100", "20")
-        finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
         dropout(s, allocation.id, "loss", "drop", auto_recover=False); continue_recovery(s, req.id, "recover"); s.commit()
         solicited = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id, SupplyAllocation.status == AllocationStatus.SOLICITED))
@@ -123,7 +143,7 @@ def test_two_acceptances_cannot_use_replacement_twice(pg_factory):
 
 def test_two_dropout_commands_do_not_duplicate_loss(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); lot(s, "100"); finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        req = requirement(s); lot(s, "100"); plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
     results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "a", False), lambda s: dropout(s, allocation.id, "loss", "b", False)])
     assert sum(result[0] == "ok" for result in results) == 1
@@ -134,7 +154,7 @@ def test_two_dropout_commands_do_not_duplicate_loss(pg_factory):
 
 def test_duplicate_in_progress_command_returns_same_result(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); lot(s, "100"); finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        req = requirement(s); lot(s, "100"); plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
     results = concurrent(pg_factory, [lambda s: dropout(s, allocation.id, "loss", "same", False), lambda s: dropout(s, allocation.id, "loss", "same", False)])
     assert all(result[0] == "ok" for result in results) and results[0][1] == results[1][1]
@@ -143,7 +163,7 @@ def test_duplicate_in_progress_command_returns_same_result(pg_factory):
 
 def test_two_receipts_cannot_exceed_allocation(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); item = lot(s, "100"); plan = finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        req = requirement(s); item = lot(s, "100"); plan = plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         node = FulfilmentNode(name="Hub", node_type="HUB", parish="St. James"); s.add(node); s.commit()
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
     now = datetime.now(timezone.utc)
@@ -155,42 +175,73 @@ def test_two_receipts_cannot_exceed_allocation(pg_factory):
 
 def test_two_shipments_cannot_consume_one_accepted_sublot(pg_factory):
     with pg_factory() as s:
-        req = requirement(s); lot(s, "100"); plan = finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        req = requirement(s); lot(s, "100"); plan = plan_and_confirm(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
         node = FulfilmentNode(name="Hub", node_type="HUB", parish="St. James"); s.add(node); s.commit()
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.supply_plan_id == plan.plan_id))
         receipt = receive(s, allocation.id, node.id, Decimal("100"), datetime.now(timezone.utc), "r", "r"); grade(s, receipt["received_sublot_id"], Decimal("100"), Decimal("0"), Grade.A, None, "g", "g")
         first = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S1"); second = Shipment(requirement_id=req.id, fulfilment_node_id=node.id, reference="S2"); s.add_all([first, second]); s.commit()
     payload = AddSublot(received_sublot_id=receipt["received_sublot_id"])
-    results = concurrent(pg_factory, [lambda s: add_sublot(first.id, payload, "ship-a", s), lambda s: add_sublot(second.id, payload, "ship-b", s)])
+    results = concurrent(pg_factory, [lambda s: add_sublot(first.id, payload, "ship-a", s, SEED_CONTEXT), lambda s: add_sublot(second.id, payload, "ship-b", s, SEED_CONTEXT)])
     assert sum(result[0] == "ok" for result in results) == 1
     with pg_factory() as s: assert s.scalar(select(func.count()).select_from(ShipmentSublot)) == 1
     assert_inventory(pg_factory)
 
 
-def test_availability_change_cannot_invalidate_reservation(pg_factory, monkeypatch):
-    with pg_factory() as s: req = requirement(s); item = lot(s, "100")
-    planner_has_lock, updater_finished = Event(), Event()
-    original = planner_module._choose_allocations
-    def paused(*args, **kwargs):
-        planner_has_lock.set(); updater_finished.wait(0.3); return original(*args, **kwargs)
-    monkeypatch.setattr(planner_module, "_choose_allocations", paused)
-    def plan(s): return finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
-    def update(s):
-        planner_has_lock.wait(); row = s.scalar(select(ProductionLot).where(ProductionLot.id == item.id).with_for_update()); row.available_quantity_kg = Decimal("50"); s.flush(); updater_finished.set()
-    results = concurrent(pg_factory, [plan, update])
-    assert sum(result[0] == "error" and isinstance(result[1], IntegrityError) for result in results) == 1
+def test_availability_change_cannot_invalidate_reservation(pg_factory):
+    """Planning only proposes; stock is reserved when the supplier's acceptance is recorded.
+
+    A supplier acceptance (reserves 100 kg) races a capacity edit (available -> 50 kg) on the same lot.
+    Whichever wins, the other must fail: the edit with an IntegrityError (reserved <= available), or the
+    acceptance with a CommitmentError (not enough free stock). Never both succeed.
+    """
+    with pg_factory() as s:
+        req = requirement(s); item = lot(s, "100")
+        finalize_plan(s, req.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        proposal = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == req.id))
+        solicit(s, TEST_ACTOR, proposal.id, None, "solicit-race"); s.commit()
+    def accept_it(s): return accept(s, proposal.id, "accept-race")
+    def shrink(s):
+        row = s.scalar(select(ProductionLot).where(ProductionLot.id == item.id).with_for_update())
+        row.available_quantity_kg = Decimal("50"); s.flush()
+    results = concurrent(pg_factory, [accept_it, shrink])
+    assert sum(result[0] == "ok" for result in results) == 1, results
+    assert all(isinstance(result[1], (IntegrityError, CommitmentError)) for result in results if result[0] == "error")
     assert_inventory(pg_factory)
 
 
 def test_recovery_and_new_requirement_compete_without_creating_supply(pg_factory):
     with pg_factory() as s:
         recovering, newcomer = requirement(s), requirement(s); lot(s, "100", "10"); discovery = lot(s, "100", "100")
-        finalize_plan(s, recovering.id, PlannerConfig(standby_target_pct=Decimal("0")))
+        plan_and_confirm(s, recovering.id, PlannerConfig(standby_target_pct=Decimal("0")))
         allocation = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == recovering.id, SupplyAllocation.status == AllocationStatus.COMMITTED))
         dropout(s, allocation.id, "loss", "drop", False); s.commit()
-    concurrent(pg_factory, [lambda s: continue_recovery(s, recovering.id, "recover"), lambda s: finalize_plan(s, newcomer.id, PlannerConfig(standby_target_pct=Decimal("0")))])
+    concurrent(pg_factory, [lambda s: continue_recovery(s, recovering.id, "recover"), lambda s: plan_and_confirm(s, newcomer.id, PlannerConfig(standby_target_pct=Decimal("0")))])
     with pg_factory() as s:
         row = s.get(ProductionLot, discovery.id)
         used = s.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.production_lot_id == discovery.id, SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.SOLICITED, AllocationStatus.STANDBY])))
         assert used <= row.available_quantity_kg
+    assert_inventory(pg_factory)
+
+
+def test_two_orders_accepting_against_the_same_lot_cannot_over_reserve(pg_factory):
+    """Planning reserves nothing, so two orders may both be proposed the same 100 kg lot.
+
+    When both suppliers' acceptances race, exactly one reserves the stock; the other is refused as stale.
+    """
+    with pg_factory() as s:
+        first, second = requirement(s), requirement(s); item = lot(s, "100")
+        proposals = []
+        for order in (first, second):
+            finalize_plan(s, order.id, PlannerConfig(standby_target_pct=Decimal("0")))
+            proposal = s.scalar(select(SupplyAllocation).where(SupplyAllocation.requirement_id == order.id))
+            solicit(s, TEST_ACTOR, proposal.id, None, f"solicit-{proposal.id}")
+            proposals.append(proposal.id)
+        s.commit()
+    results = concurrent(pg_factory, [lambda s: accept(s, proposals[0], "race-1"), lambda s: accept(s, proposals[1], "race-2")])
+    assert sum(result[0] == "ok" for result in results) == 1, results
+    assert all(isinstance(result[1], CommitmentError) for result in results if result[0] == "error")
+    with pg_factory() as s:
+        assert s.get(ProductionLot, item.id).reserved_quantity_kg == Decimal("100")
+        committed = s.scalars(select(SupplyAllocation).where(SupplyAllocation.status == AllocationStatus.COMMITTED)).all()
+        assert len(committed) == 1 and committed[0].consent_status.value == "RECORDED"
     assert_inventory(pg_factory)

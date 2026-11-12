@@ -7,6 +7,8 @@ from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Num
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.types import CropCodeType
 from src.backend.app.infrastructure.database.base import Base
 
 
@@ -39,7 +41,7 @@ class AvailabilityWatch(Base):
     organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
     buyer_id: Mapped[UUID] = mapped_column(ForeignKey("buyers.id"), nullable=False, index=True)
     customer_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
+    crop: Mapped[CropCode] = mapped_column(CropCodeType(), nullable=False)
     minimum_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
