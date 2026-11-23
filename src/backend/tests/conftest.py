@@ -1,3 +1,8 @@
+import os
+
+# The application refuses to start without an explicit, recognized APP_ENV. The test suite runs as "test".
+os.environ.setdefault("APP_ENV", "test")
+
 from collections.abc import Generator
 
 import pytest
@@ -8,6 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.main import app
+from src.backend.app.supply.domain.crops import ensure_shared_crops
 from src.backend.app.main_dependencies import get_session
 from src.backend.app.core.auth import get_current_user
 from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
@@ -24,6 +30,9 @@ def session_factory() -> sessionmaker[Session]:
     )
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with factory() as setup:
+        ensure_shared_crops(setup)
+        setup.commit()
     yield factory
     Base.metadata.drop_all(engine)
     engine.dispose()

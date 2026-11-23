@@ -135,6 +135,23 @@ def _validate_role_binding(
         raise HTTPException(422, "farmer_id and buyer_id are only valid for their matching role")
 
 
+@router.get("/me/organizations")
+def my_organizations(identity: dict = Depends(get_current_user), session: Session = Depends(get_session)) -> list[dict]:
+    """The caller's active memberships, so a user in several organizations can choose one (no organization header needed)."""
+    try:
+        user_id = UUID(str(identity.get("id")))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authenticated identity is not a valid user") from exc
+    rows = session.execute(
+        select(OrganizationMembership, Organization)
+        .join(Organization, Organization.id == OrganizationMembership.organization_id)
+        .where(OrganizationMembership.user_id == user_id, OrganizationMembership.status == MembershipStatus.ACTIVE,
+               Organization.active.is_(True))
+        .order_by(Organization.name)
+    ).all()
+    return [{"id": str(org.id), "name": org.name, "role": member.role_code.value} for member, org in rows]
+
+
 @router.get("/me")
 def profile(context: AuthorizationContext = Depends(get_authorization_context),
             session: Session = Depends(get_session)) -> dict:

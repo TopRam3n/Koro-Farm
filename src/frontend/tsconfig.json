@@ -14,7 +14,8 @@
     "target": "ES2017",
     "lib": [
       "dom",
-      "dom.iterable"
+      "dom.iterable",
+      "es2021"
     ],
     "strict": false,
     "noEmit": true,

@@ -15,6 +15,15 @@ from src.backend.app.fulfilment.domain.models import FulfilmentNode
 from src.backend.app.infrastructure.database.session import create_session_factory
 from src.backend.app.programmes.domain.models import Programme
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID, Organization
+from src.backend.app.identity.application.authorization import AuthorizationContext
+from src.backend.app.identity.domain.permissions import PermissionCode, RoleCode
+
+# The seed writes the synthetic demo organization's records through the same handlers the API uses.
+SEED_CONTEXT = AuthorizationContext(
+    user_id=UUID("00000000-0000-0000-0000-00000000f001"), organization_id=DEFAULT_ORGANIZATION_ID,
+    membership_id=UUID("00000000-0000-0000-0000-00000000f002"), role=RoleCode.PLATFORM_ADMIN,
+    permissions=frozenset(PermissionCode),
+)
 from src.backend.app.reconciliation.api.router import (
     AddSublot,
     DeliveryCommand,
@@ -27,9 +36,11 @@ from src.backend.app.reconciliation.api.router import (
     dispatch,
     reconcile,
 )
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentChannel, ConsentDecision, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.application.planner import finalize_plan
+from src.backend.app.supply.application.commitments import SupplierResponse, respond, solicit
+from src.backend.app.supply.domain.crops import ensure_shared_crops
 
 DEMO_REQUIREMENT_ID = UUID("00000000-0000-0000-0000-000000000500")
 DEMO_BUYER_ID = UUID("00000000-0000-0000-0000-000000000001")
@@ -44,7 +55,29 @@ FARMERS = [
 LOT_QUANTITIES = [65, 50, 80, 45, 70, 55, 60, 40, 75, 50, 65, 45, 55, 60, 50, 70, 45, 55]
 
 
+def confirm_synthetic_plan(session: Session, requirement_id: UUID) -> None:
+    """Record synthetic supplier decisions for a synthetic demo order's proposals.
+
+    Demo data only: each decision is written with channel SYNTHETIC_FIXTURE and attestation
+    "synthetic demo fixture", so it is never mistaken for a real supplier's agreement.
+    """
+    proposals = session.scalars(select(SupplyAllocation).where(
+        SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.status == AllocationStatus.PROPOSED,
+    ).order_by(SupplyAllocation.created_at, SupplyAllocation.id)).all()
+    for proposal in proposals:
+        key = f"demo-fixture-{proposal.id}"
+        solicit(session, SEED_CONTEXT, proposal.id, "Synthetic demo solicitation", f"{key}-solicit")
+        standby = proposal.role == AllocationRole.STANDBY
+        respond(session, SEED_CONTEXT, proposal.id, SupplierResponse(
+            decision=ConsentDecision.ACCEPTED, attestation_method="synthetic demo fixture",
+            channel=ConsentChannel.SYNTHETIC_FIXTURE,
+            activation_conditions="Synthetic demo: activate only to replace lost committed supply" if standby else None,
+        ), f"{key}-respond")
+    session.flush()
+
+
 def seed(session: Session) -> None:
+    ensure_shared_crops(session)
     if session.scalar(select(Buyer.id).limit(1)) is not None:
         return
     if session.get(Organization, DEFAULT_ORGANIZATION_ID) is None:
@@ -133,6 +166,7 @@ def seed_competition_demo(session: Session) -> UUID:
     session.add(requirement)
     session.commit()
     finalize_plan(session, DEMO_REQUIREMENT_ID)
+    confirm_synthetic_plan(session, DEMO_REQUIREMENT_ID)
     session.commit()
 
     buyers = [
@@ -215,6 +249,7 @@ def seed_competition_demo(session: Session) -> UUID:
         session.commit()
         if should_plan:
             finalize_plan(session, requirement.id)
+            confirm_synthetic_plan(session, requirement.id)
             session.commit()
 
     # A completed recovery proves loss handling and cost/risk re-snapshotting.
@@ -251,13 +286,13 @@ def seed_competition_demo(session: Session) -> UUID:
         completed_requirement_id,
         ShipmentCreate(fulfilment_node_id=DEMO_NODE_ID, reference="SYN-DEMO-503"),
         idempotency_key="demo-completed-shipment",
-        session=session,
+        session=session, context=SEED_CONTEXT,
     )
     shipment_id = UUID(shipment_result["shipment_id"])
     for index, sublot_id in enumerate(accepted_sublot_ids, start=1):
         add_sublot(
             shipment_id, AddSublot(received_sublot_id=sublot_id),
-            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session,
+            idempotency_key=f"demo-completed-shipment-sublot-{index}", session=session, context=SEED_CONTEXT,
         )
     dispatch(
         shipment_id, DispatchCommand(evidence_reference="synthetic://dispatch/demo-completed-503"),

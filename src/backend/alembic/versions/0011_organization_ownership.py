@@ -3,6 +3,7 @@
 Revision ID: 0011_org_ownership
 Revises: 0010_identity_access
 """
+import uuid
 from typing import Sequence, Union
 
 from alembic import op
@@ -26,8 +27,9 @@ def upgrade() -> None:
                                     "slug": "korofarm-demo", "active": True}])
     for table in OWNED_TABLES:
         op.add_column(table, sa.Column("organization_id", sa.Uuid(), nullable=True))
+        # Typed bind: PostgreSQL rejects a VARCHAR parameter for a UUID column.
         op.execute(sa.text(f'UPDATE "{table}" SET organization_id = :organization_id').bindparams(
-            organization_id=DEMO_ORGANIZATION_ID
+            sa.bindparam("organization_id", value=uuid.UUID(DEMO_ORGANIZATION_ID), type_=sa.Uuid())
         ))
         op.alter_column(table, "organization_id", nullable=False)
         op.create_foreign_key(f"fk_{table}_organization_id", table, "organizations", ["organization_id"], ["id"])

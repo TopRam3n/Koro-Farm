@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from consent_support import confirm_plan_via_api
 
 from src.backend.app.domain.common import AvailabilityConfidence, Crop, Grade
 from src.backend.app.demand.domain.models import Buyer
@@ -52,11 +53,19 @@ def test_plan_and_assurance_endpoints(client, session) -> None:
     assert plan.status_code == 201
     duplicate_plan = client.post(f"/requirements/{requirement.json()['id']}/plan", headers={"Idempotency-Key": "plan-test"})
     assert duplicate_plan.status_code == 201 and duplicate_plan.json() == plan.json()
-    assert plan.json()["committed_quantity_kg"] == "500.000"
+    # Planning proposes supply; nothing is committed until suppliers respond.
+    assert plan.json()["proposed_commitment_kg"] == "500.000"
+    assert plan.json()["committed_quantity_kg"] == "0" and plan.json()["standby_quantity_kg"] == "0"
+    proposed = client.get(f"/requirements/{requirement.json()['id']}/assurance").json()
+    assert proposed["supply_health"] == "UNPLANNED"
+    assert proposed["committed_quantity_kg"] == "0" and proposed["proposed_quantity_kg"] == "500.000"
+    confirm_plan_via_api(client, requirement.json()["id"])
     assurance = client.get(f"/requirements/{requirement.json()['id']}/assurance")
     assert assurance.status_code == 200
     assert assurance.json()["supply_health"] == "COVERED"
+    assert assurance.json()["committed_quantity_kg"] == "500.000" and assurance.json()["proposed_quantity_kg"] == "0"
     assert assurance.json()["standby_quantity_kg"] == "100.000"
+    assert all(a["consent_status"] == "RECORDED" for a in assurance.json()["allocations"])
     assert assurance.json()["risk"]["calculation_version"] == "risk-v1"
     risk = client.get(f"/requirements/{requirement.json()['id']}/risk")
     assert risk.status_code == 200

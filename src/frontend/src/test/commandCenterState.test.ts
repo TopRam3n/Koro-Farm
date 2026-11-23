@@ -24,6 +24,13 @@ describe('Control Center delivery-window assessment', () => {
     expect(assessActionState({ supplyHealth: 'AT_RISK', shortfallKg: 80, riskLabel: 'HIGH', windowPhase: 'BEFORE' }).kind).toBe('required');
   });
 
+  it('treats unconfirmed and recovering supply as planning actions, not unknown states', () => {
+    const unplanned = assessActionState({ supplyHealth: 'UNPLANNED', shortfallKg: 120, riskLabel: null, windowPhase: 'BEFORE' });
+    expect(unplanned.kind).toBe('required');
+    expect(unplanned.reason).toContain('not yet confirmed');
+    expect(assessActionState({ supplyHealth: 'RECOVERING', shortfallKg: 80, riskLabel: 'LOW', windowPhase: 'BEFORE' }).kind).toBe('required');
+  });
+
   it('keeps unrecognized planning state and invalid quantities incomplete', () => {
     expect(assessActionState({ supplyHealth: 'UNKNOWN', shortfallKg: 0, riskLabel: 'LOW', windowPhase: 'IN_WINDOW' }).kind).toBe('incomplete');
     expect(assessActionState({ supplyHealth: 'COVERED', shortfallKg: Number.NaN, riskLabel: 'LOW', windowPhase: 'IN_WINDOW' }).kind).toBe('incomplete');

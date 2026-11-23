@@ -6,11 +6,12 @@ import { AppShell } from '@/components/AppShell';
 import { DataTrustIndicator } from '@/components/DataTrustIndicator';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Breadcrumbs, WorkspaceHeader } from '@/components/WorkspacePrimitives';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance } from '@/hooks/useAssurance';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 
 export function ScenarioLab() {
+  const { requirementId } = useActiveRequirementId();
   const assurance = useAssurance(requirementId); const [loss, setLoss] = useState(80); const [scenario, setScenario] = useState<'FARMER DROPOUT'|'SUPPLY REDUCTION'|'QUALITY REJECTION'>('FARMER DROPOUT');
   if (!assurance.data) return <div role={assurance.isError ? 'alert' : undefined} className="grid min-h-screen place-items-center px-6 text-center text-sm text-muted-foreground"><div><p>{assurance.isLoading ? 'Loading simulation inputs…' : 'Scenario inputs unavailable.'}</p>{assurance.isError && <button type="button" onClick={() => void assurance.refetch()} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-white/[0.12] px-4 font-medium text-foreground hover:bg-white/[0.05]"><RefreshCw className="h-4 w-4" />Retry</button>}</div></div>;
   const data = assurance.data; const current = Number(data.committed_quantity_kg); const required = Number(data.requirement.required_quantity_kg); const standby = Number(data.standby_quantity_kg); const afterLoss = Math.max(0, current - loss); const shortfall = Math.max(0, required - afterLoss); const possible = Math.min(shortfall, standby); const afterRecovery = afterLoss + possible; const remaining = Math.max(0, required - afterRecovery); const candidates = data.allocations.filter(item => item.role === 'STANDBY' && ['STANDBY','ACTIVATED'].includes(item.status));

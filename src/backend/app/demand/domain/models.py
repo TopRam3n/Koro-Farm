@@ -3,10 +3,12 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, Numeric, String, func, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop, DateWindow, Grade, QuantityKg
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.types import CropCodeType
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor  # registers corridor table for metadata
@@ -40,7 +42,12 @@ class Buyer(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     buyer_type: Mapped[str] = mapped_column(String(80), nullable=False)
     destination: Mapped[str] = mapped_column(String(200), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class Requirement(Base):
@@ -51,7 +58,7 @@ class Requirement(Base):
     buyer_id: Mapped[UUID] = mapped_column(ForeignKey("buyers.id"), nullable=False, index=True)
     programme_id: Mapped[UUID | None] = mapped_column(ForeignKey("programmes.id"), nullable=True, index=True)
     trade_corridor_id: Mapped[UUID | None] = mapped_column(ForeignKey("trade_corridors.id"), nullable=True, index=True)
-    crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
+    crop: Mapped[CropCode] = mapped_column(CropCodeType(), nullable=False)
     grade: Mapped[Grade] = mapped_column(Enum(Grade, native_enum=False), nullable=False)
     required_quantity_kg: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False)
     delivery_window_start: Mapped[date] = mapped_column(Date, nullable=False)
@@ -64,6 +71,16 @@ class Requirement(Base):
     )
     plan_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    product_form: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    quantity_unit: Mapped[str] = mapped_column(String(10), nullable=False, default="kg", server_default="kg")
+    origin: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    destination: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    delivery_terms: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

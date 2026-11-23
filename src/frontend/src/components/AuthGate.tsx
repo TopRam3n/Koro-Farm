@@ -10,14 +10,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const demoMode = process.env.NEXT_PUBLIC_APP_MODE === 'demo' || process.env.NEXT_PUBLIC_AUTH_MODE === 'demo';
-
   useEffect(() => {
-    if (demoMode) return;
     if (!isLoading && !user) router.replace('/login');
-  }, [demoMode, isLoading, pathname, router, user]);
-
-  if (demoMode) return <>{children}</>;
+  }, [isLoading, pathname, router, user]);
 
   if (isLoading || !user) return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   return <>{children}</>;

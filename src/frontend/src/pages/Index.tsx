@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 
 import { Activity, ArrowDown, Check, CircleAlert, FileCheck2, GitBranch, MapPin, Package, ShieldCheck } from 'lucide-react';
 import { AppShell } from '@/components/AppShell';
@@ -7,20 +8,20 @@ import { RecoveryPanel } from '@/components/RecoveryPanel';
 import { AllocationTable } from '@/components/AllocationTable';
 import { EconomicsPanel } from '@/components/EconomicsPanel';
 import { FulfilmentPanel } from '@/components/FulfilmentPanel';
-import { DemoControls } from '@/components/DemoControls';
 import { PanelBoundary } from '@/components/PanelBoundary';
 import { StatusBadge } from '@/components/StatusBadge';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
 import type { Allocation, RecoveryStep, SupplyMetrics } from '@/lib/mockdata';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 
-export default function Index() {
+export default function Index({ requirementId: requirementIdProp }: { requirementId?: string } = {}) {
+  const { requirementId, isResolving } = useActiveRequirementId(requirementIdProp);
   const assurance = useAssurance(requirementId);
   const fulfilment = useFulfilment(requirementId);
   const events = useEvents(requirementId);
 
-  if (!requirementId) return <SetupState />;
+  if (!requirementId && !isResolving) return <SetupState />;
   if (assurance.isLoading) return <LoadingState />;
   if (assurance.error || !assurance.data) return <ErrorState message={assurance.error?.message} />;
 
@@ -49,7 +50,7 @@ export default function Index() {
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(310px,0.65fr)]">
         <PanelBoundary name="Recovery"><RecoveryPanel steps={recoverySteps} status={data.latest_recovery?.status} /></PanelBoundary>
-        <div className="space-y-6"><DemoControls requirementId={data.requirement.id} allocations={data.allocations} hasPlan={data.requirement.plan_version > 0} recoveryStatus={data.latest_recovery?.status} /><PanelBoundary name="Economics"><EconomicsPanel economics={data.economics} /></PanelBoundary></div>
+        <div className="space-y-6"><PanelBoundary name="Economics"><EconomicsPanel economics={data.economics} /></PanelBoundary></div>
       </section>
 
       <section id="activity" className="mt-6 operational-panel overflow-hidden"><SectionHeading eyebrow="Decision ledger" title="Agent activity" detail="Chronological evidence from the authoritative domain event stream." /><ol className="divide-y divide-white/[0.06]">{events.data?.length ? events.data.map((event, index) => <li key={event.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[110px_24px_minmax(0,1fr)_100px] sm:items-center"><time className="tabular text-[11px] text-muted-foreground">{new Date(event.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time><span className="grid h-6 w-6 place-items-center rounded-full border border-accent/25 bg-accent/10 text-accent"><Check className="h-3 w-3" /></span><div><p className="text-sm font-medium">{event.event_type.replace(/\./g, ' ')}</p><p className="mt-0.5 text-[11px] text-muted-foreground">Event {index + 1} · immutable audit record</p></div><span className="text-right text-[10px] uppercase tracking-wider text-muted-foreground">{event.actor_type}</span></li>) : <li className="px-5 py-8 text-center text-sm text-muted-foreground">Event history is unavailable; core quantities remain visible.</li>}</ol></section>
@@ -71,5 +72,5 @@ export default function Index() {
 
 function SectionHeading({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) { return <div className="border-b border-white/[0.07] px-5 py-5"><p className="section-eyebrow">{eyebrow}</p><h2 className="mt-2 text-xl font-semibold">{title}</h2><p className="mt-1 text-xs text-muted-foreground">{detail}</p></div>; }
 function LoadingState() { return <div className="grid min-h-screen place-items-center bg-background px-6"><div className="w-full max-w-4xl animate-pulse"><div className="h-3 w-40 rounded bg-white/[0.07]" /><div className="mt-4 h-9 w-72 rounded bg-white/[0.07]" /><div className="mt-8 h-80 rounded-xl border border-white/[0.06] bg-card" /><p className="sr-only">Loading authoritative supply programme</p></div></div>; }
-function SetupState() { return <div className="grid min-h-screen place-items-center px-6"><div className="operational-panel max-w-lg p-8"><p className="section-eyebrow">Configuration required</p><h1 className="mt-3 text-2xl font-semibold">Choose a live supply requirement</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Set <code className="rounded bg-muted px-1.5 py-0.5">NEXT_PUBLIC_REQUIREMENT_ID</code>, then restart the frontend. Only authoritative API state will be shown.</p></div></div>; }
+function SetupState() { return <div className="grid min-h-screen place-items-center px-6"><div className="operational-panel max-w-lg p-8"><p className="section-eyebrow">No order yet</p><h1 className="mt-3 text-2xl font-semibold">Create or open a buyer order</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">This overview shows one order at a time. Start from your organization&apos;s orders.</p><Link href="/orders" className="mt-5 inline-flex min-h-11 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">Go to orders</Link></div></div>; }
 function ErrorState({ message }: { message?: string }) { return <div className="grid min-h-screen place-items-center px-6"><div role="alert" className="max-w-lg rounded-xl border border-destructive/30 bg-destructive/[0.05] p-7"><CircleAlert className="h-6 w-6 text-destructive" /><h1 className="mt-4 text-xl font-semibold">Authoritative supply state is unavailable</h1><p className="mt-2 text-sm leading-6 text-muted-foreground">{message ?? 'Unknown API error'}. No quantities have been assumed and demo data was not substituted.</p></div></div>; }

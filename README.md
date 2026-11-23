@@ -10,6 +10,7 @@ Python 3.11+ and PostgreSQL are required for the application database. Copy `.en
 
 ```powershell
 python -m pip install -e "src/backend[dev]"
+$env:APP_ENV = "development"   # required: development | test | staging | production
 $env:DATABASE_URL = "postgresql+psycopg://user:password@host:5432/korofarm"
 Set-Location src/backend
 alembic upgrade head
@@ -54,7 +55,7 @@ The demo-day database can be reset only when both the application mode
 and database name are safe. The command refuses production-like targets:
 
 ```powershell
-$env:APP_ENV = "demo"
+$env:APP_ENV = "development"   # the reset accepts only test or development
 $env:DATABASE_URL = "postgresql+psycopg://user:password@localhost:5432/korofarm_demo"
 python -m src.backend.scripts.reset_demo
 ```
@@ -106,13 +107,17 @@ Set-Location src/frontend
 npm run dev
 ```
 
-Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. To obtain a requirement UUID, create one through `POST /requirements` or inspect the database, then place it in `NEXT_PUBLIC_REQUIREMENT_ID` and restart Next.js.
+Sign in at `http://localhost:3000/login`. The API client in `src/frontend/src/lib/api.ts` reads the active Supabase session and adds `Authorization: Bearer <access-token>` to each request. Create buyers, suppliers, lots and orders from **Orders**, **Buyers** and **Suppliers & lots**; the overview screens show the order you last opened.
 
-For an isolated competition test/demo environment only, set backend
-`APP_ENV=demo` and `ALLOW_INSECURE_DEMO_AUTH=true`, with frontend
-`NEXT_PUBLIC_AUTH_MODE=demo`. This bypass cannot be enabled in production mode.
-Use `NEXT_PUBLIC_APP_MODE=demo` for a deliberate zero-backend presentation; the
-UI clearly labels the mode and never switches automatically after an API error.
+`APP_ENV` is required and must be one of `development`, `test`, `staging` or
+`production`; the API refuses to start if it is missing or unrecognized. In
+`staging` and `production` it also refuses to start unless `SUPABASE_URL` is https
+on a public host with a publishable key. The insecure auth bypass
+(`ALLOW_INSECURE_DEMO_AUTH=true`) works only with `APP_ENV=test`, for automated
+tests; with any other value the API refuses to start if it is set.
+
+The offline demo replay has been retired. A frontend built with
+`NEXT_PUBLIC_APP_MODE=demo` shows only a notice that the replay is disabled.
 
 ## Frontend verification
 

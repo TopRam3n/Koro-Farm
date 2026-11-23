@@ -5,6 +5,8 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.backend.app.domain.common import Crop
+from src.backend.app.domain.common import CropCode
+from src.backend.app.domain.common.types import CropCodeType
 from src.backend.app.infrastructure.database.base import Base
 from src.backend.app.identity.domain.models import DEFAULT_ORGANIZATION_ID
 
@@ -17,7 +19,7 @@ class ComplianceRule(Base):
     )
     origin: Mapped[str] = mapped_column(String(100), nullable=False)
     destination: Mapped[str] = mapped_column(String(100), nullable=False)
-    crop: Mapped[Crop] = mapped_column(Enum(Crop, native_enum=False), nullable=False)
+    crop: Mapped[CropCode] = mapped_column(CropCodeType(), nullable=False)
     product_form: Mapped[str] = mapped_column(String(80), nullable=False)
     rule_name: Mapped[str] = mapped_column(String(200), nullable=False)
     issuing_body: Mapped[str] = mapped_column(String(200), nullable=False)

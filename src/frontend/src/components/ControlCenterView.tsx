@@ -3,12 +3,13 @@
 import { AlertTriangle, ArrowRight, CircleHelp, RefreshCw, ShieldAlert } from 'lucide-react';
 import Link from 'next/link';
 import { AppShell } from '@/components/AppShell';
+import { useActiveRequirementId } from '@/hooks/useActiveRequirement';
 import { useAssurance, useEvents, useFulfilment } from '@/hooks/useAssurance';
 import { assessActionState, classifyDeliveryWindow, formatDeliveryDate, windowPhaseLabel } from '@/lib/commandCenterState';
 
-const requirementId = process.env.NEXT_PUBLIC_REQUIREMENT_ID ?? (process.env.NEXT_PUBLIC_APP_MODE === 'demo' ? '00000000-0000-0000-0000-000000000500' : '');
 
 export function ControlCenterView() {
+  const { requirementId } = useActiveRequirementId();
   const assurance = useAssurance(requirementId);
   const fulfilment = useFulfilment(requirementId);
   const events = useEvents(requirementId);

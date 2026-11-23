@@ -12,6 +12,9 @@ from src.backend.app.assurance.domain.models import CommandDeduplication, Domain
 from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, ReceivedSublot
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.tenancy import require_owned
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
 from src.backend.app.reconciliation.domain.models import Delivery, RequirementReconciliation, Shipment, ShipmentStatus, ShipmentSublot
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.supply.domain.planning_models import SupplyAllocation
@@ -47,13 +50,13 @@ def _event(session: Session, event_type: str, requirement_id: UUID, payload: dic
 
 @router.post("/requirements/{requirement_id}/shipments")
 def create_shipment(requirement_id: UUID, payload: ShipmentCreate,
-                    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-                    session: Session = Depends(get_session)) -> dict:
+                    idempotency_key: str | None = Depends(tenant_idempotency_key),
+                    session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "shipment.create", CommandDeduplication.idempotency_key == idempotency_key))
     if existing: return existing.result
     if session.get(Requirement, requirement_id) is None: raise HTTPException(404, "requirement not found")
-    if session.get(FulfilmentNode, payload.fulfilment_node_id) is None: raise HTTPException(404, "fulfilment node not found")
+    require_owned(session, context, "fulfilment_node", payload.fulfilment_node_id)
     shipment = Shipment(requirement_id=requirement_id, fulfilment_node_id=payload.fulfilment_node_id, reference=payload.reference)
     session.add(shipment); session.flush(); result = {"shipment_id": str(shipment.id), "status": shipment.status.value, "reference": shipment.reference}
     _event(session, "shipment.created", requirement_id, result); session.add(CommandDeduplication(command_type="shipment.create", idempotency_key=idempotency_key, result=result)); session.commit()
@@ -61,9 +64,10 @@ def create_shipment(requirement_id: UUID, payload: ShipmentCreate,
 
 @router.post("/shipments/{shipment_id}/sublots")
 def add_sublot(shipment_id: UUID, payload: AddSublot,
-               idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-               session: Session = Depends(get_session)) -> dict:
+               idempotency_key: str | None = Depends(tenant_idempotency_key),
+               session: Session = Depends(get_session), context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
+    require_owned(session, context, "received_sublot", payload.received_sublot_id, "shipment or received sublot not found")
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "shipment.add_sublot", CommandDeduplication.idempotency_key == idempotency_key))
     if existing: return existing.result
     shipment = session.scalar(select(Shipment).where(Shipment.id == shipment_id).with_for_update())
@@ -79,7 +83,7 @@ def add_sublot(shipment_id: UUID, payload: AddSublot,
 
 @router.post("/shipments/{shipment_id}/dispatch")
 def dispatch(shipment_id: UUID, payload: DispatchCommand,
-             idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+             idempotency_key: str | None = Depends(tenant_idempotency_key),
              session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "shipment.dispatch", CommandDeduplication.idempotency_key == idempotency_key))
@@ -95,7 +99,7 @@ def dispatch(shipment_id: UUID, payload: DispatchCommand,
     return result
 
 @router.post("/shipments/{shipment_id}/delivery")
-def deliver(shipment_id: UUID, payload: DeliveryCommand, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), session: Session = Depends(get_session)) -> dict:
+def deliver(shipment_id: UUID, payload: DeliveryCommand, idempotency_key: str | None = Depends(tenant_idempotency_key), session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "shipment.delivery", CommandDeduplication.idempotency_key == idempotency_key))
     if existing: return existing.result
@@ -112,7 +116,7 @@ def deliver(shipment_id: UUID, payload: DeliveryCommand, idempotency_key: str | 
 
 @router.post("/requirements/{requirement_id}/reconcile")
 def reconcile(requirement_id: UUID, payload: ReconcileCommand,
-              idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+              idempotency_key: str | None = Depends(tenant_idempotency_key),
               session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "requirement.reconcile", CommandDeduplication.idempotency_key == idempotency_key))

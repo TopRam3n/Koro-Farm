@@ -11,7 +11,10 @@ from src.backend.app.domain.common import Grade
 from src.backend.app.fulfilment.application.services import grade, receive
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.main_dependencies import get_session
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation
+from src.backend.app.identity.application.tenancy import require_owned
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
+from src.backend.app.identity.application.tenancy import tenant_idempotency_key
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 
 router = APIRouter(tags=["fulfilment"])
@@ -22,8 +25,11 @@ class GradeCommand(BaseModel):
     accepted_quantity_kg: Decimal; rejected_quantity_kg: Decimal; assigned_grade: Grade | None = None; rejection_reason: str | None = None; inspection_evidence_reference: str | None = None
 
 @router.post("/sublots/receive")
-def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), session: Session = Depends(get_session)) -> dict:
+def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Depends(tenant_idempotency_key), session: Session = Depends(get_session),
+                 context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
+    require_owned(session, context, "allocation", payload.allocation_id)
+    require_owned(session, context, "fulfilment_node", payload.fulfilment_node_id)
     try:
         result = receive(session, payload.allocation_id, payload.fulfilment_node_id, payload.received_quantity_kg, payload.received_at, payload.receipt_evidence_reference, idempotency_key)
         session.commit()
@@ -31,7 +37,7 @@ def post_receive(payload: ReceiveCommand, idempotency_key: str | None = Header(d
     except ValueError as exc: raise HTTPException(409, str(exc)) from exc
 
 @router.post("/sublots/{sublot_id}/grade")
-def post_grade(sublot_id: UUID, payload: GradeCommand, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"), session: Session = Depends(get_session)) -> dict:
+def post_grade(sublot_id: UUID, payload: GradeCommand, idempotency_key: str | None = Depends(tenant_idempotency_key), session: Session = Depends(get_session)) -> dict:
     if not idempotency_key: raise HTTPException(400, "Idempotency-Key header is required")
     try:
         result = grade(session, sublot_id, payload.accepted_quantity_kg, payload.rejected_quantity_kg, payload.assigned_grade, payload.rejection_reason, payload.inspection_evidence_reference, idempotency_key)
@@ -44,7 +50,7 @@ def fulfilment_summary(requirement_id: UUID, session: Session = Depends(get_sess
     requirement = session.get(Requirement, requirement_id)
     if requirement is None: raise HTTPException(404, "requirement not found")
     rows = session.execute(select(ReceivedSublot).join(SupplyAllocation).where(SupplyAllocation.requirement_id == requirement_id)).scalars().all()
-    committed = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED)) or Decimal("0")
+    committed = session.scalar(select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(SupplyAllocation.requirement_id == requirement_id, SupplyAllocation.role == AllocationRole.COMMITTED, SupplyAllocation.status == AllocationStatus.COMMITTED, SupplyAllocation.consent_status == ConsentStatus.RECORDED)) or Decimal("0")
     received = sum((x.received_quantity_kg for x in rows), Decimal("0")); accepted = sum((x.accepted_quantity_kg for x in rows), Decimal("0")); rejected = sum((x.rejected_quantity_kg for x in rows), Decimal("0"))
     return {"required_kg": str(requirement.required_quantity_kg), "committed_kg": str(committed), "received_kg": str(received), "accepted_kg": str(accepted), "rejected_kg": str(rejected), "accepted_shortfall_kg": str(max(requirement.required_quantity_kg - accepted, Decimal("0")))}
 

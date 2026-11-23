@@ -9,13 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.backend.app.demand.domain.models import Requirement, RequirementLifecycleStatus, SupplyHealth
+from src.backend.app.identity.application.tenancy import farmers_in_requirement_organization
 from src.backend.app.domain.common import AvailabilityConfidence, Grade
 from src.backend.app.economics.domain.calculator import CostBreakdown, allocation_cost, money
 from src.backend.app.economics.domain.models import CostSnapshot, LotCostInput
 from src.backend.app.assurance.domain.models import DomainEvent, OutboxMessage
 from src.backend.app.risk.application.calculator import create_risk_snapshot
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
-from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
+from src.backend.app.supply.domain.planning_models import AllocationRole, AllocationStatus, ConsentStatus, SupplyAllocation, SupplyPlan, SupplyPlanStatus
 
 PLANNER_VERSION = "deterministic-greedy-v1"
 CALCULATION_VERSION = "landed-cost-v1"
@@ -27,6 +28,10 @@ class PlanAlreadyExistsError(ValueError):
     pass
 
 
+class RequirementNotPlannableError(ValueError):
+    pass
+
+
 class RequirementNotFoundError(ValueError):
     pass
 
@@ -34,7 +39,10 @@ class RequirementNotFoundError(ValueError):
 @dataclass(frozen=True)
 class PlannerConfig:
     standby_target_pct: Decimal = DEFAULT_STANDBY_TARGET_PCT
-    minimum_confidence: AvailabilityConfidence = AvailabilityConfidence.MEDIUM
+    # LOW (e.g. coordinator-declared) lots may be *proposed*: a proposal commits nothing, and the supplier's
+    # recorded acceptance is the confirmation (supply/application/commitments.py). Scoring still prefers
+    # higher-confidence lots. Raise this to MEDIUM to exclude declared-only supply from proposals.
+    minimum_confidence: AvailabilityConfidence = AvailabilityConfidence.LOW
     availability_confidence_weight: Decimal = Decimal("10")
     grade_fit_weight: Decimal = Decimal("10")
     delivery_window_fit_weight: Decimal = Decimal("10")
@@ -163,6 +171,8 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
         requirement = session.scalar(select(Requirement).where(Requirement.id == requirement_id).with_for_update())
         if requirement is None:
             raise RequirementNotFoundError("requirement not found")
+        if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
+            raise RequirementNotPlannableError("a cancelled order cannot be planned")
         if requirement.plan_version != 0:
             raise PlanAlreadyExistsError("an initial plan already exists; replanning is not implemented")
 
@@ -170,6 +180,7 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
             select(ProductionLot, Farmer, LotCostInput)
             .join(Farmer, Farmer.id == ProductionLot.farmer_id)
             .join(LotCostInput, LotCostInput.production_lot_id == ProductionLot.id)
+            .where(Farmer.id.in_(farmers_in_requirement_organization(requirement.buyer_id)))
             .order_by(ProductionLot.id)
             .with_for_update()
         ).all()
@@ -196,27 +207,30 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
         )
         session.add(plan)
         session.flush()
+        # The plan is a proposal. Nothing is reserved and nothing counts as coverage until the supplier's
+        # acceptance (or standby authorization) is recorded through supply/application/commitments.py.
         for allocation in allocations:
-            allocation.candidate.lot.reserved_quantity_kg += allocation.quantity_kg
             session.add(SupplyAllocation(
                 requirement_id=requirement.id, supply_plan_id=plan.id, production_lot_id=allocation.candidate.lot.id,
-                role=allocation.role,
-                status=AllocationStatus.COMMITTED if allocation.role == AllocationRole.COMMITTED else AllocationStatus.STANDBY,
-                quantity_kg=allocation.quantity_kg, consent_evidence_id=uuid4(), plan_version=plan_version,
+                role=allocation.role, status=AllocationStatus.PROPOSED, quantity_kg=allocation.quantity_kg,
+                consent_evidence_id=None, consent_status=ConsentStatus.NONE, holds_reservation=False,
+                plan_version=plan_version,
             ))
         # Risk calculation reads allocations through SQL; service sessions disable
         # autoflush, so make the finalized reservation set visible explicitly.
         session.flush()
         snapshot = _cost_snapshot(plan.id, allocations)
         session.add(snapshot)
-        create_risk_snapshot(session, requirement, plan)
+        # The risk snapshot describes agreed supply, so it is taken when the plan settles
+        # (assurance/application/recovery.py: settle_initial_plan), not at proposal time.
         requirement.plan_version = plan_version
         requirement.version += 1
-        requirement.supply_health = health
-        requirement.lifecycle_status = RequirementLifecycleStatus.ACTIVE if health == SupplyHealth.COVERED else RequirementLifecycleStatus.PLANNING
-        event = DomainEvent(event_type="plan.created", aggregate_type="requirement", aggregate_id=requirement.id,
+        # No supplier has agreed to anything yet: health stays UNPLANNED until acceptances are recorded.
+        requirement.lifecycle_status = RequirementLifecycleStatus.PLANNING
+        event = DomainEvent(event_type="plan.proposed", aggregate_type="requirement", aggregate_id=requirement.id,
                             correlation_id=uuid4(), actor_type="planner",
-                            payload={"plan_id": str(plan.id), "committed_kg": str(committed_quantity), "standby_kg": str(standby_quantity)},
+                            payload={"plan_id": str(plan.id), "proposed_commitment_kg": str(committed_quantity),
+                                     "proposed_standby_kg": str(standby_quantity), "unproposed_kg": str(unfilled)},
                             occurred_at=datetime.now(timezone.utc))
         session.add(event); session.flush()
         session.add(OutboxMessage(event_id=event.id, topic=event.event_type, payload=event.payload))
@@ -226,6 +240,6 @@ def finalize_plan(session: Session, requirement_id: UUID, config: PlannerConfig 
             committed_quantity_kg=committed_quantity, standby_quantity_kg=standby_quantity, unfilled_quantity_kg=unfilled,
             committed_farmer_count=len({allocation.candidate.farmer.id for allocation in committed}),
             standby_farmer_count=len({allocation.candidate.farmer.id for allocation in standby}),
-            parishes_used=len({allocation.candidate.lot.parish for allocation in allocations}), supply_health=health,
+            parishes_used=len({allocation.candidate.lot.parish for allocation in allocations}), supply_health=requirement.supply_health,
             total_landed_cost_jmd=snapshot.total_landed_cost_jmd, landed_cost_per_kg_jmd=snapshot.landed_cost_per_kg_jmd,
         )

@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 from src.backend.app.compliance.domain.models import ComplianceRule
 from src.backend.app.demand.domain.models import Requirement
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.trade_evidence.domain.corridors import TradeCorridor
 
 router = APIRouter(prefix="/requirements", tags=["compliance"])
 
 @router.get("/{requirement_id}/compliance")
-def applicable_rules(requirement_id: UUID, product_form: str = "FRESH", session: Session = Depends(get_session)) -> dict:
+def applicable_rules(requirement_id: UUID, product_form: str = "FRESH", session: Session = Depends(get_session),
+                     context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     requirement = session.get(Requirement, requirement_id)
     if requirement is None:
         raise HTTPException(404, "requirement not found")
@@ -26,6 +28,7 @@ def applicable_rules(requirement_id: UUID, product_form: str = "FRESH", session:
         origin, destination, corridor_name = corridor.origin_country, corridor.destination_country, corridor.name
     today = date.today()
     rules = list(session.scalars(select(ComplianceRule).where(
+        ComplianceRule.organization_id == context.organization_id,
         ComplianceRule.origin == origin, ComplianceRule.destination == destination,
         ComplianceRule.crop == requirement.crop, ComplianceRule.product_form == product_form,
         ComplianceRule.effective_from <= today,

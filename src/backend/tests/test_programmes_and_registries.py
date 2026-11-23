@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from uuid import UUID
+from consent_support import confirm_plan_via_api
 
 from src.backend.app.assurance.domain.models import RecoveryRun, RecoveryStatus
 from src.backend.app.demand.domain.models import Buyer, Requirement, RequirementLifecycleStatus, SupplyHealth
@@ -44,6 +45,7 @@ def test_programme_owns_requirements_and_reports_assurance(client, session) -> N
     assert client.post(
         f"/requirements/{requirement_id}/plan", headers={"Idempotency-Key": "programme-plan"}
     ).status_code == 201
+    confirm_plan_via_api(client, requirement_id)
 
     detail = client.get(f"/programmes/{programme_id}")
     assert detail.status_code == 200
@@ -102,6 +104,7 @@ def test_operational_registries_and_command_center_are_source_backed(client, ses
     assert client.post(
         f"/requirements/{requirement['id']}/plan", headers={"Idempotency-Key": "registry-plan"}
     ).status_code == 201
+    confirm_plan_via_api(client, requirement["id"])
 
     farmers = client.get("/farmers")
     assert farmers.status_code == 200
@@ -115,7 +118,7 @@ def test_operational_registries_and_command_center_are_source_backed(client, ses
 
     activity = client.get("/activity")
     assert activity.status_code == 200
-    assert any(item["event_type"] == "plan.created" for item in activity.json()["items"])
+    assert any(item["event_type"] == "plan.proposed" for item in activity.json()["items"])
 
     summary = client.get("/command-center/summary")
     assert summary.status_code == 200

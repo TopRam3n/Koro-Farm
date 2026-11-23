@@ -1,0 +1,55 @@
+"""Seed a fresh, migrated database with two isolated test organizations for browser E2E.
+
+Creates only organizations, user accounts and memberships. Buyers, suppliers, lots and orders are created
+by the E2E test itself through the real UI. Writes the test users (with generated passwords) to a JSON
+file read by src/frontend/e2e/r1/support/auth-stub.mjs and the Playwright specs.
+
+Usage: DATABASE_URL=... python -m src.backend.scripts.seed_e2e <users.json>
+"""
+import json
+import secrets
+import sys
+from datetime import datetime, timezone
+from uuid import uuid4
+
+import src.backend.app.main  # noqa: F401  (registers every mapped model)
+from src.backend.app.identity.domain.models import MembershipStatus, Organization, OrganizationMembership, UserAccount
+from src.backend.app.identity.domain.permissions import RoleCode
+from src.backend.app.infrastructure.database.session import create_session_factory
+
+ACCOUNTS = [
+    # key, organization, role, display name
+    ("coordinator_a", "A", RoleCode.SUPPLY_COORDINATOR, "Alpha Coordinator"),
+    ("colleague_a", "A", RoleCode.PROCUREMENT_MANAGER, "Alpha Colleague"),
+    ("coordinator_b", "B", RoleCode.SUPPLY_COORDINATOR, "Beta Coordinator"),
+]
+
+
+def main(path: str) -> None:
+    session = create_session_factory()()
+    now = datetime.now(timezone.utc)
+    suffix = uuid4().hex[:6]
+    orgs = {
+        "A": Organization(id=uuid4(), name="Blue Mountain Exports (E2E test)", slug=f"e2e-a-{suffix}"),
+        "B": Organization(id=uuid4(), name="Cockpit Country Growers (E2E test)", slug=f"e2e-b-{suffix}"),
+    }
+    session.add_all(orgs.values())
+    session.flush()
+    users = []
+    for key, org_key, role, name in ACCOUNTS:
+        user = UserAccount(id=uuid4(), email=f"{key}.{suffix}@e2e.korofarm.test", display_name=name)
+        session.add(user)
+        session.flush()
+        session.add(OrganizationMembership(user_id=user.id, organization_id=orgs[org_key].id, role_code=role,
+                                           status=MembershipStatus.ACTIVE, accepted_at=now))
+        users.append({"key": key, "id": str(user.id), "email": user.email, "password": secrets.token_urlsafe(18),
+                      "display_name": name, "role": role.value, "organization_id": str(orgs[org_key].id),
+                      "organization_name": orgs[org_key].name, "created_at": now.isoformat()})
+    session.commit()
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"users": users}, handle, indent=2)
+    print(f"seeded {len(orgs)} organizations and {len(users)} users -> {path}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1])

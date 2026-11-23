@@ -31,6 +31,6 @@ permission to a KoroFarm buyer, programme, farmer, requirement, or shipment.
 
 ## Demo rule
 
-`ALLOW_INSECURE_DEMO_AUTH=true` remains permitted only when `APP_ENV` is `demo`
-or `test`. Demo data must remain synthetic and must never share a database with
+`ALLOW_INSECURE_DEMO_AUTH=true` is permitted only when `APP_ENV` is `test` (changed 29 Oct 2026; `demo` no longer
+qualifies, and any other environment refuses to start with it set). Demo data must remain synthetic and must never share a database with
 production records.

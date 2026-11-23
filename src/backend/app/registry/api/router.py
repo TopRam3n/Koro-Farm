@@ -7,15 +7,17 @@ from sqlalchemy.orm import Session
 
 from src.backend.app.assurance.domain.models import DomainEvent, RecoveryRun
 from src.backend.app.compliance.domain.models import ComplianceRule
-from src.backend.app.demand.domain.models import Requirement, SupplyHealth
+from src.backend.app.demand.domain.models import Buyer, Requirement, SupplyHealth
 from src.backend.app.economics.domain.models import CostSnapshot
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
 from src.backend.app.main_dependencies import get_session
+from src.backend.app.identity.application.authorization import AuthorizationContext, get_authorization_context
 from src.backend.app.reconciliation.domain.models import Shipment
 from src.backend.app.supply.domain.models import Farmer, ProductionLot
 from src.backend.app.supply.domain.planning_models import (
     AllocationRole,
     AllocationStatus,
+    ConsentStatus,
     SupplyAllocation,
     SupplyPlan,
 )
@@ -34,8 +36,9 @@ def list_farmers(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
-    statement = select(Farmer).order_by(Farmer.name, Farmer.id)
+    statement = select(Farmer).where(Farmer.organization_id == context.organization_id).order_by(Farmer.name, Farmer.id)
     if parish:
         statement = statement.where(Farmer.parish == parish)
     if active is not None:
@@ -54,7 +57,7 @@ def list_farmers(
             .where(
                 ProductionLot.farmer_id == farmer.id,
                 SupplyAllocation.role == AllocationRole.COMMITTED,
-                SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+                SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
             )
         ) or Decimal("0")
         items.append(
@@ -79,11 +82,15 @@ def list_allocations(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
     statement = (
         select(SupplyAllocation, ProductionLot, Farmer)
         .join(ProductionLot, ProductionLot.id == SupplyAllocation.production_lot_id)
         .join(Farmer, Farmer.id == ProductionLot.farmer_id)
+        .join(Requirement, Requirement.id == SupplyAllocation.requirement_id)
+        .join(Buyer, Buyer.id == Requirement.buyer_id)
+        .where(Buyer.organization_id == context.organization_id)
         .order_by(SupplyAllocation.created_at.desc(), SupplyAllocation.id)
     )
     if requirement_id:
@@ -146,8 +153,11 @@ def list_recovery_cases(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
-    statement = select(RecoveryRun).order_by(RecoveryRun.created_at.desc(), RecoveryRun.id)
+    statement = (select(RecoveryRun).join(Requirement, Requirement.id == RecoveryRun.requirement_id)
+                 .join(Buyer, Buyer.id == Requirement.buyer_id).where(Buyer.organization_id == context.organization_id)
+                 .order_by(RecoveryRun.created_at.desc(), RecoveryRun.id))
     if requirement_id:
         statement = statement.where(RecoveryRun.requirement_id == requirement_id)
     rows = session.scalars(statement.offset(offset).limit(limit)).all()
@@ -183,11 +193,15 @@ def list_received_sublots(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
     statement = (
         select(ReceivedSublot, SupplyAllocation, FulfilmentNode)
         .join(SupplyAllocation, SupplyAllocation.id == ReceivedSublot.allocation_id)
         .join(FulfilmentNode, FulfilmentNode.id == ReceivedSublot.fulfilment_node_id)
+        .join(Requirement, Requirement.id == SupplyAllocation.requirement_id)
+        .join(Buyer, Buyer.id == Requirement.buyer_id)
+        .where(Buyer.organization_id == context.organization_id)
         .order_by(ReceivedSublot.received_at.desc(), ReceivedSublot.id)
     )
     if inspection_status:
@@ -220,8 +234,11 @@ def list_shipments(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
-    statement = select(Shipment).order_by(Shipment.created_at.desc(), Shipment.id)
+    statement = (select(Shipment).join(Requirement, Requirement.id == Shipment.requirement_id)
+                 .join(Buyer, Buyer.id == Requirement.buyer_id).where(Buyer.organization_id == context.organization_id)
+                 .order_by(Shipment.created_at.desc(), Shipment.id))
     if requirement_id:
         statement = statement.where(Shipment.requirement_id == requirement_id)
     rows = session.scalars(statement.offset(offset).limit(limit)).all()
@@ -248,8 +265,10 @@ def list_activity(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
     session: Session = Depends(get_session),
+    context: AuthorizationContext = Depends(get_authorization_context),
 ) -> dict:
-    statement = select(DomainEvent).order_by(DomainEvent.occurred_at.desc(), DomainEvent.id)
+    # Events without a resolved organization (legacy rows) are never shown: fail closed.
+    statement = select(DomainEvent).where(DomainEvent.organization_id == context.organization_id).order_by(DomainEvent.occurred_at.desc(), DomainEvent.id)
     if event_type:
         statement = statement.where(DomainEvent.event_type == event_type)
     rows = session.scalars(statement.offset(offset).limit(limit)).all()
@@ -273,9 +292,10 @@ def list_activity(
 
 
 @router.get("/compliance-rules")
-def list_compliance_rules(session: Session = Depends(get_session)) -> dict:
+def list_compliance_rules(session: Session = Depends(get_session),
+                          context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     rows = session.scalars(
-        select(ComplianceRule).order_by(ComplianceRule.destination, ComplianceRule.crop, ComplianceRule.rule_name)
+        select(ComplianceRule).where(ComplianceRule.organization_id == context.organization_id).order_by(ComplianceRule.destination, ComplianceRule.crop, ComplianceRule.rule_name)
     ).all()
     return {
         "items": [
@@ -303,15 +323,19 @@ def list_compliance_rules(session: Session = Depends(get_session)) -> dict:
 
 
 @router.get("/command-center/summary")
-def command_center_summary(session: Session = Depends(get_session)) -> dict:
+def command_center_summary(session: Session = Depends(get_session),
+                           context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    org = context.organization_id
+    owned_requirements = select(Requirement.id).join(Buyer, Buyer.id == Requirement.buyer_id).where(Buyer.organization_id == org)
     health_counts = {health.value: 0 for health in SupplyHealth}
-    for health, count in session.execute(select(Requirement.supply_health, func.count()).group_by(Requirement.supply_health)):
+    for health, count in session.execute(select(Requirement.supply_health, func.count()).where(Requirement.id.in_(owned_requirements)).group_by(Requirement.supply_health)):
         health_counts[health.value] = count
 
     committed_kg = session.scalar(
         select(func.coalesce(func.sum(SupplyAllocation.quantity_kg), 0)).where(
+            SupplyAllocation.requirement_id.in_(owned_requirements),
             SupplyAllocation.role == AllocationRole.COMMITTED,
-            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
         )
     ) or Decimal("0")
     received_kg, accepted_kg, rejected_kg = session.execute(
@@ -319,19 +343,21 @@ def command_center_summary(session: Session = Depends(get_session)) -> dict:
             func.coalesce(func.sum(ReceivedSublot.received_quantity_kg), 0),
             func.coalesce(func.sum(ReceivedSublot.accepted_quantity_kg), 0),
             func.coalesce(func.sum(ReceivedSublot.rejected_quantity_kg), 0),
-        )
+        ).join(SupplyAllocation, SupplyAllocation.id == ReceivedSublot.allocation_id)
+        .where(SupplyAllocation.requirement_id.in_(owned_requirements))
     ).one()
     concentration = session.execute(
         select(ProductionLot.parish, func.sum(SupplyAllocation.quantity_kg).label("quantity"))
         .join(ProductionLot, ProductionLot.id == SupplyAllocation.production_lot_id)
         .where(
+            SupplyAllocation.requirement_id.in_(owned_requirements),
             SupplyAllocation.role == AllocationRole.COMMITTED,
-            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]),
+            SupplyAllocation.status.in_([AllocationStatus.COMMITTED, AllocationStatus.ACTIVATED]), SupplyAllocation.consent_status == ConsentStatus.RECORDED,
         )
         .group_by(ProductionLot.parish)
         .order_by(func.sum(SupplyAllocation.quantity_kg).desc())
     ).all()
-    recent_events = session.scalars(select(DomainEvent).order_by(DomainEvent.occurred_at.desc()).limit(10)).all()
+    recent_events = session.scalars(select(DomainEvent).where(DomainEvent.organization_id == org).order_by(DomainEvent.occurred_at.desc()).limit(10)).all()
     return {
         "requirements": {
             "total": sum(health_counts.values()),
