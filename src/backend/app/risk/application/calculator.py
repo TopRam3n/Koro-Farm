@@ -10,6 +10,7 @@ from src.backend.app.domain.common import AvailabilityConfidence
 from src.backend.app.risk.domain.models import RiskLabel, RiskSnapshot
 from src.backend.app.supply.domain.models import Farmer, ProductionLot, ProductionLotStatus
 from src.backend.app.supply.domain.planning_models import ConsentStatus, AllocationRole, AllocationStatus, SupplyAllocation, SupplyPlan
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 RISK_CALCULATION_VERSION = "risk-v1"
 CONFIDENCE_VALUE = {AvailabilityConfidence.LOW: Decimal("0.33"), AvailabilityConfidence.MEDIUM: Decimal("0.67"), AvailabilityConfidence.HIGH: Decimal("1.00")}
@@ -54,10 +55,10 @@ def create_risk_snapshot(session: Session, requirement: Requirement, plan: Suppl
         ProductionLot.crop == requirement.crop, ProductionLot.quality_grade_estimate == requirement.grade,
         ProductionLot.status == ProductionLotStatus.AVAILABLE, Farmer.active.is_(True),
         ProductionLot.harvest_start <= requirement.delivery_window_end, ProductionLot.harvest_end >= requirement.delivery_window_start,
-        ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+        has_free_stock_sql(),
         ProductionLot.availability_confidence.in_([AvailabilityConfidence.MEDIUM, AvailabilityConfidence.HIGH]),
     )).all()
-    replacement_depth = sum((lot.available_quantity_kg - lot.reserved_quantity_kg for lot, _ in recovery_lots), Decimal("0"))
+    replacement_depth = sum((free_kg(lot) for lot, _ in recovery_lots), Decimal("0"))
     rules: list[dict] = []
     if committed_qty < required: rules.append(_rule("committed_coverage_pct", committed_qty * 100 / required, Decimal("100"), "Committed coverage is below the required quantity"))
     if largest_farmer > policy.high_largest_farmer_share_pct: rules.append(_rule("largest_farmer_share_pct", largest_farmer, policy.high_largest_farmer_share_pct, "A single farmer provides more than the high-risk concentration threshold"))

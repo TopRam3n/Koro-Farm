@@ -5,7 +5,7 @@ The only path from a proposed or solicited allocation to committed coverage (or 
 lock on the lot, re-checks free capacity before reserving it. Nothing here infers agreement.
 """
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -28,6 +28,7 @@ from src.backend.app.supply.domain.planning_models import (
     SupplierConsent,
     SupplyAllocation,
 )
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 OPEN_STATES = {AllocationStatus.PROPOSED, AllocationStatus.SOLICITED}
 
@@ -50,6 +51,11 @@ class SupplierResponse:
     valid_until: date | None = None
     note: str | None = None
     channel: ConsentChannel | None = None  # forced for farmers; SYNTHETIC_FIXTURE only from the demo seed
+
+
+def _aware(value: datetime) -> datetime:
+    """SQLite returns naive datetimes; PostgreSQL returns aware ones. Compare in UTC either way."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def _replay(session: Session, command: str, key: str | None) -> dict | None:
@@ -86,23 +92,75 @@ def _state(allocation: SupplyAllocation) -> dict:
             "quantity_kg": str(allocation.quantity_kg), "consent_status": allocation.consent_status.value}
 
 
-def solicit(session: Session, actor: AuthorizationContext, allocation_id: UUID, message: str | None, key: str | None) -> dict:
-    """Record that a proposal was put to the supplier. It does not reserve stock or count as coverage."""
+# Supplier response deadlines (founder policy, 30 Oct 2026): 24 calendar hours by default, 4 hours when the
+# order's delivery window starts within 48 hours. Coordinators may set their own. Silence is never an answer.
+DEFAULT_RESPONSE_HOURS = 24
+URGENT_RESPONSE_HOURS = 4
+URGENT_WINDOW_HOURS = 48
+MAX_RESPONSE_HOURS = 336
+
+
+def default_response_hours(requirement: Requirement, now: datetime) -> int:
+    window_start = datetime.combine(requirement.delivery_window_start, datetime.min.time(), tzinfo=timezone.utc)
+    return URGENT_RESPONSE_HOURS if window_start - now <= timedelta(hours=URGENT_WINDOW_HOURS) else DEFAULT_RESPONSE_HOURS
+
+
+def solicit(session: Session, actor: AuthorizationContext, allocation_id: UUID, message: str | None, key: str | None,
+            respond_within_hours: int | None = None, now: datetime | None = None) -> dict:
+    """Record that a proposal was put to the supplier, with a response deadline.
+
+    It does not reserve stock or count as coverage. An expired request may be put to the supplier again.
+    """
     if (done := _replay(session, "allocation.solicit", key)) is not None:
         return done
+    if respond_within_hours is not None and not 1 <= respond_within_hours <= MAX_RESPONSE_HOURS:
+        raise CommitmentError(f"a response deadline must be between 1 and {MAX_RESPONSE_HOURS} hours")
+    now = now or datetime.now(timezone.utc)
     with session.begin_nested() if session.in_transaction() else session.begin():
         allocation, requirement, lot = _lock(session, allocation_id)
-        if allocation.status != AllocationStatus.PROPOSED:
-            raise CommitmentError(f"only a proposed allocation can be solicited (it is {allocation.status.value})")
+        if allocation.status not in (AllocationStatus.PROPOSED, AllocationStatus.EXPIRED):
+            raise CommitmentError(f"only a proposed or expired request can be put to the supplier (it is {allocation.status.value})")
         if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
             raise CommitmentError("the order has been cancelled")
+        hours = respond_within_hours or default_response_hours(requirement, now)
+        asked_again = allocation.status == AllocationStatus.EXPIRED
         allocation.status = AllocationStatus.SOLICITED
-        allocation.solicited_at = datetime.now(timezone.utc)
+        allocation.solicited_at = now
+        allocation.response_due_at = now + timedelta(hours=hours)
+        allocation.reminder_sent_at = None
         record_event(session, actor, "solicitation.sent", "requirement", requirement.id, {
             "allocation_id": str(allocation.id), "farmer_id": str(lot.farmer_id), "production_lot_id": str(lot.id),
             "role": allocation.role.value, "quantity_kg": str(allocation.quantity_kg), "message": message,
+            "response_due_at": allocation.response_due_at.isoformat(), "response_hours": hours,
+            "deadline_basis": "coordinator" if respond_within_hours else ("urgent default" if hours == URGENT_RESPONSE_HOURS else "default"),
+            "asked_again": asked_again,
         }, idempotency_key=key)
-        return _remember(session, "allocation.solicit", key, _state(allocation))
+        return _remember(session, "allocation.solicit", key, {**_state(allocation), "response_due_at": allocation.response_due_at.isoformat()})
+
+
+def set_response_deadline(session: Session, actor: AuthorizationContext, allocation_id: UUID, respond_by: datetime,
+                          reason: str, now: datetime | None = None) -> dict:
+    """A coordinator changes an open request's deadline. The change is recorded with its reason."""
+    if PermissionCode.SUPPLY_MANAGE not in actor.permissions:
+        raise CommitmentForbidden("changing a response deadline requires supply management permission")
+    now = now or datetime.now(timezone.utc)
+    if respond_by.tzinfo is None:
+        respond_by = respond_by.replace(tzinfo=timezone.utc)
+    if respond_by <= now:
+        raise CommitmentError("the new deadline must be in the future")
+    if respond_by - now > timedelta(hours=MAX_RESPONSE_HOURS):
+        raise CommitmentError(f"a response deadline cannot be more than {MAX_RESPONSE_HOURS} hours away")
+    with session.begin_nested() if session.in_transaction() else session.begin():
+        allocation, requirement, _ = _lock(session, allocation_id)
+        if allocation.status != AllocationStatus.SOLICITED:
+            raise CommitmentError("only an open request has a deadline to change")
+        previous = allocation.response_due_at
+        allocation.response_due_at = respond_by
+        allocation.reminder_sent_at = None
+        record_event(session, actor, "solicitation.deadline_changed", "requirement", requirement.id, {
+            "allocation_id": str(allocation.id), "previous_due_at": previous.isoformat() if previous else None,
+            "response_due_at": respond_by.isoformat(), "reason": reason})
+        return {**_state(allocation), "response_due_at": respond_by.isoformat()}
 
 
 def withdraw(session: Session, actor: AuthorizationContext, allocation_id: UUID, reason: str, key: str | None) -> dict:
@@ -154,6 +212,8 @@ def respond(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
         channel = _channel(actor, lot, response.channel)
         if allocation.status != AllocationStatus.SOLICITED:
             raise CommitmentError(f"allocation is not awaiting a supplier response (it is {allocation.status.value})")
+        if allocation.response_due_at is not None and _aware(allocation.response_due_at) < datetime.now(timezone.utc):
+            raise CommitmentError("the response deadline has passed; put the request to the supplier again")
         if requirement.lifecycle_status == RequirementLifecycleStatus.CANCELLED:
             raise CommitmentError("the order has been cancelled")
         is_standby = allocation.role == AllocationRole.STANDBY
@@ -193,7 +253,7 @@ def respond(session: Session, actor: AuthorizationContext, allocation_id: UUID, 
         if allocation.holds_reservation:
             lot.reserved_quantity_kg -= allocation.quantity_kg - quantity
         else:
-            free = lot.available_quantity_kg - lot.reserved_quantity_kg
+            free = free_kg(lot)
             if lot.status != ProductionLotStatus.AVAILABLE or free < quantity:
                 raise CommitmentError(f"the lot no longer has {quantity} kg free (free now: {max(free, Decimal('0'))} kg); re-plan this allocation")
             lot.reserved_quantity_kg += quantity

@@ -72,6 +72,12 @@ def worlds(factory, http):
     with factory() as session:
         run = session.scalar(select(RecoveryRun).where(RecoveryRun.requirement_id == a["requirement"]))
         a["recovery"] = run.id if run else None
+        # An exception owned by organization A, for the route sweep.
+        from src.backend.app.assurance.domain.exceptions import ExceptionKind, SupplyException
+        exception = SupplyException(organization_id=a["org"], requirement_id=a["requirement"], kind=ExceptionKind.CAPACITY_SHORTFALL,
+                                    dedupe_key=f"capacity:{a['requirement']}", shortfall_kg=Decimal("10"), summary="test", details={})
+        session.add(exception); session.commit()
+        a["exception"] = exception.id
     return a, b
 
 
@@ -217,7 +223,7 @@ def test_every_identifier_route_refuses_another_organizations_records(http, worl
     a, b = worlds
     ids = {"requirement_id": a["requirement"], "allocation_id": a["allocation"], "sublot_id": a["sublot"],
            "shipment_id": a["shipment"], "lot_id": a["lot"], "farmer_id": a["farmer"], "programme_id": a["programme"],
-           "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"]}
+           "recovery_id": a["recovery"], "corridor_id": a["corridor"], "buyer_id": a["buyer"], "exception_id": a["exception"]}
     checked, problems = 0, []
     for path, operations in app.openapi()["paths"].items():
         params = [part[1:-1] for part in path.split("/") if part.startswith("{") and part.endswith("}")]

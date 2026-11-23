@@ -41,3 +41,21 @@ def replay_or_none(session: Session, command_type: str, idempotency_key: str | N
 def remember(session: Session, command_type: str, idempotency_key: str | None, result: dict) -> None:
     if idempotency_key:
         session.add(CommandDeduplication(command_type=command_type, idempotency_key=idempotency_key, result=result))
+
+
+SYSTEM_ACTOR = "supply-exception-worker"
+
+
+def record_system_event(session: Session, organization_id: UUID, event_type: str, aggregate_type: str,
+                        aggregate_id: UUID, payload: dict, *, correlation_id: UUID | None = None,
+                        causation_id: UUID | None = None) -> DomainEvent:
+    """An event written by the deterministic background worker rather than a person."""
+    event = DomainEvent(
+        event_type=event_type, aggregate_type=aggregate_type, aggregate_id=aggregate_id,
+        correlation_id=correlation_id or uuid4(), causation_id=causation_id, actor_type="system",
+        actor_id=SYSTEM_ACTOR, organization_id=organization_id, payload=payload, occurred_at=datetime.now(timezone.utc),
+    )
+    session.add(event)
+    session.flush()
+    session.add(OutboxMessage(event_id=event.id, topic=event_type, payload=payload))
+    return event

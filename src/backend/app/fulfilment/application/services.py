@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from src.backend.app.assurance.domain.models import CommandDeduplication, DomainEvent, OutboxMessage
 from src.backend.app.domain.common import Grade
 from src.backend.app.fulfilment.domain.models import FulfilmentNode, InspectionStatus, ReceivedSublot
+from src.backend.app.supply.domain.models import ProductionLot
 from src.backend.app.supply.domain.planning_models import SupplyAllocation
 from src.backend.app.assurance.application.recovery import recover_quality_shortfall
 
@@ -26,6 +27,8 @@ def receive(session: Session, allocation_id: UUID, node_id: UUID, quantity: Deci
         existing = session.scalar(select(CommandDeduplication).where(CommandDeduplication.command_type == "sublot.receive", CommandDeduplication.idempotency_key == key))
         if existing: return existing.result
         if allocation is None: raise ValueError("allocation not found")
+        # Serialize with capacity reports on the same lot, which read the delivered quantity under this lock.
+        session.scalar(select(ProductionLot).where(ProductionLot.id == allocation.production_lot_id).with_for_update())
         if session.get(FulfilmentNode, node_id) is None: raise ValueError("fulfilment node not found")
         if quantity <= 0: raise ValueError("received quantity must be positive")
         received = session.scalar(select(func.coalesce(func.sum(ReceivedSublot.received_quantity_kg), 0)).where(ReceivedSublot.allocation_id == allocation_id)) or Decimal("0")

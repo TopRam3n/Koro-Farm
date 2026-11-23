@@ -79,6 +79,10 @@ class ProductionLot(Base):
     evidence_reference: Mapped[str | None] = mapped_column(String(500), nullable=True)
     recorded_by_user_id: Mapped[UUID | None] = mapped_column(nullable=True)
     declared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Latest supplier-reported capacity (supply/application/capacity.py). Kept apart from reserved stock so a
+    # reduction never silently cancels commitments; NULL means no capacity report has been received.
+    reported_capacity_kg: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    capacity_reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

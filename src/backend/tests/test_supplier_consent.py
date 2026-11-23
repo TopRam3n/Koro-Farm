@@ -161,6 +161,7 @@ def test_farmers_answer_only_their_own_requests_and_cannot_solicit(http, org) ->
     _solicit(http, org, mine["id"]); _solicit(http, org, theirs["id"])
     inbox = http.get("/allocations/solicitations/mine", headers=_h(org, "farmer_user")).json()
     assert [row["allocation_id"] for row in inbox] == [mine["id"]]
+    assert inbox[0]["response_due_at"] is not None and inbox[0]["reminder_sent_at"] is None  # the farmer sees the deadline
     assert http.post(f"/allocations/{theirs['id']}/responses", headers=_h(org, "farmer_user", "f-other"),
                      json={"decision": "ACCEPTED", "attestation_method": "farmer portal"}).status_code == 403
     own = http.post(f"/allocations/{mine['id']}/responses", headers=_h(org, "farmer_user", "f-own"),

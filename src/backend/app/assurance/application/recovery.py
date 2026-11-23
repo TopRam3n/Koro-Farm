@@ -19,6 +19,7 @@ from src.backend.app.supply.domain.models import ProductionLot, ProductionLotSta
 from src.backend.app.fulfilment.domain.models import ReceivedSublot
 from src.backend.app.risk.application.calculator import create_risk_snapshot
 from src.backend.app.identity.application.tenancy import farmers_in_requirement_organization
+from src.backend.app.supply.application.capacity import free_kg, free_kg_sql, has_free_stock_sql
 
 
 def authorized_standby() -> list:
@@ -167,11 +168,11 @@ def dropout(session: Session, allocation_id: UUID, reason: str, key: str, auto_r
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,
                 ProductionLot.harvest_start <= requirement.delivery_window_end,
                 ProductionLot.harvest_end >= requirement.delivery_window_start,
-                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+                has_free_stock_sql(),
             ).order_by(ProductionLot.id).with_for_update()):
                 if solicitation_needed <= 0:
                     break
-                quantity = min(solicitation_needed, lot.available_quantity_kg - lot.reserved_quantity_kg)
+                quantity = min(solicitation_needed, free_kg(lot))
                 lot.reserved_quantity_kg += quantity
                 session.add(SupplyAllocation(requirement_id=requirement.id, supply_plan_id=allocation.supply_plan_id,
                     production_lot_id=lot.id, role=AllocationRole.COMMITTED, status=AllocationStatus.SOLICITED,
@@ -266,11 +267,11 @@ def continue_recovery(session: Session, requirement_id: UUID, key: str) -> dict:
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,
                 ProductionLot.harvest_start <= requirement.delivery_window_end,
                 ProductionLot.harvest_end >= requirement.delivery_window_start,
-                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+                has_free_stock_sql(),
             ).order_by(ProductionLot.id).with_for_update()):
                 if remaining_to_solicit <= 0:
                     break
-                quantity = min(remaining_to_solicit, lot.available_quantity_kg - lot.reserved_quantity_kg)
+                quantity = min(remaining_to_solicit, free_kg(lot))
                 lot.reserved_quantity_kg += quantity
                 session.add(SupplyAllocation(
                     requirement_id=requirement.id, supply_plan_id=source_plan.id,
@@ -304,7 +305,7 @@ def continue_recovery(session: Session, requirement_id: UUID, key: str) -> dict:
 def _free_eligible_kg(session: Session, requirement: Requirement) -> Decimal:
     """Unreserved, eligible stock in the requirement's own organization."""
     return session.scalar(select(func.coalesce(func.sum(
-        ProductionLot.available_quantity_kg - ProductionLot.reserved_quantity_kg
+        free_kg_sql()
     ), 0)).where(
         ProductionLot.farmer_id.in_(farmers_in_requirement_organization(requirement.buyer_id)),
         ProductionLot.crop == requirement.crop,
@@ -312,7 +313,7 @@ def _free_eligible_kg(session: Session, requirement: Requirement) -> Decimal:
         ProductionLot.status == ProductionLotStatus.AVAILABLE,
         ProductionLot.harvest_start <= requirement.delivery_window_end,
         ProductionLot.harvest_end >= requirement.delivery_window_start,
-        ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+        has_free_stock_sql(),
     )) or Decimal("0")
 
 
@@ -471,11 +472,11 @@ def recover_quality_shortfall(session: Session, requirement_id: UUID, shortfall:
                 ProductionLot.status == ProductionLotStatus.AVAILABLE,
                 ProductionLot.harvest_start <= requirement.delivery_window_end,
                 ProductionLot.harvest_end >= requirement.delivery_window_start,
-                ProductionLot.available_quantity_kg > ProductionLot.reserved_quantity_kg,
+                has_free_stock_sql(),
             ).order_by(ProductionLot.id).with_for_update()):
                 if remaining <= 0:
                     break
-                quantity = min(remaining, lot.available_quantity_kg - lot.reserved_quantity_kg)
+                quantity = min(remaining, free_kg(lot))
                 lot.reserved_quantity_kg += quantity
                 session.add(SupplyAllocation(requirement_id=requirement.id, supply_plan_id=source_plan.id,
                     production_lot_id=lot.id, role=AllocationRole.COMMITTED, status=AllocationStatus.SOLICITED,

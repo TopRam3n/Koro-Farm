@@ -55,15 +55,18 @@ jobs:
           psql "postgresql://korofarm:korofarm@localhost:5432/korofarm_ci_test" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
           python -m alembic -c src/backend/alembic.ini upgrade head
           python -m src.backend.scripts.seed_e2e "$R1_E2E_USERS"
-      - name: Start test-only auth stand-in, API and wait for health
+      - name: Start test-only auth stand-in, API, exception worker and wait for health
         run: |
           KOROFARM_E2E_AUTH_STANDIN=1 node src/frontend/e2e/r1/support/auth-stub.mjs "$R1_E2E_USERS" 54999 > authstub.log 2>&1 &
           python -m uvicorn src.backend.app.main:app --host 127.0.0.1 --port 8100 > backend.log 2>&1 &
+          # The capacity-exception spec relies on the worker turning outbox events into supply exceptions.
+          WORKER_POLL_SECONDS=1 python -m src.backend.app.worker > worker.log 2>&1 &
+          WORKER_PID=$!
           for attempt in {1..30}; do
-            curl --fail --silent http://127.0.0.1:8100/health && curl --fail --silent http://127.0.0.1:54999/health && exit 0
+            curl --fail --silent http://127.0.0.1:8100/health && curl --fail --silent http://127.0.0.1:54999/health && kill -0 "$WORKER_PID" && exit 0
             sleep 1
           done
-          cat backend.log authstub.log
+          cat backend.log authstub.log worker.log
           exit 1
       - name: Build and start the E2E frontend
         working-directory: src/frontend
@@ -92,4 +95,5 @@ jobs:
             src/frontend/artifacts
             backend.log
             authstub.log
+            worker.log
             src/frontend/frontend.log

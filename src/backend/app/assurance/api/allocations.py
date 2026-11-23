@@ -18,6 +18,7 @@ from src.backend.app.supply.application.commitments import (
     CommitmentForbidden,
     SupplierResponse,
     respond,
+    set_response_deadline,
     solicit,
     withdraw,
 )
@@ -36,6 +37,13 @@ class DropoutCommand(BaseModel):
 
 class SolicitCommand(BaseModel):
     message: str | None = Field(default=None, max_length=1000)
+    respond_within_hours: int | None = Field(default=None, ge=1, le=336,
+                                             description="Default: 24 hours, or 4 hours when delivery starts within 48 hours")
+
+
+class DeadlineCommand(BaseModel):
+    respond_by: datetime
+    reason: str = Field(min_length=3, max_length=500)
 
 
 class WithdrawCommand(BaseModel):
@@ -87,7 +95,15 @@ def post_solicit(allocation_id: UUID, payload: SolicitCommand, idempotency_key: 
                  session: Session = Depends(get_session),
                  context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
     key = _require_key(idempotency_key)
-    result = _run(lambda: solicit(session, context, allocation_id, payload.message, key))
+    result = _run(lambda: solicit(session, context, allocation_id, payload.message, key, payload.respond_within_hours))
+    session.commit()
+    return result
+
+
+@router.patch("/{allocation_id}/deadline", dependencies=[Depends(require_permission(PermissionCode.SUPPLY_MANAGE))])
+def patch_deadline(allocation_id: UUID, payload: DeadlineCommand, session: Session = Depends(get_session),
+                   context: AuthorizationContext = Depends(get_authorization_context)) -> dict:
+    result = _run(lambda: set_response_deadline(session, context, allocation_id, payload.respond_by, payload.reason))
     session.commit()
     return result
 
@@ -174,4 +190,5 @@ def my_solicitations(session: Session = Depends(get_session),
         .order_by(SupplyAllocation.solicited_at)).all()
     return [{"allocation_id": str(a.id), "role": a.role.value, "quantity_kg": str(a.quantity_kg), "crop": str(r.crop),
              "grade": r.grade.value, "delivery_window_start": r.delivery_window_start, "delivery_window_end": r.delivery_window_end,
-             "buyer_name": b.name, "production_lot_id": str(lot.id), "solicited_at": a.solicited_at} for a, lot, r, b in rows]
+             "buyer_name": b.name, "production_lot_id": str(lot.id), "solicited_at": a.solicited_at,
+             "response_due_at": a.response_due_at, "reminder_sent_at": a.reminder_sent_at} for a, lot, r, b in rows]
